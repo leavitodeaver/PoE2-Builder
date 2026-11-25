@@ -2193,23 +2193,33 @@ def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Infernal Legion I / II (models.infernal_legion_model, MECHB30): each supported minion
     skill's minion Life (PoB's useRates minionLife, as minion_lives reads it), the boss's Fire resistance (the config's
     enemyFireResist) and the build's own Ignite (PoB's IgniteDPS)."""
-    indices, actives, names, off = [], [], [], None
+    indices, actives, names, radii, off = [], [], [], [], None
     for group in build.groups():
         if not group["enabled"]:
             continue
-        legion = any(g["name"] in models.INFERNAL_LEGION and g.get("enabled", True) for g in group["gems"])
+        # (MECHB65) the group's burning radius: its Infernal Legion / Catha's gem's (the largest, models.LEGION_RADIUS)
+        legion = max((models.LEGION_RADIUS.get(g["name"], 0) for g in group["gems"]
+                      if g["name"] in models.INFERNAL_LEGION and g.get("enabled", True)), default=0)
         for n, skill in enumerate(group["skills"], 1):  # (MECHB40: and the Infernal Hound, wherever it is)
             if not (legion or skill["name"] == models.INFERNAL_HOUND):
                 continue
             off = pob_disabled(build) if off is None else off
             if (group["index"], skill["name"]) not in off:
                 indices.append(group["index"]); actives.append(n); names.append(skill["name"])
+                radii.append(models.LEGION_RADIUS[models.INFERNAL_HOUND] if skill["name"] == models.INFERNAL_HOUND
+                             else legion)
     if not indices:
         return 0.0, []
     rates = {(r["index"], r.get("active")): r for r in build.call("useRates", indices=indices, actives=actives)["rates"]}
+    def place(row: dict, radius: float) -> dict | None:  # (MECHB65) where its minion stands, from PoB (useRates)
+        if not number(row.get("minionRange")):
+            return None
+        return {"melee": row.get("minionMelee"), "range": number(row["minionRange"]), "radius": radius,
+                "minion": row.get("minionName")}
     minions = [(name, number((rates.get((i, a)) or {}).get("minionLife")),
-                models.HOUND_LIFE_SHARE if name == models.INFERNAL_HOUND else models.LEGION_LIFE_SHARE)
-               for i, a, name in zip(indices, actives, names)]
+                models.HOUND_LIFE_SHARE if name == models.INFERNAL_HOUND else models.LEGION_LIFE_SHARE,
+                place(rates.get((i, a)) or {}, radius))
+               for i, a, name, radius in zip(indices, actives, names, radii)]
     resist = number(build.call("getConfig")["input"].get("enemyFireResist"))
     added, note = models.infernal_legion_model(minions, resist, number(stats.get("IgniteDPS")))
     return added, [note]

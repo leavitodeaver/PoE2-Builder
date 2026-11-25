@@ -13107,8 +13107,8 @@ def inevitable_agony_model(hit_dps: float, player_dps: float, duration: float = 
 # support_minion_instability_* stat, so nothing rates the boss's Ignite (0 before, an UNDERCOUNT). KeywordPopups Ignite:
 # "The base Magnitude of Ignite is Fire damage per second equal to 20% of the Fire damage dealt by the Hit". Counted:
 # 20% x 10% x the minion's Life per second, through the boss's Fire resistance, while a supported minion is within 1.5
-# m: melee minions stand at the boss (MEDIUM); ranged ones (by name: mages, snipers, arsonists, clerics) are taken to
-# keep away. Only the strongest Ignite counts on one target, so this adds only what it beats the build's own Ignite by
+# m: melee minions stand at the boss (MEDIUM); ranged ones are taken to keep away (MECHB65: by each minion's own attack
+# range and PoB's melee flag against its support's radius, below; by name only when PoB gives neither). Only the strongest Ignite counts on one target, so this adds only what it beats the build's own Ignite by
 # (PoB's IgniteDPS). Not counted (labelled): the minion's own damage and Ignite modifiers on that base (an
 # undercount), the boss Ignited for MECH-A's "Ignited" lines (routed), the minions' deaths from the burn feeding
 # minion_deaths.
@@ -13122,7 +13122,35 @@ def inevitable_agony_model(hit_dps: float, player_dps: float, duration: float = 
 INFERNAL_LEGION = ("Infernal Legion I", "Infernal Legion II", "Catha's Brilliance")
 LEGION_LIFE_SHARE = 0.10  # support_minions_ignite_for_%_max_life 10
 IGNITE_BASE = 0.20  # KeywordPopups Ignite: 20% of the hit's Fire damage per second
-RANGED_MINIONS = ("Mage", "Sniper", "Arsonist", "Cleric", "Archer")
+RANGED_MINIONS = ("Mage", "Sniper", "Arsonist", "Cleric", "Archer")  # (the fallback when PoB gives no place, below)
+# (MECHB65, COV58 row 1: a possible OVERCOUNT) WHERE A MINION STANDS, from its own data, not its name. Each support's
+# burning radius, infernal_legion_minion_burning_effect_radius (game files 26476662 and 26650308 GrantedEffectStatSets:
+# Infernal Legion I 15, Infernal Legion II 20, Catha's Brilliance 20; PoB's sup_str / other.lua the same), the
+# Infernal Hound's infernal_familiar_minion_burn_radius 25 (10 a metre; area modifiers on it not counted, MEDIUM).
+# The minion's distance from the boss: its monster's attackRange (PoB Data/Minions.lua / Spectres.lua: 6-27 for melee
+# monsters, 80 for the Skeletal Sniper and the Skeletal mages / Arsonist / Cleric), the distance it closes to before
+# it uses its skill (MEDIUM: a melee minion may stand closer; measured edge to edge like the radius). Its counted skill
+# not melee (PoB's skillFlags.melee resolved by the minion's weapon: the Sniper's Bow drops it) and an attackRange
+# inside the radius (the djinns', Corpse Beetles', Raven's 1-6: a default value, not their skill's reach) is
+# UNVERIFIED: counted near (MEDIUM-LOW, as before), said in the note. No PoB place (a test's tuple, an old answer): the
+# name list above.
+LEGION_RADIUS = {"Infernal Legion I": 15, "Infernal Legion II": 20, "Catha's Brilliance": 20, "Summon Infernal Hound": 25}
+
+
+def minion_near(place: dict | None, radius: float, name: str) -> tuple[bool, str]:
+    """(whether a minion stands within `radius` (10 a metre) of the boss, how). `place`: {"melee": bool | None,
+    "range": attackRange | None} from PoB (bridge.lua useRates minionMelee / minionRange, activeSkills' summon)."""
+    rng = number((place or {}).get("range")) if place else 0.0
+    if not place or rng <= 0:
+        ranged = any(x in name for x in RANGED_MINIONS)
+        return (not ranged, f"{name}: no PoB range; {'a ranged name, kept past' if ranged else 'a melee name, taken within'}"
+                            f" the {radius / 10:g} m (MEDIUM-LOW)")
+    melee = place.get("melee")
+    kind = "melee" if melee else "ranged" if melee is False else "of unknown kind"
+    if rng <= radius:
+        unsure = "" if melee else "; not melee: its attack range may not be its skill's reach (UNVERIFIED)"
+        return True, f"{name}: {kind}, attack range {rng / 10:g} m within the {radius / 10:g} m{unsure}"
+    return False, f"{name}: {kind}, attack range {rng / 10:g} m past the {radius / 10:g} m"
 # Summon Infernal Hound (MECHB40; an UNDERCOUNT: PoB scored its Ignite 0). The Infernalist's Reviving hound
 # (SummonInfernalHoundPlayer, fromTree): "Minions Ignite Enemies within a radius of 2.5 metres as though dealt Base Fire
 # Damage equal to 20% of Minion's Maximum Life" (infernal_familiar_minion_burns_for_%_max_life 20,
@@ -13136,26 +13164,37 @@ HOUND_LIFE_SHARE = 0.20  # infernal_familiar_minion_burns_for_%_max_life 20
 
 
 def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: float) -> tuple[float, dict]:
-    """(added DPS, note). `minions`: (minion skill, its minion's Life[, its share of Life as base Fire]) for each Infernal
-    Legion-supported skill (10%) and Summon Infernal Hound (20%, MECHB40); `fire_resist`: the boss's Fire resistance %;
+    """(added DPS, note). `minions`: (minion skill, its minion's Life[, its share of Life as base Fire[, its place:
+    {"melee", "range", "radius", "minion"} from PoB, MECHB65]]) for each Infernal Legion-supported skill (10%) and
+    Summon Infernal Hound (20%, MECHB40); `fire_resist`: the boss's Fire resistance %;
     `own_ignite`: the build's own Ignite DPS on the boss (PoB's IgniteDPS)."""
     rows = [(m[0], m[1], m[2] if len(m) > 2 else LEGION_LIFE_SHARE) for m in minions]
-    near = [r for r in rows if r[1] > 0 and not any(x in r[0] for x in RANGED_MINIONS)]
+    # (MECHB65) each minion's place (4th: {"melee", "range", "radius"}) from PoB, else the name list
+    def where(m: tuple) -> tuple[bool, str]:
+        place = m[3] if len(m) > 3 else None
+        radius = number((place or {}).get("radius")) or LEGION_RADIUS[INFERNAL_HOUND if m[0] == INFERNAL_HOUND
+                                                                      else "Infernal Legion I"]
+        return minion_near(place, radius, (place or {}).get("minion") or m[0])
+    places = [where(m) for m in minions]
+    near = [r for r, (ok, _) in zip(rows, places) if r[1] > 0 and ok]
+    away = [how for ok, how in places if not ok]
     hound = any(r[0] == INFERNAL_HOUND for r in rows)
     label = ("Infernal Legion / Infernal Hound (minions Ignite the boss near them)" if hound and len(rows) > 1 else
              "Infernal Hound (Ignites the boss near it)" if hound else
              "Infernal Legion (supported minions Ignite the boss near them)")
     if not near:
         return 0.0, {"label": label, "value": 0, "confidence": "MEDIUM",
-                     "basis": "no supported melee minion with a Life PoB reports is near the boss: 0"}
+                     "basis": "no supported minion with a Life PoB reports stands within its burning radius of the "
+                              "boss: 0" + (f" ({'; '.join(away)})" if away else "")}
     name, life, share = max(near, key=lambda m: m[1] * m[2])
     ignite = IGNITE_BASE * share * life * (1 - fire_resist / 100)
     added = max(0.0, ignite - own_ignite)
-    reach = "2.5 m" if name == INFERNAL_HOUND else "1.5 m"
+    reach = next(how for r, (ok, how) in zip(rows, places) if r[0] == name and ok)
     basis = (f"{name}'s minions ({life:,.0f} Life) Ignite the boss for 20% x {share:.0%} of their Life a second through "
              f"its {fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest Ignite counts, so "
-             f"+{added:,.1f} over the build's own {own_ignite:,.1f}. Melee minions taken to stand within the {reach} "
-             "(MEDIUM); the minion's own damage and Ignite modifiers not counted (an undercount)"
+             f"+{added:,.1f} over the build's own {own_ignite:,.1f}. Where it stands ({reach}): its attack range "
+             "taken as its distance (MEDIUM)" + (f"; kept away: {'; '.join(away)}" if away else "") +
+             "; the minion's own damage and Ignite modifiers not counted (an undercount)"
              + (f"; PoB reads none of it (0 before)" if hound else ""))
     return added, {"label": label, "value": round(added, 1), "basis": basis, "confidence": "MEDIUM"}
 
@@ -13165,10 +13204,11 @@ def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: 
 # continually (each burn re-applies it), so the boss is Ignited all fight while one lives: persistent minions (they
 # come back when killed) give 1.0 (MEDIUM: the time every supported minion lies dead isn't taken off, an OVERCOUNT
 # there); temporary ones give min(1, their limit x duration x the summon's uses a second) when a model gives that rate,
-# else 0 (an undercount, labelled); ranged minions (RANGED_MINIONS) keep away: 0. Which skills it supports: the
+# else 0 (an undercount, labelled); minions whose attack range is past the radius keep away: 0 (MECHB65: minion_near). Which skills it supports: the
 # support's own stat in each Skill's support_stats, which the bridge reports on every activeSkills call (bridge.lua
 # modelSupportStats).
 LEGION_STAT = "support_minions_ignite_for_%_max_life"
+LEGION_RADIUS_STAT = "infernal_legion_minion_burning_effect_radius"
 
 
 def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict,
@@ -13179,10 +13219,19 @@ def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict
                  and s.summon]  # (MECHB40: the Infernal Hound Ignites near it the same way)
     if not supported:
         return 0.0, "no minion skill supported by Infernal Legion"
-    melee = [s for s in supported if not any(r in s.name for r in RANGED_MINIONS)]
+    # (MECHB65) where each stands: its summon's range / melee from PoB (activeSkills), the radius its support gives
+    # (its infernal_legion_minion_burning_effect_radius, bridge.lua modelSupportStats; else 15; the hound 25), else
+    # the name list
+    def radius(s: Skill) -> float:
+        if s.name == INFERNAL_HOUND:
+            return LEGION_RADIUS[INFERNAL_HOUND]
+        # (the bridge sums a stat over supports: two such supports on one skill read as the larger single radius)
+        return min(number(s.support_stats.get(LEGION_RADIUS_STAT)) or LEGION_RADIUS["Infernal Legion I"],
+                   LEGION_RADIUS["Catha's Brilliance"])
+    placed = [(s, *minion_near(s.summon if (s.summon or {}).get("range") else None, radius(s), s.name)) for s in supported]
+    melee = [s for s, ok, _ in placed if ok]
     if not melee:
-        return 0.0, (f"{', '.join(s.name for s in supported)}: ranged minions, taken to keep away from the boss's 1.5 m "
-                     "(MEDIUM): 0")
+        return 0.0, (f"{'; '.join(how for _, _, how in placed)}: kept away from the boss's burning radius (MEDIUM): 0")
     persistent = [s for s in melee if s.summon.get("persistent")]
     if persistent:
         return 1.0, (f"{persistent[0].name}'s minions (Infernal Legion, or the Infernal Hound's own burn) stand at "

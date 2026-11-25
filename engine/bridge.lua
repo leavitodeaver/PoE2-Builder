@@ -5251,6 +5251,19 @@ function bridge.useRates(args)
 			if env.minion and type(env.minion.output.Life) == "number" then
 				entry.minionLife = jsonNumber(env.minion.output.Life)
 			end
+			-- (MECHB65, COV58: models.infernal_legion_model) where the minion stands: its counted skill's Melee flag as
+			-- PoB resolves it by the minion's weapon (CalcActiveSkill 537-540: a Bow drops it, so the Skeletal Sniper's
+			-- MinionMeleeBow is not melee), and its monster's attackRange (Data/Minions.lua / Spectres.lua, 10 a metre)
+			if env.minion and env.minion.minionData then
+				-- (PoB keeps a skill's flags on its statSet, CalcActiveSkill 168-177 / 430-437, not on the skill)
+				local mskill = env.minion.mainSkill
+				local effect = mskill and mskill.activeEffect
+				local mflags = mskill and (mskill.skillFlags or (effect and effect.statSet and effect.statSet.skillFlags))
+				entry.minionMelee = mflags and (mflags.melee and true or false) or nil
+				entry.minionRange = type(env.minion.minionData.attackRange) == "number"
+					and jsonNumber(env.minion.minionData.attackRange) or nil
+				entry.minionName = env.minion.minionData.name
+			end
 			-- (MECHB14: Toxic Growth's Pustule Limit, models.pustule_cap) the scored set's
 			-- number_of_poisonbloom_arrow_bloom_allowed with quality, plus "+N to Limit" lines, which PoB maps to
 			-- AdditionalCooldownUses (SkillStatMap base_limit_+; ModCache "Skills have +1 to Limit")
@@ -5934,6 +5947,8 @@ local modelSupportStats = {
 	["marks_avoid_consumption_when_first_activated"] = true,
 	-- (MECHB31) Infernal Legion I / II: which minion skills it supports (models.infernal_legion_ignited, MECH-A's Ignited box)
 	["support_minions_ignite_for_%_max_life"] = true,
+	-- (MECHB65) and its burning radius (Infernal Legion I 15, II 20, Catha's Brilliance 20)
+	["infernal_legion_minion_burning_effect_radius"] = true,
 }
 
 -- (MECHB30, M1-2) PoB's computed cooldown of a skill with a base cooldown (calcSkillCooldown, global in CalcOffence),
@@ -6337,6 +6352,16 @@ function bridge.activeSkills(args)
 					-- "Minions Revive N% faster") and the skill's own base resummon time (minion_base_resummon_time_ms)
 					reviveSpeed = list:Flag(cfg, "RevivingMinion") and calcLib.mod(list, cfg, "MinionRevivalSpeed") or nil,
 					reviveBase = list:Flag(cfg, "RevivingMinion") and list:Override(cfg, "BaseReviveTime") or nil,
+					-- (MECHB65, models.infernal_legion_ignited) where the minion stands: its monster's attackRange (10 a
+					-- metre) and its counted skill's Melee flag as PoB resolved it by the minion's weapon (nil: not built)
+					range = type(minionData.attackRange) == "number" and minionData.attackRange or nil,
+					melee = (function()
+						local m = activeSkill.minion.mainSkill
+						local e = m and m.activeEffect
+						local f = m and (m.skillFlags or (e and e.statSet and e.statSet.skillFlags))
+						if f then return f.melee and true or false end
+						return nil
+					end)(),
 				}
 			end)
 			if ok then
