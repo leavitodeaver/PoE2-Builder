@@ -12546,7 +12546,7 @@ class Assumptions:
                 if rate <= 0:
                     missed.append(f"{name} (no press rate chosen: 0)")
                     continue
-                types = set((self.build.ctx.gems.get(name) or {}).get("skillTypes") or ())
+                types = set(skill_types_of(self.build.ctx, name))  # (SEARCH40: skill_types; the manager, TRAIN 149: GEM43's read)
                 up, how = conditions_mod.jagged_ground(name, types, gems, {"Speed": rate}, texts=texts)
                 if up > 0:
                     off *= 1 - up

@@ -27,4 +27,6 @@ def test_cov58_second_wind_life_is_marked():
     covered = coverage.stat_entries()
     assert coverage.stat_covered(covered, "restore_%_life_on_skill_use_per_1000_ms_cooldown", "Second Wind III") == (
         "model", "model-read-cov58-second-wind-life")
-    assert coverage.stat_covered(covered, "support_double_number_of_cooldown_uses", "Second Wind III") is None  # (open)
+    # (the manager, TRAIN 149: GEM43's 65cb036b, in the same train, closes the doubled uses with RESEARCH60 R60-13: they refill
+    # one at a time, so PoB's steady rate is right; the pin written before it said "open")
+    assert coverage.stat_covered(covered, "support_double_number_of_cooldown_uses", "Second Wind III") == ("ledger", "gem-gem43-second-wind-doubled-uses")
