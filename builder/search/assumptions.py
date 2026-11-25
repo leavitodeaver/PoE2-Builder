@@ -5302,7 +5302,8 @@ class Assumptions:
             gem = build.ctx.gems.get(name) or {}
             back_mods, back_notes = models.return_model(
                 texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
-                set(gem.get("weaponTypes") or []))
+                set(gem.get("weaponTypes") or []),
+                mirror=any(s_.name == models.MIRROR_OF_REFRACTION for s_ in found))  # (MECHB65: R60-9's LOW row)
             hand_mods, hand_notes = hand_mods + back_mods, hand_notes + back_notes
             if any(models.CADIRO_ARROWS.search(t.strip()) for t in texts):  # (MECHB22: Cadiro's Gambit's Diamond Arrows)
                 cadiro_mods, cadiro_notes = models.cadiro_model(

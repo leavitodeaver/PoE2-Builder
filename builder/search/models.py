@@ -20090,11 +20090,20 @@ def return_share(texts: list[str], main: Skill | None, main_types: set[str], gro
     return 0.0, ""
 
 
+# (MECHB65; RESEARCH60 R60-9 (b), research/mirror-copies-return-loop-r60.md, GEM44's note) Mirror of Refraction's copies
+# carry the supported skill's Return (MEDIUM) and a copy's return can re-hit the boss (MEDIUM-LOW, one a nova), but
+# whether the way back re-crosses the boss is geometry no source measures (a mirror well to the side, a small boss:
+# LOW). The headline keeps every copy returning (this more on the copies too, GEM's mirror model multiplying it); a LOW
+# row takes about half of the copies' returns: R60-9's 0.5 (a number the game's geometry decides, no data: LOW, named).
+MIRROR_RETURN_ROW = 0.5
+
+
 def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str], group_gems: list[dict],
-                 weapon_types: set[str]) -> tuple[list[dict], list[dict]]:
+                 weapon_types: set[str], mirror: bool = False) -> tuple[list[dict], list[dict]]:
     """Returning projectiles' second boss hit (the rule above): `1% more Damage` on the main skill for the share of its
     projectiles that pierce the boss and return, times the returned hit's own factor; Ironbound's part only against
-    Fully Broken Armour. A note for each source, counted or not."""
+    Fully Broken Armour. A note for each source, counted or not. `mirror`: Mirror of Refraction in the build (R60-9's
+    LOW row on its copies' returns)."""
     if main is None or "Projectile" not in main_types:
         return [], []
     names = {g.get("name") for g in group_gems if g.get("enabled", True)}
@@ -20152,9 +20161,13 @@ def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
                           "basis": f"{how}, but its projectiles don't pierce the boss on the way out: {RETURN_RULE}: none"})
             continue
         mods.append(line(text, more, skill=main.name))
+        mirror_row = (f"; Mirror of Refraction's copies return too (R60-9 (a), MEDIUM) and re-hit the boss at most once "
+                      f"a nova ((b), MEDIUM-LOW); row, about {MIRROR_RETURN_ROW:.0%} of the copies' returns re-cross the "
+                      f"boss (LOW, no source measures the geometry): +{more * MIRROR_RETURN_ROW:.1f}% on the copies"
+                      if mirror else "")
         notes.append({"label": label, "value": round(more, 1), "confidence": "MEDIUM",
                       "basis": f"{how}: {share:.3g} of projectiles x {pierce:.0%} pierce the boss on the way out{returned} "
-                               f"= {more:.1f}% more damage; {RETURN_RULE}"})
+                               f"= {more:.1f}% more damage; {RETURN_RULE}{mirror_row}"})
     return mods, notes
 
 

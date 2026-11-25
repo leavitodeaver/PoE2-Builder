@@ -241,3 +241,15 @@ def test_infernal_legion_ignites_only_while_the_boss_holds_half_flammability():
     assert seen == [500.0] and half == pytest.approx(full * 0.25)
     assert "50% Flammability" in note["basis"] and "R61-2" in note["basis"] and f"+{full:,.1f}" in note["basis"]
     assert models.infernal_legion_model([brute], 30.0, 0.0, lambda d: (0.0, "none"))[0] == 0.0
+
+
+def test_mirror_copies_returning_show_a_low_half_row():
+    """RESEARCH60 R60-9 (GEM44's note): with Mirror of Refraction in the build, the return note carries a LOW row with
+    about half of the copies' returns re-crossing the boss; the headline is unchanged."""
+    frost = models.Skill("Frostbolt", group=1, spell=True)
+    types = {"Spell", "Projectile", "Cold"}
+    gems = [{"name": "Frostbolt"}, {"name": "Breachlord's Amalgam"}]
+    plain, notes = models.return_model([], {"PierceCount": 1}, frost, types, gems, set())
+    mirrored, mnotes = models.return_model([], {"PierceCount": 1}, frost, types, gems, set(), mirror=True)
+    assert plain == mirrored and "R60-9" not in notes[0]["basis"]
+    assert "R60-9" in mnotes[0]["basis"] and "+50.0% on the copies" in mnotes[0]["basis"]
