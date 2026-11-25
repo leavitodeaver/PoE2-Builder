@@ -57,3 +57,18 @@
     aren't read). A link only.
   sources: ["builder/search/models.py (SHIELD_BASH_RANGE, shield_bash_reach, challenge_share, boss_power)"]
   status: proposed
+
+- id: model-read-cov58-second-wind-life
+  title: "Second Wind III: recover 1% of maximum Life per second of cooldown on a supported use (Assumptions.second_wind_life, MECHC29)"
+  kind: model
+  model: second_wind
+  stats: ["restore_%_life_on_skill_use_per_1000_ms_cooldown"]
+  skill: [Second Wind III]
+  confidence: MEDIUM
+  notes: >-
+    1 at every level (GrantedEffectStatSets SupportSecondWindPlayerThree's constant stats, game 26650308) =
+    assumptions.SECOND_WIND_PCT. second_wind_life: each supported group's uses a second (at most one per cooldown) x its
+    cooldown x 1% of Life, a Life recovery number. Its support_double_number_of_cooldown_uses stays open (no reader; the
+    model's one use per cooldown is the steady rate if the doubled uses recharge one at a time, UNVERIFIED). A link only.
+  sources: ["builder/search/assumptions.py (SECOND_WIND_PCT, second_wind_life)"]
+  status: proposed

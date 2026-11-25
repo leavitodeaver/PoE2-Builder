@@ -1,6 +1,6 @@
 """COV58 turn 1: Twister's hit interval, Entangle's vine cap and Raise Shield's bash reach marked as read (readers found in the blind probe's ranking)."""
 from builder.ledger import coverage
-from builder.search import models, recovery
+from builder.search import assumptions, models, recovery
 
 
 def test_cov58_readers_are_marked():
@@ -20,3 +20,11 @@ def test_cov58_readers_are_marked():
         assert sum(len(v) for s, v in covered.items() if s == stat) == 1  # one entry per stat
     for stat in ("entangle_apply_vines_every_X_ms", "entangle_duration_speed_+%_when_wet"):  # (left open on purpose)
         assert coverage.stat_covered(covered, stat, "Entangle") is None
+
+
+def test_cov58_second_wind_life_is_marked():
+    assert assumptions.SECOND_WIND_PCT == 1.0  # (restore_%_life_on_skill_use_per_1000_ms_cooldown 1 at every level)
+    covered = coverage.stat_entries()
+    assert coverage.stat_covered(covered, "restore_%_life_on_skill_use_per_1000_ms_cooldown", "Second Wind III") == (
+        "model", "model-read-cov58-second-wind-life")
+    assert coverage.stat_covered(covered, "support_double_number_of_cooldown_uses", "Second Wind III") is None  # (open)
