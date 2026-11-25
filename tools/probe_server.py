@@ -214,11 +214,13 @@ def qualifies(argv: list[str], minutes: float, label: str, cwd: str) -> str | No
     """Why this request may NOT run on the server (a one-line reason), or None. Probes always may; a pytest run only
     when it is a small targeted run: named test files, about 10 minutes at most, not a suite part, gate, train or
     calibration (the manager's rule, 25 Nov 01:20)."""
+    if not is_test_run(argv):
+        return None  # (the manager, 25 Nov 08:20: the label check below is for TEST RUNS only; before, it ran first and
+        #              refused plain probes whose label held "train" / "gate " / "calibrat": a calibration probe, a probe
+        #              "after TRAIN 146", even "investigate the ..." fell back to a booking)
     lowered = label.lower()
     if any(word in lowered for word in REFUSED_LABELS):
         return f"its label looks like a suite part, gate, train or calibration ({label!r}): those stay in the queue"
-    if not is_test_run(argv):
-        return None
     if minutes > TEST_MINUTES_MAX:
         return f"a test run of {minutes:g} min: the server takes test runs of {TEST_MINUTES_MAX} min or less"
     if any(a == "-n" or (a.startswith("-n") and a[2:].isdigit()) or a.startswith("--numprocesses") for a in argv):

@@ -243,6 +243,10 @@ def test_only_small_targeted_test_runs_qualify():
     q = lambda argv, minutes=5, label="MECH-A: MECH107 targeted": ps.qualifies(argv, minutes, label, str(ROOT))  # noqa: E731
     pytest_cmd = ["uv", "run", "python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
     assert q(["uv", "run", "python", "scratch/x/probe.py"]) is None  # a probe
+    # (the manager, 25 Nov 08:20) a PROBE qualifies whatever its label says: the label check is for test runs only
+    for label in ("COV-A: COV57 calibrate b7", "MECH-B: probe after TRAIN 146", "MECH-A: investigate the boss", "SEARCH-B: 2b75b gate build"):
+        assert q(["uv", "run", "python", "scratch/x/probe.py"], label=label) is None, label
+    assert "calibration" in q(pytest_cmd + ["tests/test_slots.py"], label="COV-A: calibrate b7 suite")
     assert q(pytest_cmd + ["tests/test_slots.py", "tests/test_pool.py::test_x"]) is None
     assert "10 min or less" in q(pytest_cmd + ["tests/test_slots.py"], minutes=15)
     assert "folder" in q(pytest_cmd + ["tests"])
