@@ -16,6 +16,17 @@ boots in the pytest process all stayed alive to the end (several GB; POE2T929's 
 
 Tests that start their own PoB processes (EnginePool, a Run with workers, benchmarks' scripts) are untouched:
 those are the real PoB always.
+
+PARALLEL PARTS (PERF22, 24 Nov 2026; tools/suite.py): `pytest -n N --dist loadfile --no-loadscope-reorder` runs a
+part on N worker processes (pytest-xdist), each test FILE whole on one worker, so a module's shared engine and its
+call history are exactly what a serial run gives it. Three things here only act under xdist (a serial run is as before):
+- the files are handed out longest first (tests/suite_durations.json, from a serial run's junit XML), so the longest
+  file doesn't start last;
+- a pool of PoB processes (EnginePool: the tests that run a search on workers) is started by one worker at a time
+  (a lock file the run's workers share): every xdist worker holds one of the run's 6 LuaJIT slots
+  (builder/pob/slots.py), and two pools at once could ask for more than the slots left, or get fewer workers than the
+  same test gets in a serial run;
+- each worker's replay summary line is printed by the controller, "[gw0] ...".
 """
 
 from __future__ import annotations
@@ -102,7 +113,119 @@ def _start_trace(folder: str) -> None:
     replay.trace = write
 
 
+def _xdist_worker(config) -> bool:
+    return hasattr(config, "workerinput")
+
+
+class _PoolTurn:
+    """Under xdist: one worker at a time has an EnginePool open (see the module's docstring). A Windows byte-range lock
+    on a file named from the run's id (the same in every worker of one run); Windows lets it go if the worker dies.
+    Counted per process, so a pool inside a pool doesn't wait for itself."""
+
+    WAIT_LIMIT = 1800.0  # never hang a run: after 30 min waiting, go on (and say so) as a serial run would
+
+    def __init__(self, run_id: str) -> None:
+        import os
+        import tempfile
+
+        self.path = os.path.join(tempfile.gettempdir(), f"poe2-pytest-pools-{run_id}.lock")
+        self.handle = None
+        self.depth = 0
+
+    def take(self) -> None:
+        import msvcrt
+        import time
+        import warnings
+
+        self.depth += 1
+        if self.depth > 1:
+            return
+        self.handle = open(self.path, "a+b")
+        end = time.monotonic() + self.WAIT_LIMIT
+        while True:
+            try:
+                self.handle.seek(0)
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+                return
+            except OSError:
+                if time.monotonic() > end:
+                    warnings.warn("conftest: waited 30 min for another xdist worker's PoB pool to close; starting this one anyway")
+                    return
+                time.sleep(0.2)
+
+    def give(self, all_of_it: bool = False) -> None:
+        import msvcrt
+
+        if self.depth == 0:
+            return
+        self.depth = 0 if all_of_it else self.depth - 1
+        if self.depth == 0 and self.handle is not None:
+            try:
+                self.handle.seek(0)
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass  # (the 30-minute fall-through above took no lock)
+            self.handle.close()
+            self.handle = None
+
+
+_pool_turn: _PoolTurn | None = None
+
+
+def _pools_take_turns(run_id: str) -> None:
+    """EnginePool.__init__ waits for the run's other workers' pools to close; close() lets the next one go."""
+    global _pool_turn
+    from builder.pob import pool as pool_module
+
+    _pool_turn = turn = _PoolTurn(run_id)
+    cls = pool_module.EnginePool
+    real_init, real_close = cls.__init__, cls.close
+
+    def __init__(self, *args, **kwargs):
+        turn.take()
+        self._poe2_pool_turn = True
+        try:
+            real_init(self, *args, **kwargs)
+        except BaseException:
+            self._poe2_pool_turn = False
+            turn.give()
+            raise
+
+    def close(self):
+        try:
+            real_close(self)
+        finally:
+            if getattr(self, "_poe2_pool_turn", False):
+                self._poe2_pool_turn = False
+                turn.give()
+
+    cls.__init__, cls.close = __init__, close
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """Under xdist: whole files, longest first (stable inside a file, so each file's tests keep their order)."""
+    if not _xdist_worker(config):
+        return
+    import json
+    from pathlib import Path
+
+    try:
+        seconds = json.loads((Path(__file__).with_name("suite_durations.json")).read_text(encoding="utf-8"))["files"]
+    except (OSError, ValueError, KeyError):
+        return
+    known = sorted(seconds.values())
+    middle = known[len(known) // 2] if known else 0.0  # a file the list hasn't timed yet: a middling one
+    items.sort(key=lambda item: -float(seconds.get(item.path.name, middle)))
+
+
 def pytest_configure(config):
+    if _xdist_worker(config):
+        _pools_take_turns(str(config.workerinput.get("testrunuid", "x")))
+    config.addinivalue_line("markers", "serial_only: this test starts so many processes that it can't share the run with "
+                            "pytest-xdist's workers (the queue allows a run 24 processes): tools/suite.py runs it in a "
+                            "second, serial pytest inside the same booking, after the parallel one")
+    config.addinivalue_line("markers", "spawns_processes: this test starts processes of its own; under pytest-xdist it "
+                            "takes the run's one turn for that (as an EnginePool does), so the run stays under 24")
     config.addinivalue_line("markers", "own_pob_engine: this test's PoB calls differ from run to run (a search the clock cuts "
                             "off), so it gets a freshly booted engine in place of the one its module shares: the tests after "
                             "it keep an engine history that is the same every run, which is what lets their answers replay")
@@ -152,6 +275,9 @@ def pytest_runtest_protocol(item, nextitem):
         _forget_pob_answers_kept_for_the_process()
     _current["item"] = item
     _current["forked"] = None
+    turn = _pool_turn if _pool_turn is not None and item.get_closest_marker("spawns_processes") else None
+    if turn is not None:
+        turn.take()
     if item.get_closest_marker("own_pob_engine"):
         _current["forked"] = list(_shared_engines)
         for shared in _current["forked"]:
@@ -162,6 +288,8 @@ def pytest_runtest_protocol(item, nextitem):
     try:
         return (yield)
     finally:
+        if turn is not None:
+            turn.give()
         _current["item"] = None
         for shared in _current["forked"] or ():
             if shared in _shared_engines:  # still open: back to the history the module shares
@@ -174,6 +302,8 @@ def pytest_runtest_protocol(item, nextitem):
             _test_engines.pop().close()
         if nextitem is None or nextitem.path != item.path:
             _save(item.session, item.path.stem)
+            if _pool_turn is not None:  # a pool the file left open: let the other workers' pools go on (never a hang)
+                _pool_turn.give(all_of_it=True)
 
 
 def pytest_runtest_logreport(report):
@@ -203,16 +333,33 @@ def _save(session, name: str) -> None:
         _finished.append(_stores.pop(name))
 
 
+def _summary_lines() -> list[str]:
+    if not (_stores or _finished):
+        return []
+    return [replay.summary([*_finished, *_stores.values()]),
+            *(f"  real PoB answered {asked} call(s) for {nodeid}" for nodeid, asked in _asked_real.items())]
+
+
+_from_workers: list[str] = []  # the controller of an xdist run: each worker's summary lines
+
+
 def pytest_sessionfinish(session):
     for name in list(_stores):
         _save(session, name)
+    if _xdist_worker(session.config):
+        session.config.workeroutput["poe2_pob_summary"] = _summary_lines()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error):
+    worker = getattr(node, "gateway", None)
+    name = getattr(worker, "id", "gw?")
+    _from_workers.extend(f"[{name}] {line}" for line in getattr(node, "workeroutput", {}).get("poe2_pob_summary", []))
 
 
 def pytest_terminal_summary(terminalreporter):
-    if _stores or _finished:
-        terminalreporter.write_line(replay.summary([*_finished, *_stores.values()]))
-        for nodeid, asked in _asked_real.items():
-            terminalreporter.write_line(f"  real PoB answered {asked} call(s) for {nodeid}")
+    for line in [*_summary_lines(), *_from_workers]:
+        terminalreporter.write_line(line)
 
 
 @pytest.fixture

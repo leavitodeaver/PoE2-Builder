@@ -40,6 +40,7 @@ def test_nothing_is_limited_outside_the_queue(monkeypatch, fresh):
     assert slots._held is None
 
 
+@pytest.mark.serial_only  # six slot holders and more: too many processes beside xdist's workers (PERF22)
 def test_a_seventh_process_gets_no_engine_and_a_dead_ones_slot_comes_back(monkeypatch, fresh):
     monkeypatch.setenv("PC_QUEUE_KIND", "test")
     env = {**os.environ, "PC_QUEUE_KIND": "test"}
@@ -96,6 +97,7 @@ def test_a_queue_proof_gets_slots_of_its_own(monkeypatch, tmp_path):
     assert slots.slot_name() not in (proof, real)
 
 
+@pytest.mark.serial_only  # six slot holders and more: too many processes beside xdist's workers (PERF22)
 def test_the_pool_probe_says_pool_full_on_its_line(tmp_path):
     """tools/pool_probe.py with every slot held prints a 'pool: {"error": "PoolFull", ...}' line, not a traceback."""
     import json

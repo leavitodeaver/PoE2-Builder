@@ -21,6 +21,7 @@ packages = ["builder"]
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.pytest.ini_options]
