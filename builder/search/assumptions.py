@@ -369,18 +369,28 @@ def siphon_freezes(stats: dict, chances: dict[str, float] | None = None) -> tupl
 # "additional Elemental Infusion" lines (their wording names Elemental Infusions; MEDIUM).
 VERISIUM = "Powered by Verisium"
 VERISIUM_COUNT_STAT = "verisium_infusion_skill_number_of_verisium_infusion_to_grant"
+# (MECHC63; COV57's row 84, example build 15) The gem's QUALITY stat verisium_infusion_duration_+%, "{0}% increased
+# Verisium Infusion duration" (2.5 a quality point: PoB other.lua 12770; skill_stat_descriptions; the stat's only carrier
+# GrantedEffectQualityStats 397, checked over every table of game 26650308 by MECHC62), read from the skill's
+# levelStats (its level and quality). A skill stat: taken as lengthening the Verisium Infusions this skill grants, not
+# those from other sources (MEDIUM). Before, every Infusion in a pool took the element's duration
+# (infusion_pool_seconds' note).
+VERISIUM_DURATION_STAT = "verisium_infusion_duration_+%"
 
 
-def verisium_infusions(build) -> tuple[float, str]:
-    """(MECHC58, VERISIUM's note) (Verisium Infusions a second, how) from Powered by Verisium's Ward-paid uses."""
+def verisium_infusions(build) -> tuple[float, str, float]:
+    """(MECHC58, VERISIUM's note) (Verisium Infusions a second, how, the gem's increased duration %: MECHC63,
+    VERISIUM_DURATION_STAT) from Powered by Verisium's Ward-paid uses."""
     row = (getattr(build, "ward_sustain", None) or {}).get(VERISIUM)
     if not row or number(row[1]) <= 0:
-        return 0.0, ("its Runic Ward pays for none of its uses" if row else "")
+        return 0.0, ("its Runic Ward pays for none of its uses" if row else ""), 0.0
     level = next((r.get("levelStats") or {} for r in build.call("activeSkills", levelStats=[VERISIUM])["skills"]
                   if r.get("name") == VERISIUM and r.get("levelStats")), {})
     count = number(level.get(VERISIUM_COUNT_STAT)) or 1.0
+    inc = number(level.get(VERISIUM_DURATION_STAT))
     return count * number(row[1]), (f"{count:g} a cast x {number(row[1]):.3f} casts/s its Runic Ward pays for "
-                                    f"(of {number(row[0]):.3f} planned)")
+                                    f"(of {number(row[0]):.3f} planned)"
+                                    + (f", each lasting {inc:+g}% (its quality)" if inc else "")), inc
 
 
 def siphon_rates(build) -> tuple[float, str, dict[str, float]]:
@@ -793,15 +803,42 @@ INFUSION_NO_EXPIRY = re.compile(r"\b(?:(Elemental|Fire|Cold|Lightning|Verisium) 
                                 r"expire\b", re.I)
 
 
-def infusion_seconds(lines: list[str], element: str = "") -> float:
-    """(MECHC46) How long an `element` Infusion lasts (INFUSION_SECONDS's note); math.inf if a line stops it expiring."""
+def infusion_seconds(lines: list[str], element: str = "", extra: float = 0.0) -> float:
+    """(MECHC46) How long an `element` Infusion lasts (INFUSION_SECONDS's note); math.inf if a line stops it expiring.
+    (MECHC63) `extra`: a further increase in % (Powered by Verisium's quality, VERISIUM_DURATION_STAT)."""
     named = {"elemental", element.lower()} if element else {"elemental"}
     for t in lines:
         if (m := INFUSION_NO_EXPIRY.search(t)) and (m.group(1) is None or m.group(1).lower() in named):
             return math.inf
     inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
-              for t in lines if (m := INFUSION_DURATION.match(t.strip())) and m.group(3).lower() in named)
+              for t in lines if (m := INFUSION_DURATION.match(t.strip())) and m.group(3).lower() in named) + extra
     return INFUSION_SECONDS * max(0.0, 1 + inc / 100)
+
+
+# (MECHC63) A pool of `element` Infusions holds the element's own and Verisium ones (supply["Any"]); infusion_found keeps
+# one shared timer for it (RESEARCH36). Before, the whole pool took the element's duration (an Elemental line's or the
+# element's), so Verisium Infusions never took a "Verisium Infusion duration" line or Powered by Verisium's quality.
+# Now the pool's timer is the supply-weighted average of the parts' durations: the element's (its lines), other
+# Verisium Infusions (the Verisium lines), and Powered by Verisium's own (with its quality: supply["_verisium"], set by
+# infusion_supply) (MEDIUM-LOW: one timer for the mixed pool is the existing reading; RESEARCH37 R37-9 says the
+# counters are separate). A part that never expires counts at the longest finite part (a lower reading); all of them:
+# never.
+def infusion_pool_seconds(lines: list[str], element: str, supply: dict) -> float:
+    """(MECHC63, the note above) The shared timer of the `element` pool (element "" = Verisium Infusions alone)."""
+    own = number(supply.get(element)) if element else 0.0
+    skill, inc = supply.get("_verisium") or (0.0, 0.0)
+    skill = min(number(skill), number(supply.get("Any")))
+    parts = [(own, infusion_seconds(lines, element)),
+             (number(supply.get("Any")) - skill, infusion_seconds(lines, "verisium")),
+             (skill, infusion_seconds(lines, "verisium", number(inc)))]
+    parts = [(w, s) for w, s in parts if w > 0]
+    if not parts:
+        return infusion_seconds(lines, element) if element else infusion_seconds(lines, "verisium")
+    finite = [s for _, s in parts if s != math.inf]
+    if not finite:
+        return math.inf
+    top = max(finite)
+    return sum(w * (s if s != math.inf else top) for w, s in parts) / sum(w for w, _ in parts)
 
 
 _EXPIRY_CACHE: dict[tuple, float] = {}
@@ -1030,6 +1067,7 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
             used.append(f"a Verisium Infusion every {every:g} s (any element)")
     if VERISIUM in present:  # (MECHC58: VERISIUM's note)
         supply["Any"] += verisium[0]
+        supply["_verisium"] = (verisium[0], verisium[2] if len(verisium) > 2 else 0.0)  # (MECHC63: infusion_pool_seconds)
         used.append(f"{VERISIUM} {verisium[0]:.2f}/s Verisium ({verisium[1]})" if verisium[1]
                     else f"{VERISIUM} 0/s (not used: no use rate)")
     if remnants != 1.0:
@@ -9467,7 +9505,7 @@ class Assumptions:
         # (MECHC45: at most `cap` held, the rest picked up at the cap lost: infusion_found; every consumer's uses as one
         # even stream, each finding one with the same chance)
         cap = infusion_cap(lines, element, supply["Any"] > 0)
-        seconds = infusion_seconds(lines, element)  # (MECHC46: each lasts this long)
+        seconds = infusion_pool_seconds(lines, element, supply)  # (MECHC46: each lasts this long; MECHC63: the pool)
         share = infusion_found(have, uses + others, keep, cap, seconds) if uses + others > 0 else float(have > 0)
         basis = (f"{have:.2f} {element} Infusions/s from {', '.join(used) or 'nothing'} for {uses:.2f} casts/s"
                  + (f", {keep:.0%} of casts keeping theirs" if keep else "")
@@ -11758,7 +11796,7 @@ class Assumptions:
         if have <= 0:
             return 0.0, "the build makes no Verisium Infusion"
         cap = infusion_cap(texts, "Fire", True) - infusion_cap(texts, "Fire")
-        share = infusion_found(have, uses, 0.0, cap, infusion_seconds(texts, "verisium"))
+        share = infusion_found(have, uses, 0.0, cap, infusion_pool_seconds(texts, "", supply))  # (MECHC63)
         return share, (f"{have:.2f} Verisium Infusions/s from {', '.join(used)}, for Skyfall's {uses:.3f} casts/s, Skyfall "
                        "first (the other consumers prioritise their own element's Infusions: RESEARCH60 R60-7, HIGH): "
                        f"{share:.0%} of casts find one")

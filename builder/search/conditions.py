@@ -10954,10 +10954,11 @@ class Conditions:
         keep = min(1.0, sum(float(m.group(1)) for t in texts if (m := KEEP_INFUSION.search(t))) / 100.0)
         total = sum(uses.values())
         mine = have * arc / total if total > 0 else 0.0
-        from builder.search.assumptions import infusion_cap, infusion_found, infusion_seconds
+        from builder.search.assumptions import infusion_cap, infusion_found, infusion_pool_seconds
 
         cap = infusion_cap(texts, "Lightning", supply["Any"] > 0)  # (MECHC45: the Infusion cap, infusion_found)
-        share = infusion_found(have, total, keep, cap, infusion_seconds(texts, "Lightning"))  # (MECHC46: the expiry)
+        # (MECHC46: the expiry; MECHC63: the pool's timer, infusion_pool_seconds)
+        share = infusion_found(have, total, keep, cap, infusion_pool_seconds(texts, "Lightning", supply))
         return share, (f"{have:.2f} Lightning Infusions/s from {', '.join(made) or 'nothing'}"
                        + (f", shared with {', '.join(sorted(users - {ARC}))}" if users - {ARC} else "")
                        + f": {mine:.2f}/s for {ARC}'s {arc:.2f} casts/s"
@@ -11007,7 +11008,7 @@ class Conditions:
         """(MECHB55) (share of `skill`'s casts that consume an `element` Infusion, how): _arc_infused's reading for any
         skill: the build's Infusions of it (and Verisium's), shared among its consumers by their uses, over the skill's
         casts less those that keep the Infusion, capped and with their expiry (assumptions.infusion_found)."""
-        from builder.search.assumptions import KEEP_INFUSION, infusion_cap, infusion_found, infusion_seconds
+        from builder.search.assumptions import KEEP_INFUSION, infusion_cap, infusion_found, infusion_pool_seconds
 
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
@@ -11024,7 +11025,7 @@ class Conditions:
         keep = min(1.0, sum(float(m.group(1)) for t in texts if (m := KEEP_INFUSION.search(t))) / 100.0)
         total = sum(uses.values())
         cap = infusion_cap(texts, element, supply["Any"] > 0)
-        share = infusion_found(have, total, keep, cap, infusion_seconds(texts, element))
+        share = infusion_found(have, total, keep, cap, infusion_pool_seconds(texts, element, supply))  # (MECHC63)
         part = have * mine / total if total > 0 else 0.0
         return share, (f"{have:.2f} {element} Infusions/s from {', '.join(made) or 'nothing'}"
                        + (f", shared with {', '.join(sorted(users - {skill}))}" if users - {skill} else "")
@@ -11051,14 +11052,15 @@ class Conditions:
         elements = {e for each in consumers.values() for e in each}
         have = sum(supply[e] for e in elements) + supply["Any"]
         cast = sum(uses.values())
-        from builder.search.assumptions import infusion_cap, infusion_found, infusion_seconds
+        from builder.search.assumptions import infusion_cap, infusion_found, infusion_pool_seconds
 
         # (MECHC45: at most the caps of the consumed elements held, pickups at random: infusion_found; before min(have,
         # cast), an unlimited cap)
         texts = [line["text"] for line in lines]
         cap = sum(infusion_cap(texts, e) for e in elements) + (infusion_cap(texts, "", True) - infusion_cap(texts, "")
                                                                if supply["Any"] > 0 else 0)
-        seconds = min(infusion_seconds(texts, e) for e in elements) if elements else infusion_seconds(texts)
+        seconds = (min(infusion_pool_seconds(texts, e, supply) for e in elements) if elements
+                   else infusion_pool_seconds(texts, "", supply))  # (MECHC63: the pool's timer)
         rate = cast * infusion_found(have, cast, 0.0, max(cap, 1), seconds) if cast > 0 else 0.0  # (MECHC46: the expiry)
         return rate, (f"{rate:.2f}/s: {have:.2f} {'/'.join(sorted(elements)) or 'Verisium'} Infusions/s from "
                       f"{', '.join(made) or 'nothing'}, for {', '.join(f'{n} {u:.2f}/s' for n, u in uses.items())}"

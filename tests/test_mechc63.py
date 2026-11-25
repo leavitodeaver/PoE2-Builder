@@ -93,3 +93,50 @@ def test_rage_held_reads_the_maximum_for_at_maximum_lines_when_it_is_the_common_
     rage3 = "Supported Skills have signficantly higher Attack speed while you or supported minion are not at maximum Rage."
     held, basis = c.rage_held([rage3], dict(base))
     assert held == 95 and "the more common state, the maximum" in basis
+
+
+def test_powered_by_verisium_quality_lengthens_its_own_infusions_in_the_pool():
+    """(MECHC63: VERISIUM_DURATION_STAT, infusion_pool_seconds) The gem's quality "N% increased Verisium Infusion duration"
+    comes back from verisium_infusions and lengthens its own share of a pool's timer; a pool without Verisium, and the
+    element's own lines, as before."""
+    import math
+    from types import SimpleNamespace
+
+    from builder.search import assumptions as a
+
+    class B(SimpleNamespace):
+        def call(self, name, **_):
+            return {"skills": [{"name": a.VERISIUM, "levelStats": {a.VERISIUM_COUNT_STAT: 1,
+                                                                    a.VERISIUM_DURATION_STAT: 50}}]}
+
+    verisium = a.verisium_infusions(B(ward_sustain={a.VERISIUM: (0.2, 0.1, 155)}))
+    assert verisium[0] == pytest.approx(0.1) and verisium[2] == 50 and "+50% (its quality)" in verisium[1]
+    supply, _ = a.infusion_supply({a.VERISIUM: {}}, [], set(), verisium=verisium)
+    assert supply["_verisium"] == (pytest.approx(0.1), 50)
+    assert a.infusion_pool_seconds([], "", supply) == pytest.approx(30.0)  # (Verisium alone: 20 x 1.5)
+    supply["Fire"] = 0.3
+    assert a.infusion_pool_seconds([], "Fire", supply) == pytest.approx((0.3 * 20 + 0.1 * 30) / 0.4)
+    # (a Verisium line lengthens only the Verisium part; an Elemental line all of it)
+    lines = ["100% increased Verisium Infusion duration"]
+    assert a.infusion_pool_seconds(lines, "Fire", supply) == pytest.approx((0.3 * 20 + 0.1 * 50) / 0.4)
+    assert a.infusion_pool_seconds([], "Fire", {"Fire": 0.3, "Any": 0.0}) == 20.0
+    assert a.infusion_pool_seconds(["Fire Infusions do not expire"], "Fire", supply) == pytest.approx(
+        (0.3 * 30 + 0.1 * 30) / 0.4)  # (the never-expiring part at the longest finite one: a lower reading)
+    assert a.infusion_pool_seconds(["Infusions do not expire"], "Fire", supply) == math.inf
+    # (no Verisium quality: the 2-tuple some callers pass still works)
+    plain, _ = a.infusion_supply({a.VERISIUM: {}}, [], set(), verisium=(0.1, "x"))
+    assert a.infusion_pool_seconds([], "", plain) == pytest.approx(20.0)
+
+
+def test_real_pob_powered_by_verisium_quality_reaches_verisium_infusions(engine):
+    """Real PoB: Powered by Verisium 20/20's levelStats carry its quality's 50% increased Verisium Infusion duration
+    (2.5 a point), and verisium_infusions gives it back with its Ward-paid casts."""
+    from test_engine_models import spark_with  # (tests/ is on sys.path under pytest)
+
+    from builder.search import assumptions as a
+
+    build = spark_with(engine, []).build
+    build.call("addSkillGroup", text="Powered by Verisium 20/20 1")
+    build.ward_sustain = {a.VERISIUM: (0.1, 0.05, 100)}
+    rate, how, inc = a.verisium_infusions(build)
+    assert inc == pytest.approx(50.0) and rate > 0 and "(its quality)" in how

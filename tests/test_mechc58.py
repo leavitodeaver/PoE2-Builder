@@ -134,7 +134,7 @@ def test_powered_by_verisium_infusions_come_from_its_ward_paid_uses():
         def call(self, name, **_):
             return {"skills": [{"name": assumptions.VERISIUM, "levelStats": {assumptions.VERISIUM_COUNT_STAT: 4}}]}
 
-    rate, how = assumptions.verisium_infusions(B(ward_sustain={assumptions.VERISIUM: (0.2, 0.1, 155)}))
+    rate, how, _inc = assumptions.verisium_infusions(B(ward_sustain={assumptions.VERISIUM: (0.2, 0.1, 155)}))
     assert rate == pytest.approx(0.4) and "4 a cast" in how
     assert assumptions.verisium_infusions(B(ward_sustain={}))[0] == 0
     supply, used = assumptions.infusion_supply({assumptions.VERISIUM: {}}, [], set(), verisium=(rate, how))
