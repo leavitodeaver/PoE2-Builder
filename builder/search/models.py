@@ -19489,8 +19489,17 @@ PIERCE_TIMES_RETURN = re.compile(r"^Attack Projectiles Return if they Pierced at
 PIERCE_BROKEN = re.compile(r"^Projectiles Pierce enemies with Fully Broken Armour$", re.I)
 AFTER_PIERCE_MORE = {"Pierce I": -20.0, "Pierce III": -20.0}  # the gems' game-file values, at one pierced target
 AFTER_PIERCE_QUALITY = frozenset({"Frostbolt", "High Velocity Rounds"})  # +1% more per quality after piercing
-RETURN_RULE = ("a returned projectile hits the boss again only if it pierced it on the way out (LOW, UNVERIFIED: a "
-               "community source says a return may hit targets already hit; no game file says so)")
+# (MECHB63; RESEARCH59 R59-1, research/return-rehit-r59.md, MEDIUM: a 0.5.4 projectile guide, three 0.5.x build guides
+# and the PoE1 rule agree, none disagrees; no GGG statement) the rule above stands, and projectiles fired together get at
+# most ONE return hit on a target between them. The "1% more Damage" here adds one returned hit per hit PoB's base
+# counts, and PoB's base counts one projectile a set for every skill that can Return (checked: the only skillData
+# dpsMultiplier in PoB's skill data is Bonestorm's stages (act_int 1866), a Physical skill Breachlord's Amalgam can't
+# support; Barrage's "DPS" MORE counts sequential repeats, each its own set with its own return: UNVERIFIED). So one
+# return a set. Not checked (UNVERIFIED, a possible OVERCOUNT where it meets this): another model's "DPS" MORE on the
+# same skill that counts more SIMULTANEOUS projectiles on the boss would be multiplied by the return too.
+RETURN_RULE = ("a returned projectile hits the boss again only if it pierced it on the way out, at most one returned hit "
+               "for projectiles fired together (MEDIUM: RESEARCH59 R59-1, guides and the PoE1 rule; no game file or GGG "
+               "statement says so)")
 
 
 def returned_hit_factor(main: Skill, group_gems: list[dict]) -> tuple[float, list[str]]:
@@ -19579,11 +19588,11 @@ def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
             continue
         more = 100.0 * share * pierce * factor
         if more <= 0:
-            notes.append({"label": label, "value": 0, "confidence": "LOW",
+            notes.append({"label": label, "value": 0, "confidence": "MEDIUM",
                           "basis": f"{how}, but its projectiles don't pierce the boss on the way out: {RETURN_RULE}: none"})
             continue
         mods.append(line(text, more, skill=main.name))
-        notes.append({"label": label, "value": round(more, 1), "confidence": "LOW",
+        notes.append({"label": label, "value": round(more, 1), "confidence": "MEDIUM",
                       "basis": f"{how}: {share:.3g} of projectiles x {pierce:.0%} pierce the boss on the way out{returned} "
                                f"= {more:.1f}% more damage; {RETURN_RULE}"})
     return mods, notes

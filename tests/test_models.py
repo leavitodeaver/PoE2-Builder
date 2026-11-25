@@ -2366,7 +2366,7 @@ def test_returning_projectiles_hit_a_lone_boss_again_only_after_piercing_it():
     gems = [{"name": "Frostbolt", "quality": 20}, {"name": "Breachlord's Amalgam"}, {"name": "Pierce I"}]
     mods, notes = models.return_model([], {"PierceCount": 1}, frost, proj, gems, set())
     assert mods == [models.line("1% more Damage", 100 * 0.8 * 1.2, skill="Frostbolt")]  # Pierce I -20%, quality +20%
-    assert notes[0]["confidence"] == "LOW" and "UNVERIFIED" in notes[0]["basis"]
+    assert notes[0]["confidence"] == "MEDIUM" and "R59-1" in notes[0]["basis"]
     mods, notes = models.return_model([], {"PierceCount": 0}, frost, proj, gems[:2], set())
     assert mods == [] and notes[0]["value"] == 0  # stops on the boss: no second hit
     mods, _ = models.return_model([], {"PierceCount": 0.5}, frost, proj, gems[:2], set())
