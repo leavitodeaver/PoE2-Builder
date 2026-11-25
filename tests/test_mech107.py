@@ -72,9 +72,10 @@ def test_kelaris_commands_apply_their_stacks_at_their_press_rates():
     rows = dict((how.split(":")[0], rate) for how, rate in models.djinn_critical_weakness(presses, 0.3))
     assert set(rows) == {"Kelari's Brutality", "Kelari's Judgment", "Kelari's Deception"}  # (Ruzhan's carry none)
     assert rows["Kelari's Brutality"] == pytest.approx(0.2 * models.blades_on_boss(0.3) * 1.0)
-    assert rows["Kelari's Judgment"] == pytest.approx(4.0 / 12)
-    # a use every 4 s, within the clone's 4 s life: one clone explosion a use, the blast 1 + the clone 2
-    assert rows["Kelari's Deception"] == pytest.approx(0.25 * (1 + 2 * models.clone_explosions(4.0)))
+    # (MECH109, R60-6: a Command's "additional" stacks ADD to Kelari's 1: Judgment 1 + 4, the clone 1 + 2)
+    assert rows["Kelari's Judgment"] == pytest.approx(5.0 / 12)
+    # a use every 4 s, within the clone's 4 s life: one clone explosion a use, the blast 1 + the clone 1 + 2
+    assert rows["Kelari's Deception"] == pytest.approx(0.25 * (1 + 3 * models.clone_explosions(4.0)))
     assert models.djinn_critical_weakness({"Kelari's Judgment": (0.0, "x")}, 0.3) == []
 
 

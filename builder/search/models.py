@@ -15584,8 +15584,13 @@ def critical_weakness_mods(stacks: tuple[float, str]) -> tuple[list[dict], list[
 # button cap), x its hits on the boss a use (Brutality: blades_on_boss of its 12; Deception: its teleport blast at
 # Kelari's 1 + clone_explosions at 2; Judgment: one shockwave at 4); the beetles: one explosion each at
 # kelari_beetle_explosions' rate (the build's corpses, as kelari_beetles_share reads them; none on a lone boss without a
-# corpse source: 0). Reading (UNVERIFIED): a Command's own value REPLACES Kelari's 1 on that hit (the headline); if they
-# add, each Command hit applies one more (the row in the note).
+# corpse source: 0). Reading (MECH109, RESEARCH60 R60-6, MEDIUM-HIGH; MECH107 had "replaces" as the headline): a
+# Command's own value ADDS to Kelari's 1 on that hit: the Commands' texts read "Inflicts {0} additional Critical Weakness on
+# Hit" (djinn_hand_slam.csd, Judgment's 4) and "Clone explosions inflict {0} additional Critical Weakness on Hit"
+# (djinn_explosive_teleport.csd, the clone's 2); poe2db Kelaris_Judgment / Kelaris_Deception the same (25 Nov 2026). So a
+# Judgment shockwave applies 1 + 4 = 5 and a clone explosion 1 + 2 = 3 (the blast and Brutality's blades Kelari's 1 alone).
+# What the files don't show: that Kelari's summon-set 1 reaches the Command and clone hits (the clone may be its own
+# entity). The reading where the Command's value REPLACES Kelari's 1 (Judgment 4, the clone 2) is the row in the note.
 CW_ON_HIT = "apply_X_stacks_of_critical_weakness_on_hit"
 CW_KELARI, CW_CLONE, CW_JUDGMENT, CW_BEETLE = 1.0, 2.0, 4.0, 1.0
 
@@ -15598,19 +15603,21 @@ def djinn_critical_weakness(presses: dict[str, tuple[float, str]], radius: float
             continue
         if name == "Kelari's Brutality":
             hits = blades_on_boss(radius)
-            per, plus = CW_KELARI * hits, 0.0
+            per, extra = CW_KELARI * hits, 0.0
             how = f"{hits:.1f} blades x {CW_KELARI:g}"
         elif name == "Kelari's Deception":
             booms = clone_explosions(1 / rate)
-            per, plus = CW_KELARI + CW_CLONE * booms, booms
-            how = f"its blast x {CW_KELARI:g} + {booms:.2f} clone explosions x {CW_CLONE:g}"
+            per, extra = CW_KELARI + (CW_KELARI + CW_CLONE) * booms, booms
+            how = (f"its blast x {CW_KELARI:g} + {booms:.2f} clone explosions x ({CW_KELARI:g} + {CW_CLONE:g} "
+                   f"additional)")
         elif name == "Kelari's Judgment":
-            per, plus = CW_JUDGMENT, 1.0
-            how = f"one shockwave x {CW_JUDGMENT:g}"
+            per, extra = CW_KELARI + CW_JUDGMENT, 1.0
+            how = f"one shockwave x ({CW_KELARI:g} + {CW_JUDGMENT:g} additional)"
         else:
             continue
         out.append((f"{name}: {rate:.3f} uses/s x ({how}) = {per * rate:.2f} stacks/s"
-                    + (f" (if Kelari's own 1 adds: {(per + plus) * rate:.2f}/s, UNVERIFIED)" if plus else ""),
+                    + (f" (if the Command's value replaces Kelari's 1 instead: {(per - extra) * rate:.2f}/s, MEDIUM-LOW)"
+                       if extra else ""),
                     per * rate))
     return out
 
