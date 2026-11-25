@@ -723,13 +723,63 @@ end
 -- chances are ShockChanceOnHit / ShockChanceOnCrit (5613-5633, per hand for an attack). So every reader got 0. Built
 -- here as PoB builds the others' per-hit chance (5226): OnHit x (1 - crit) + OnCrit x crit, a dual-wield attack's two
 -- hands averaged (PoB's combineStat "AVERAGE" for ShockChance, 5956).
-local function shockChancePerHit(output)
+-- (MECH110; COV58's offense row 37) Esh's Prowess, lightning_damage_roll_always_min_or_max: "Supported Skills only roll
+-- the minimum or maximum Damage value for Lightning Damage" (gem_stat_descriptions, 26650308). PoB's Shock chance is its
+-- formula at the AVERAGE hit, capped at 100% (CalcOffence 5617-5628: (hit / threshold x ShockChanceMultiplier + base) x
+-- (1 + inc) x more), so where the maximum roll's chance would pass 100% the two rolls' mean chance is lower than PoB's
+-- (the cap wastes the maximum's excess; the minimum keeps its low chance); below the cap the formula is linear and the
+-- mean is PoB's. For a skill whose effects carry the stat (`skill`, its active effect or a support), each hit's chance is
+-- the mean of that formula at the Lightning minimum and maximum (PoB's own ShockLightningMin / Max, its buildup "more"
+-- in them; a crit's from LightningStoredCritMin / Max times the same factor), the other damage types that Shock at their
+-- average, each capped at 100%: equal odds of the two rolls (MEDIUM: the text gives none; equal odds keep the average
+-- damage PoB scores). A zero chance stays zero (PoB's Cannot Shock, crit-only mode). `enemyDB` the enemy's mods (its
+-- SelfShockChance terms, as CalcOffence). Electrocute's buildup is linear in the hit (CalcOffence 5571-5577): unchanged.
+local function shockChancePerHit(output, skill, enemyDB)
+	local esh = false
+	for _, effect in ipairs(skill and skill.effectList or { }) do
+		for _, set in ipairs(effect.grantedEffect and effect.grantedEffect.statSets or { }) do
+			for _, name in ipairs(set.stats or { }) do
+				esh = esh or name == "lightning_damage_roll_always_min_or_max"
+			end
+		end
+	end
 	local function of(out)
 		if type(out) ~= "table" or type(out.ShockChanceOnHit) ~= "number" then
 			return nil
 		end
 		local crit = (out.CritChance or 0) / 100
-		return out.ShockChanceOnHit * (1 - crit) + (out.ShockChanceOnCrit or 0) * crit
+		local onHit, onCrit = out.ShockChanceOnHit, out.ShockChanceOnCrit or 0
+		local threshold = out.EnemyAilmentThreshold or output.EnemyAilmentThreshold or 0
+		local lmin, lmax = out.ShockLightningMin or 0, out.ShockLightningMax or 0
+		if esh and lmax > lmin and threshold > 0 and skill.skillModList then
+			local mods, cfg = skill.skillModList, skill.skillCfg
+			local base = mods:Sum("BASE", cfg, "EnemyShockChance", "AilmentChance")
+				+ (enemyDB and enemyDB:Sum("BASE", nil, "SelfShockChance") or 0)
+			local inc = mods:Sum("INC", cfg, "EnemyShockChance", "AilmentChance")
+				+ (enemyDB and enemyDB:Sum("INC", nil, "SelfShockChance") or 0)
+			local more = mods:More(cfg, "EnemyShockChance", "AilmentChance") * (enemyDB and enemyDB:More(nil, "SelfShockChance") or 1)
+			local mult = data.gameConstants.ShockChanceMultiplier or 25
+			local function chance(damage)
+				return math.min(100, math.max(0, (damage / threshold * mult + base) * (1 + inc / 100) * more))
+			end
+			local scale = (out.LightningStoredHitMin or 0) > 0 and lmin / out.LightningStoredHitMin or 1
+			local otherHit, otherCrit = 0, 0
+			for _, kind in ipairs({ "Physical", "Fire", "Cold", "Chaos" }) do
+				local lo, hi = out["Shock" .. kind .. "Min"] or 0, out["Shock" .. kind .. "Max"] or 0
+				otherHit = otherHit + (lo + hi) / 2
+				local stored = out[kind .. "StoredHitMin"] or 0
+				local k = stored > 0 and lo / stored or 1
+				otherCrit = otherCrit + ((out[kind .. "StoredCritMin"] or 0) + (out[kind .. "StoredCritMax"] or 0)) / 2 * k
+			end
+			if onHit > 0 then
+				onHit = (chance(lmin + otherHit) + chance(lmax + otherHit)) / 2
+			end
+			if onCrit > 0 then
+				onCrit = (chance((out.LightningStoredCritMin or 0) * scale + otherCrit)
+					+ chance((out.LightningStoredCritMax or 0) * scale + otherCrit)) / 2
+			end
+		end
+		return onHit * (1 - crit) + onCrit * crit
 	end
 	local own = of(output)
 	if own then
@@ -795,7 +845,9 @@ local function pickStats(output, fields)
 			value = committedAddedDPS(output)  -- (SEARCH29: a committed build's added sources from its own output, as a what-if's)
 		end
 		if value == nil and field == "ShockChancePerHit" then
-			value = shockChancePerHit(output)  -- (MECH86: PoB never writes it; shockChancePerHit)
+			local env = build.calcsTab and build.calcsTab.mainEnv  -- (MECH110: the main skill, for Esh's Prowess; a what-if
+			-- reads the committed build's skill, as the Flag: fields do)
+			value = shockChancePerHit(output, env and env.player and env.player.mainSkill, env and env.enemy and env.enemy.modDB)
 		end
 		if value == nil and field == "HeavyStunHitMult" then
 			value = heavyStunHitMult()  -- (MECH95: Blood Loss isn't a Hit; models.bloodhound_fill)
@@ -5382,7 +5434,8 @@ function bridge.useRates(args)
 					end
 				end
 			end
-			local shock = shockChancePerHit(output)  -- (MECH86: PoB never writes ShockChancePerHit; shockChancePerHit)
+			local shock = shockChancePerHit(output, skill, env and env.enemy and env.enemy.modDB)  -- (MECH86: PoB never writes
+			-- ShockChancePerHit; shockChancePerHit; MECH110: Esh's Prowess)
 			if shock then
 				entry.ShockChancePerHit = jsonNumber(shock)
 			end
