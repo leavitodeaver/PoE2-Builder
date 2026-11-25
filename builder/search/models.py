@@ -10760,6 +10760,34 @@ def gas_ignite_within(up: float, duration: float, window: float) -> float:
     return 1.0 - (1.0 - up) ** ((duration + max(window, 0.0)) / duration)
 
 
+# Persistent Ground II / III on a cloud skill (MECH110; COV58's offense row 56, an OVERCOUNT): ground_effects_cannot_trigger,
+# the game's text (gem_stat_descriptions.csd, 26650308) "Ground Surfaces created by Supported Skills cannot be destroyed
+# except by expiring", and the supports' "only end when their duration expires". Gas Arrow's, Gas Grenade's and
+# Decompose's Poison Clouds are their Ground Surfaces (each cloud set carries the game's
+# active_skill_ground_effect_area_of_effect_+%_final_per_second; poe2db lists all three under both supports), and a
+# detonation ends the cloud ("expiring the Poison Cloud(s) early", Mobalytics' Detonator guide), so with the line no
+# cloud explodes: the explosion share is 0 and each cloud lives (and Poisons) its whole duration. MEDIUM-HIGH (the stat
+# id says "cannot trigger"; poe2wiki Persistent Ground II: it "disables effects that can destroy the ground effect
+# prematurely, such as detonating a poison cloud created with Gas Grenade"; Mobalytics' Poison Cloud guide: III stops the
+# cloud "being destroyed by any means other than expiring"); the row gives the share without the line. (checked: game
+# files 26650308, every table's stat columns for ground_effects_cannot_trigger and every Stats id with "ground_effect" +
+# destroy / trigger / expire: SupportPersistentGroundPlayerTwo / Three and one monster set (GSDemonClawBossChillSeedBlanket)
+# only; PoB reads it nowhere (ModCache, ModParser, SkillStatMap, Calc*): no PoB number to take back.) The same supports'
+# ground_effect_duration_+% (Persistent Ground I-III: "50% increased duration of Ground Surfaces"), which PoB's duration
+# never holds (conditions' GROUND_SURFACE_DURATION_STAT note), is added to the cloud's increased duration: seconds + base x
+# it / 100 (an UNDERCOUNT before; MEDIUM: the cloud as a Ground Surface, as above). Not changed (UNVERIFIED whether
+# they're Ground Surfaces the line protects): Storm Lance's lodged spears, Oil Ground catching fire.
+PERSISTENT_GROUND_STAT = "ground_effects_cannot_trigger"
+GROUND_DURATION_STAT = "ground_effect_duration_+%"
+
+
+def persistent_cloud(seconds: float, base: float, support: dict) -> tuple[float, bool]:
+    """(MECH110, see above) (a cloud's seconds with its supports' ground_effect_duration_+% added to its increased
+    duration, whether its supports carry ground_effects_cannot_trigger) from the skill's `support` stats."""
+    inc = number(support.get(GROUND_DURATION_STAT))
+    return max(0.0, seconds + base * inc / 100.0), number(support.get(PERSISTENT_GROUND_STAT)) > 0
+
+
 def set_dps_unscaled(sets: list[dict]) -> dict[str, float]:
     """{label: DPS} of a skill's sets as PoB scores each before this pass's DPS lines (GEM20): setRates' TotalDPS carries
     the previous pass's DPS MORE lines on the skill, its AverageDamage x Speed doesn't (TotalDPS when either is absent)."""

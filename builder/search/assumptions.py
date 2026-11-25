@@ -5539,7 +5539,9 @@ class Assumptions:
             if main.name in models.GAS_GRENADE_CLOUD:  # (GEM36, R48-5: an Ignited boss in the cloud sets it off too)
                 det_share, det_how, _ = self.gas_arrow_share(group["index"], main.stat_set,
                                                              cloud=(det_limit, det_seconds),
-                                                             every_use=("Impact",), burning=True)
+                                                             every_use=("Impact",), burning=True,
+                                                             skill=main.name,
+                                                             base_seconds=models.GAS_GRENADE_CLOUD[main.name][1])
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden, per_spike,
                                                              previous=self.mods, share=det_share,
@@ -10342,7 +10344,9 @@ class Assumptions:
                        f"the resolver's share {base:.0%} ({up_how})")
 
     def gas_arrow_share(self, main_index: int, scored: str | None, cloud: tuple[float, float] | None = None,
-                        every_use: tuple[str, ...] = ("Arrow",), burning: bool = False) -> tuple[float, str, float]:
+                        every_use: tuple[str, ...] = ("Arrow",), burning: bool = False,
+                        skill: str | None = None, base_seconds: float | None = None
+                        ) -> tuple[float, str, float]:
         """(share of Gas Arrow's clouds that explode, how) for models.gas_arrow_model (GEM20): a Detonator use sets off
         every cloud lying there (detonator_rate, as detonated_share); the boss Ignited at some moment of a cloud's life
         (models.gas_ignite_within) with Ignites as the resolver counts them (conditions.ailment_uptime over the other
@@ -10358,6 +10362,14 @@ class Assumptions:
         if uses <= 0:
             return 0.0, "Gas Arrow isn't used", 1.0
         limit, seconds = cloud or (models.GAS_CLOUD_LIMIT, models.GAS_CLOUD_SECONDS)
+        skill, base_seconds = skill or models.GAS_ARROW, base_seconds or models.GAS_CLOUD_SECONDS
+        # (MECH110, models.persistent_cloud: Persistent Ground's longer Ground Surfaces, and II / III's clouds that can't
+        # be destroyed except by expiring, read by stat from the main group's copy of the skill)
+        support = next((x.get("supportStats") or {} for x in build.call(
+            "activeSkills", levelStats=[skill], supportStats=[models.PERSISTENT_GROUND_STAT,
+                                                              models.GROUND_DURATION_STAT])["skills"]
+            if x.get("name") == skill and x.get("group") == main_index and not x.get("disabled")), {})
+        seconds, persists = models.persistent_cloud(seconds or base_seconds, base_seconds, support)
         life = models.gas_cloud_life(uses, limit, seconds)
         lying = min(float(limit), uses * life)
         det_rate, det_how = self.detonator_rate(main_index)
@@ -10393,6 +10405,14 @@ class Assumptions:
         others_n = len([o for o in others.get("Ignite") or () if o])
         source = ("the explosions' own Ignites" if own and scored == "Explosion" else
                   f"the {scored}'s own Ignites" if own else "no own Ignite read")
+        if persists:  # (MECH110: no cloud explodes, each lives its whole duration)
+            ground = f" ({number(support.get(models.GROUND_DURATION_STAT)):+g}% Ground Surface duration)" if number(
+                support.get(models.GROUND_DURATION_STAT)) else ""
+            return 0.0, (f"none: Persistent Ground on it ('Ground Surfaces created by Supported Skills cannot be destroyed "
+                         f"except by expiring', ground_effects_cannot_trigger), so no cloud explodes and each lives its "
+                         f"{life:.1f} s{ground} (MEDIUM-HIGH: poe2wiki, Mobalytics; without that line {share:.1%} of "
+                         f"clouds would explode: the boss Ignited {up:.1%} of the fight, Detonators"
+                         + (" and Fire DoT" if burning else "") + f" {detonated:.0%})"), models.gas_cloud_poisons(life)
         return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
                        f"Detonators" + (" and Fire DoT" if burning else "") + f" set off {detonated:.0%} ({det_how}"
