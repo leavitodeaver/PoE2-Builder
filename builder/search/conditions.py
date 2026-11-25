@@ -720,6 +720,25 @@ NO_BLIND_STAT = "cannot_inflict_blind"  # Blindside (sup_dex.lua SupportBlindsid
 # (the build's lines that name Blind: only then is the main skill asked for it; MECH59: a backspace had stood for \b
 # here since MECH55, so the check never ran)
 BLIND_LINE = re.compile(r"\bblind", re.I)
+# Blind on Hit from a skill's own stats or its supports' (MECH109; an UNDERCOUNT: the Blinded box read only text lines,
+# so Twister's own Blind, the Blind supports' and the others below counted 0, and "against Blinded" lines with them;
+# COV58's calibration: build 01's author Blinds the boss with Twister, x1.019). Game files 26650308 (checked: every Stats id
+# holding "blind" with an on-Hit meaning and its users in GrantedEffectStatSets ConstantStats / ImplicitStats and
+# GrantedEffectStatSetsPerLevel AdditionalStats): attacks_chance_to_blind_on_hit_% 100 on TwisterPlayer and
+# FlashGrenadePlayer; global_chance_to_blind_on_hit_% on BlackPowderBlitzPlayer, TriggeredExplosiveGrowthPlayerTwo,
+# SupportBlindPlayer / SupportBlindPlayerTwo (Blind I / II) and CorpseBeetleExplode (a minion's: not read, minions' skills
+# aren't in PoB's activeSkillList); the rest are monsters'. PoB maps global_chance_to_blind_on_hit_% to BlindChance and
+# attacks_chance_to_blind_on_hit_% to nothing (SkillStatMap 536), and sets no Blinded box from either. Item and passive
+# lines ("N% chance to Blind Enemies on Hit") are text lines debuff_uptime already reads. Each skill's chance a hit
+# (its own + its supports', the attack one only on an Attack) at its own hits (the main skill's Speed x HitChance at its
+# share; another group's at side_hit_rows' hits: 0 where no row is read, said), each Blind 4 s (KeywordPopups Blind)
+# x the "increased Blind Duration" lines, combined as independent with the text lines' Blind. Blindside's
+# cannot_inflict_blind on a skill stops its Blind. A supported skill with no hit rate read (Living Lightning's minions,
+# a skill no side row reads) counts 0, said in the basis.
+BLIND_HIT_STATS = ("global_chance_to_blind_on_hit_%", "attacks_chance_to_blind_on_hit_%")
+# (a Blind support beside Repulsion: its Repulsion Wave, "Deals Physical Attack damage in an area around the Cursed
+# target", PoB other.lua, hits the boss once a detonation; no side row reads it, so its rate comes from the curse's model)
+REPULSION_WAVE = "Repulsion Wave"
 
 
 # (MECHC27; PATCH_CHECK K2-3, an OVERCOUNT: Combat Frenzy's Frenzy Charge was read at the full Freeze / Electrocute / Pin
@@ -10204,10 +10223,24 @@ class Conditions:
         if not found:
             return None
         duration = DEBUFF_DURATION * models.duration_scale(list(texts), "maim")
+        got = self._on_hit_events(found, stats, main_types, side_rows, main_index, attacks_only=True)
+        if not got:
+            return None
+        up, parts = 1.0 - math.prod(periodic_absent(1.0 - miss, hits * duration) for miss, hits in got[0]), got[1]
+        return up, (f"the Maim support: {'; '.join(parts)}; {duration:g} s each: {up:.0%} up (MECH105 / MECH106; PoB's "
+                    "Maimed enemy takes -15% Evasion, CalcSetup 71)")
+
+    def _on_hit_events(self, found: list[tuple[str, object, float]], stats: dict, main_types: set[str],
+                       side_rows: list[dict] | None, main_index, attacks_only: bool,
+                       extra: dict[str, tuple[float, str]] | None = None) -> tuple[list, list] | None:
+        """(MECH109, split out of _support_maim for it and _skill_blind) ([(1 - chance, hits a second)], [how]) for
+        `found` = [(skill name, group, chance a hit)]: the main skill at its own hits (only when it is an Attack with
+        `attacks_only`), each other group's skill at its side_hit_rows hits (else `extra`'s (hits, how) for its name);
+        None when none hits."""
         events, parts = [], []  # ((1 - chance), hits a second)
         for name, group, chance in found:
             if name == self.main_skill and group in (main_index, None):
-                if "Attack" not in main_types:
+                if attacks_only and "Attack" not in main_types:
                     continue
                 own = models.at_main_share(stats)
                 hits = number(own.get("Speed")) * min(number(own.get("HitChance")) or 100.0, 100.0) / 100.0
@@ -10216,14 +10249,57 @@ class Conditions:
                 row = next((r for r in side_rows or () if r.get("index") == group and r.get("name") == name), None)
                 hits = number((row or {}).get("hits"))
                 where = f"{name} beside it ({(row or {}).get('how') or 'no hits read for it: 0'})"
+                if hits <= 0 and name in (extra or {}):
+                    hits, how = extra[name]
+                    where = f"{name} beside it ({how})"
             if hits > 0:
                 events.append((1.0 - chance, hits))
                 parts.append(f"{where}: {chance:.0%} a hit, {hits:.2f} hits/s")
-        if not events:
+        return (events, parts) if events else None
+
+    def _skill_blind(self, stats: dict, main_types: set[str], texts: list[str],
+                     side_rows: list[dict] | None = None) -> tuple[float, str] | None:
+        """(MECH109; BLIND_HIT_STATS' note) (share of the fight the boss is Blinded by the build's skills whose own stats
+        or supports' stats Blind on Hit, how), or None with no such skill."""
+        if not self.main_skill:
             return None
-        up = 1.0 - math.prod(miss ** (hits * duration) for miss, hits in events)
-        return up, (f"the Maim support: {'; '.join(parts)}; {duration:g} s each: {up:.0%} up (MECH105 / MECH106; PoB's "
-                    "Maimed enemy takes -15% Evasion, CalcSetup 71)")
+        main_index = self.build.call("groups").get("mainSocketGroup")
+        names = sorted({s["name"] for s in self.build.call("activeSkills")["skills"] if not s.get("disabled")})
+        raw = self.build.call("activeSkills", levelStats=names, supportStats=[*BLIND_HIT_STATS, NO_BLIND_STAT])["skills"]
+        found = []
+        for s in raw:
+            if s.get("disabled"):
+                continue
+            own, sup = s.get("levelStats") or {}, s.get("supportStats") or {}
+            if number(own.get(NO_BLIND_STAT)) or number(sup.get(NO_BLIND_STAT)):
+                continue  # (Blindside: "cannot themselves inflict Blind")
+            chance = sum(number(own.get(stat)) + number(sup.get(stat)) for stat in BLIND_HIT_STATS
+                         if stat == BLIND_HIT_STATS[0] or s.get("attack"))
+            if chance > 0:
+                found.append((s["name"], s.get("group"), min(chance, 100.0) / 100.0))
+        if not found:
+            return None
+        duration = DEBUFF_DURATION * models.duration_scale(list(texts), "blind")
+        extra = {}
+        if any(f[0] == REPULSION_WAVE for f in found) and (use := next(
+                (u for u in stats.get("_curse_uses") or () if u.name == models.REPULSION), None)) and use.share > 0:
+            # (Repulsion's wave hits "an area around the Cursed target": each Hit on the boss while it carries the curse
+            # detonates it, so waves a second = the curse's share x the hits on the boss, the same hits that end its
+            # hold in models.repulsion_use: the main skill's, its minions', the other groups')
+            minions, minion_how = repulsion_minion_hits(self.build, stats)
+            own = models.hits_per_second(models.at_main_share(stats))
+            hits = own + number(minions)
+            extra[REPULSION_WAVE] = (use.share * hits, f"a wave at each Hit on the boss while Repulsion curses it: "
+                                                        f"{use.share:.0%} of the fight x {hits:.2f} hits/s (the main "
+                                                        f"skill's {own:.2f}" + (f" + {minion_how}" if number(minions) > 0
+                                                                                 else "") + ")")
+        got = self._on_hit_events(found, stats, main_types, side_rows, main_index, attacks_only=False, extra=extra)
+        if not got:
+            return None
+        up = 1.0 - math.prod(periodic_absent(1.0 - miss, hits * duration) for miss, hits in got[0])
+        return up, (f"Blind on Hit from the skills' own stats: {'; '.join(got[1])}; {duration:g} s each: {up:.0%} up "
+                    "(MECH109: Twister's / Flash Grenade's attacks_chance_to_blind_on_hit_%, the Blind supports' "
+                    "global_chance_to_blind_on_hit_%; minions' own Blind not read)")
 
     def _leap_ground(self, stats: dict) -> tuple[float, float, str] | None:
         """(MECH105) (Leaps a second that Detonate a Spear, chance, how) for shocked_ground, or None with no quality chance
@@ -11959,6 +12035,8 @@ class Conditions:
         # (MECH105 / MECH106: the Maim support on the main skill and on the side Attacks, MAIM_STAT's note)
         if maimed := self._support_maim(stats, main_types, texts, stats["_side_rows"]):
             stats["_debuff_extra"]["conditionEnemyMaimed"] = maimed
+        if blinded := self._skill_blind(stats, main_types, texts, stats["_side_rows"]):  # (MECH109: BLIND_HIT_STATS)
+            stats["_debuff_extra"]["conditionEnemyBlinded"] = blinded
         side = side_hits(group_rows, groups_now, hitters, groups_all.get("mainSocketGroup"), models.press_choices(self.build))
         stats["_side_hits"] = side if side[0] > 0 else None
         stats["_gem_line_texts"] = {line["text"] for line in lines if str(line.get("source") or "").startswith("gem:")}
