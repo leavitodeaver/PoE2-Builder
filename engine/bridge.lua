@@ -5421,7 +5421,8 @@ function bridge.minionSkillHit(args)
 		result.reason = nil
 		local output = env.minion.output or { }
 		-- (MECH104: CastRate is the use rate BEFORE the cooldown cap, CalcOffence 2983-3010; Speed is after it)
-		for _, field in ipairs({ "AverageHit", "AverageDamage", "Speed", "CastRate", "Cooldown", "TotalDPS", "HitChance" }) do
+		for _, field in ipairs({ "AverageHit", "AverageDamage", "Speed", "CastRate", "Cooldown", "TotalDPS", "HitChance",
+				"CritChance" }) do  -- (MECH107: CritChance, read by a probe of the Commands' Critical Weakness)
 			if type(output[field]) == "number" then
 				result[field] = jsonNumber(output[field])
 			end

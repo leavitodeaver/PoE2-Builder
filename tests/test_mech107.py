@@ -91,3 +91,21 @@ def test_on_hit_stacks_add_to_the_held_stacks():
     assert models.critical_weakness_stacks([], [], {}, None, 2.0, on_hit=[("a", 3.0), ("b", 3.0)])[0] == 20.0
     mods, _ = models.critical_weakness_mods((stacks, how))
     assert mods[0]["name"] == "SelfCritChance" and mods[0]["enemy"] and mods[0]["value"] == pytest.approx(2.0)
+
+
+def test_withering_presence_duration_carries_the_skills_own_modifiers(engine):
+    """MECH107 (MECHC60's find): conditions reads Withering Presence's duration from its group's useRates row (PoB's
+    output.Duration), so Prolonged Duration II's 35% more reaches it; the level stat alone is the base 6 s."""
+    def lasts(gems):
+        engine.call("newBuild")
+        engine.call("setLevel", level=90)
+        group = engine.call("setGroup", gems=[{"name": n, "level": 20, "quality": 0} for n in gems], fields=[])["group"]
+        rows = engine.call("useRates", indices=[group["index"]])["rates"]
+        return next(models.number(r.get("duration")) for r in rows
+                    if str(r.get("name") or "").startswith("Withering Presence"))
+    try:
+        plain, longer = lasts(["Withering Presence"]), lasts(["Withering Presence", "Prolonged Duration II"])
+        print("PROBE Withering Presence duration", plain, longer)
+        assert plain > 0 and longer == pytest.approx(plain * 1.35, rel=0.02)
+    finally:
+        engine.call("newBuild")

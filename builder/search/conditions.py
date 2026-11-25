@@ -229,8 +229,8 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
     share"; under SWITCH_ON, 7%, left out), the other stacks the rest of it (the 4th value: the box's setting with the
     effect off, Search.weigh_uptimes). PoB reads the count whole (ModStore floors a Multiplier), so the time weighting is
     done by the uptime machinery, not a fractional count. Labelled: stacks that outlast an Ignite by their own duration
-    aren't counted (a small undercount), the build-up to 10 at the fight's start is taken as instant, and duration
-    modifiers aren't read (Withering Presence's base 6 s; skill duration mods would lengthen it: an undercount)."""
+    aren't counted (a small undercount), the build-up to 10 at the fight's start is taken as instant. Withering Presence's
+    duration is PoB's for its group, with the skill's duration modifiers (MECH107)."""
     stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     hit = number(stats.get("HitChance")) / 100 if "HitChance" in stats else 1.0
     rate = number(stats.get("Speed")) * hit  # hits per second
@@ -311,9 +311,10 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
             idle.append(f"Archon of Chayula's {chance:g}% chance to Wither on Hit ({how})")
     entry_up, entry_how = 0.0, ""
     if entry_seconds:  # (MECH83: Wither Away, WITHER_ENTRY's note)
-        rate, how = models.presence_reentries(lines, stats, _boss_distance(lines, stats)[0] / 10)
+        # (MECH107: entry_rate, not `rate`: the hits a second the note prints below were overwritten by the re-entries)
+        entry_rate, how = models.presence_reentries(lines, stats, _boss_distance(lines, stats)[0] / 10)
         seconds = max(entry_seconds)
-        entry_up = wither_entry_share(rate, seconds)
+        entry_up = wither_entry_share(entry_rate, seconds)
         entry_how = (f"Unwithered enemies are Withered for {seconds:g} seconds when they enter your Presence: {how}; one "
                      f"stack {seconds:g} s per entry on an Unwithered boss, {entry_up:.0%} of the fight (MEDIUM)")
         if entry_up <= 0:
@@ -11703,8 +11704,14 @@ class Conditions:
                     if self.main_skill in WITHER_ON_HIT_SKILLS:
                         stats["_wither_main"] = (self.main_skill, {s: got.get(s) for s in WITHER_SKILL_STATS})
                 elif skill["name"] == WITHERING_PRESENCE:
+                    # (MECH107, MECHC60's find, an UNDERCOUNT: the duration WITH the skill's own modifiers, PoB's
+                    # output.Duration for its group (bridge useRates, as Assumptions.malice_rate), e.g. Prolonged
+                    # Duration II's 35% more on build 10; the level stat's base only where PoB gives none)
+                    rows = self.build.call("useRates", indices=[skill["group"]])["rates"] if skill.get("group") else []
+                    lasts = next((number(r.get("duration")) for r in rows
+                                  if str(r.get("name") or "").startswith(WITHERING_PRESENCE)), 0.0)
                     stats["_wither_presence"] = (number(got.get(WITHERING_PRESENCE_STATS[0])) / 1000,
-                                                 number(got.get(WITHERING_PRESENCE_STATS[1])) / 1000)
+                                                 lasts or number(got.get(WITHERING_PRESENCE_STATS[1])) / 1000)
         # Ailments the main skill consumes on hit (CONSUME_STATS; looked up only when a gem of its group says it consumes)
         if consumes := main_consumes(self.build, self.main_skill, main_gems):
             stats["_consumes"] = consumes
