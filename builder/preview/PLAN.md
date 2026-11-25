@@ -72,6 +72,12 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    Darkness (x(1 + 0.03 D) on Ambush hits, D from the build's sources per Stealth cycle); Shades (1 + 0.5 x Shades in
    range on an Ambush); Stealth (a cycle from Shroud's cooldown / Duplicity / kills, no flat rate); Engulf in Darkness
    (fed by MECH-A's Immobilise cycles); Spectral Impale (LOW).
+   DONE (PREVIEW5, duplicity.py): Duplicity, a second Stealth source: a trigger = a press (the search's chosen rate) AND
+   the boss's next landing Hit (bosses.benefit_skill_time x boss_hits.land_share, no movement dodge: you stand in the
+   attack for its Shade), the lower of the two; it Engulfs the boss (6 s), its Engulf explodes on the build's own
+   Immobilises (skills.py), its Shade is taken to die to the Hit (Volatile Shades: one blast a trigger, row 0). PoB
+   scores it at 0 damage, so it is never screened as a main skill. Engulf's Darkness into the Ambush: each explosion's
+   Remnant +5 (taken as collected) and each Impale on an Engulfed boss +1, over the Stealth cycle, at most 30.
 5. Uniques (as item data, PoB-parseable lines first; Oro's Sacrifice, Agnar, Ashcaller DONE on hidden bases derived
    from their cards): Windripper, Blueflame Bracers (changed), Oro's Sacrifice,
    Molten Tenet, Agnar, Riptide ... Each needs its base; granted skills have no data yet. Sacrificial Flame (PREVIEW3,

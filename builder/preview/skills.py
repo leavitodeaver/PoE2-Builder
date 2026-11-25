@@ -23,7 +23,7 @@ from typing import Any
 
 from builder.preview import ASTERISK
 
-FIELDS = ["AverageHit", "MainHand.AverageHit", "Speed", "HitChance"]
+FIELDS = ["AverageHit", "MainHand.AverageHit", "Speed", "HitChance", "LedgerBaseMultiplier"]
 ENGULF_PCT, BLADE_OF_NIGHT_PCT = 94.0, 144.0
 DASH_PCT, SHADOW_ASSAULT_PCT = 177.0, 78.0
 ERUPTION_PCT, EARTHREND_PCT = 66.0, 66.0
@@ -71,7 +71,7 @@ def skill_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[di
                                 f"Immobilises, {rate:.3f}/s ({how or 'none'}), each {ENGULF_PCT:g}% against Blade of "
                                 f"Night's {BLADE_OF_NIGHT_PCT:g}%, {each:,.0f} (the same modifiers taken to apply; 94% "
                                 f"not its own page's 127%: UNVERIFIED). No Immobilise source: 0. Its Remnants' Darkness "
-                                f"isn't added to the Ambush (an UNDERCOUNT){ASTERISK}"),
+                                f"(+5 each) goes to the Ambush (stealth.py){ASTERISK}"),
                       "play": (f"Freeze, Electrocute, Pin or Heavy Stun the boss while it is Engulfed: each one blows the "
                                f"Engulf up ({rate:.3f} a second here){ASTERISK}")})
     elif main.name == "Shadow Assault":
@@ -86,6 +86,25 @@ def skill_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[di
                                 f"{SHADOW_ASSAULT_PCT:g}%, {each:,.0f} (full damage, no 50% less: UNVERIFIED). Row: one "
                                 f"dash a Final Strike, {finals * each:,.0f} DPS{ASTERISK}"),
                       "play": f"Keep the three-strike combo going: every Final Strike sends your Shades through the boss{ASTERISK}"})
+    # (PREVIEW5) Duplicity's Engulf on the boss explodes on the build's own Immobilises (Blade of Night's own counted above)
+    from builder.preview import duplicity as dup
+
+    if main.name != dup.BLADE_OF_NIGHT and dup._group(build, dup.DUPLICITY) is not None:
+        read = {**build.call("stats", fields=dup.FIELDS), **stats}
+        baited, bait = dup.duplicity_rate(build, read)
+        explosions, how = dup.engulf_explosions(read, main.name, baited)
+        own = models.number(read.get("LedgerBaseMultiplier")) * 100
+        each = hit * dup.ENGULF_PCT / own if own > 0 else 0.0
+        dps = explosions * each
+        added += dps
+        notes.append({"label": f"Duplicity's Engulf in Darkness explosions{ASTERISK}", "value": f"{dps:,.0f} DPS",
+                      "confidence": "LOW",
+                      "basis": (f"each Duplicity trigger ({baited:.3f}/s) Engulfs the boss for 6 s; it explodes on the "
+                                f"build's own Immobilises: {explosions:.3f}/s ({how or 'no trigger'}), each "
+                                f"{dup.ENGULF_PCT:g}% against {main.name}'s {own:g}% (its damage effectiveness at its gem "
+                                f"level), {each:,.0f} (the same modifiers taken to apply, LOW). No Immobilise or no trigger: "
+                                f"0{ASTERISK}"),
+                      "play": f"Immobilise the boss (Freeze, Electrocute, Pin, Heavy Stun) while Duplicity's Engulf is on it{ASTERISK}"})
     if added > 0:
         mods.append(models.added_input("PreviewSkills", added))
     return mods, notes, added

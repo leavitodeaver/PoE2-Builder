@@ -481,12 +481,12 @@ def test_the_knife_skills_from_stealth(engine):
 # (PREVIEW4) each 1.0 support offered exactly where its "Supports ..." text allows and refused elsewhere (the user, 24 Nov:
 # "be careful with what mods are allowed with others"), on real PoB's own support check (bridge.supportCandidates)
 ALLOWED = {
-    "Overchannel": ({"Sand Scour", "Worldcutter", "Incinerate", "Snipe"}, {"Viper Strike", "Boneshatter", "Ethereal Knives"}),
+    "Overchannel": ({"Sand Scour", "Worldcutter", "Incinerate", "Snipe", "Duplicity"}, {"Viper Strike", "Boneshatter", "Ethereal Knives"}),
     "Impaling Blade II": ({"Viper Strike", "Perforate", "Boneshatter", "Ice Strike"},
                           {"Ethereal Knives", "Shroud", "Incinerate", "Frost Bomb"}),
-    "Rending Blade": ({"Viper Strike", "Boneshatter"}, {"Ethereal Knives", "Whirling Blades", "Incinerate"}),
+    "Rending Blade": ({"Viper Strike", "Boneshatter"}, {"Ethereal Knives", "Whirling Blades", "Incinerate", "Duplicity"}),
     "Sandstorm": ({"Sand Scour", "Perforate"}, {"Viper Strike", "Worldcutter", "Boneshatter"}),
-    "Volatile Shades": ({"Shroud", "Shadow Assault"}, {"Viper Strike", "Ethereal Knives", "Boneshatter"}),
+    "Volatile Shades": ({"Shroud", "Shadow Assault", "Duplicity"}, {"Viper Strike", "Ethereal Knives", "Boneshatter"}),
     "Abundant Remnants I": ({"Frost Bomb"}, {"Viper Strike", "Shroud", "Boneshatter"}),
     "Galvanising Blades": ({"Earthrend"}, {"Charged Slash", "Viper Strike", "Sand Scour", "Boneshatter", "Perforate"}),
 }
@@ -653,3 +653,71 @@ def test_earthrend_blade_of_night_shadow_assault_and_galvanising(engine):
     sa = engine.call("stats", fields=fields)
     _, notes, added = skill_model(Build(), SimpleNamespace(name="Shadow Assault"), sa)
     assert added > 0 and "Final Strike" in notes[0]["basis"]
+
+
+def test_duplicity_and_engulf_darkness_readings():
+    """(PREVIEW5) pure readings: the boss's landing Hits (no dodge), Engulf's uptime, its Darkness."""
+    from builder.preview import duplicity as dup
+
+    hits, every, how = dup.boss_hit_rate({"enemySkillTime": 1.0, "EvadeChance": 0, "EffectiveBlockChance": 0})
+    assert hits == pytest.approx(every) and every > 0 and "none dodged" in how
+    half, every2, _ = dup.boss_hit_rate({"enemySkillTime": 1.0, "EvadeChance": 50, "EffectiveBlockChance": 0})
+    assert every2 == pytest.approx(every) and half < hits  # (evaded Hits don't trigger it)
+    assert dup.engulf_uptime("Blade of Night", 0.0)[0] == 1.0
+    assert dup.engulf_uptime("Viper Strike", 0.05)[0] == pytest.approx(0.3)
+    assert dup.engulf_uptime("Viper Strike", 0.5)[0] == 1.0 and dup.engulf_uptime("Viper Strike", 0.0)[0] == 0.0
+    # Blade of Night hitting 2/s at 50% Impale, 0.1 explosions/s: 0.5 + 1 Darkness a second
+    gain, how = dup.darkness_gain({"Speed": 2.0, "HitChance": 100, "LedgerImpaleChance": 50}, "Blade of Night", 0.0, 0.1)
+    assert gain == pytest.approx(0.1 * 5 + 1.0) and "Remnants" in how
+    assert dup.darkness_gain({"Speed": 2.0, "LedgerImpaleChance": 100}, "Viper Strike", 0.0, 0.0)[0] == 0.0
+
+
+def test_duplicity_triggers_from_the_bosss_hits(engine):
+    """(PREVIEW5) Duplicity: a Stealth source at the lower of its presses and the boss's landing Hits (no flat rate),
+    never a main skill (PoB damage 0), Conceal / Overchannel / Volatile Shades offered on it as their text says."""
+    from types import SimpleNamespace
+
+    from builder.preview import duplicity as dup
+    from builder.preview.skills import FIELDS as SKILL_FIELDS, skill_model
+    from builder.preview.stealth import ambush_model
+    from builder.preview.supports import FIELDS as SUPPORT_FIELDS, overchannel_hold, support_model
+    from builder.search import models
+
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    gems = {g["name"]: g for g in preview.gems()}
+
+    def build(presses):
+        return SimpleNamespace(ctx=SimpleNamespace(gems=gems, request=BuildRequest(preview_1_0=True)),
+                               objective=SimpleNamespace(**{models.PRESS_CHOICES: presses}), call=engine.call)
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[], raw=DAGGER)
+    engine.call("addSkillGroup", text="Viper Strike 13/0 1", main=True)
+    engine.call("addSkillGroup", text="Duplicity 9/0 1\nConceal 1/0 1\nVolatile Shades 1/0 1", main=False)
+    groups = {s["name"]: g["index"] for g in engine.call("groups")["groups"] for s in g["skills"]}
+    offered = set(engine.call("supportCandidates", group=groups["Duplicity"])["names"])
+    assert {"Conceal", "Overchannel", "Volatile Shades"} <= offered
+    assert not {"Rending Blade", "Impaling Blade II", "Galvanising Blades"} & offered
+    assert overchannel_hold("Duplicity", {"Channel"})[0] == 0
+    stats = {**engine.call("stats", fields=list(dict.fromkeys([*models.MODEL_FIELDS, *dup.FIELDS, *SKILL_FIELDS,
+                                                               *SUPPORT_FIELDS])))}
+    # not pressed: no trigger, said
+    mods, notes = ambush_model(build({}), SimpleNamespace(name="Viper Strike"), stats)
+    assert not mods and any("Duplicity's triggers" in n["label"] and n["value"] == 0 for n in notes)
+    # pressed once a second: the boss's landing Hits cap it
+    rate, d = dup.duplicity_rate(build({"Duplicity": 1.0}), {**stats, "_boss": None})
+    assert 0 < rate == pytest.approx(min(d["pressed"], d["hits"])) and d["hits"] <= d["all_hits"]
+    mods, notes = ambush_model(build({"Duplicity": 1.0}), SimpleNamespace(name="Viper Strike"), stats)
+    ambush = next(n for n in notes if n["label"].startswith("Ambush"))
+    assert len(mods) == 1 and ambush["value"] > 0 and "Duplicity" in ambush["basis"] and "Conceal 10" in ambush["basis"]
+    assert preview.ASTERISK in ambush["basis"] and "Duplicity" in ambush["play"]
+    # its Engulf explosions (0 without an Immobilise: said) and its Shade's Volatile blast
+    _, notes, _ = skill_model(build({"Duplicity": 1.0}), SimpleNamespace(name="Viper Strike"), {**stats, "_boss": None})
+    assert any(n["label"].startswith("Duplicity's Engulf") for n in notes)
+    _, notes, added = support_model(build({"Duplicity": 1.0}), SimpleNamespace(name="Viper Strike"), stats)
+    blast = next(n for n in notes if n["label"].startswith("Volatile Shades on Duplicity"))
+    assert added > 0 and "Row: 0" in blast["basis"]
+    # never a main skill: PoB gives it no damage
+    engine.call("addSkillGroup", text="Duplicity 9/0 1", main=True)
+    assert not (engine.call("stats", fields=["TotalDPS"]).get("TotalDPS") or 0)

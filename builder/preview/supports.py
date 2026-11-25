@@ -57,6 +57,8 @@ def overchannel_hold(name: str, types: set[str]) -> tuple[float | None, str]:
     on (a sustained channel kept up against the boss)."""
     from builder.preview.readings import payoff_stage
 
+    if name == "Duplicity":  # (PREVIEW5: a bait released by the boss's next Hit)
+        return 0.0, "a bait released by the boss's next Hit: how long it is held isn't published (UNVERIFIED)"
     row = _row(name)
     held = ((row or {}).get("model") or {}).get("held_stages")
     if held:
@@ -173,6 +175,27 @@ def support_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[
     # Volatile Shades: Shades that die explode
     for group in groups:
         if VOLATILE not in supports(group):
+            continue
+        if "Duplicity" in supports(group):  # (PREVIEW5: its Shade takes the boss's Hit: taken to die and explode)
+            from builder.preview import duplicity as dup
+
+            read = {**build.call("stats", fields=dup.FIELDS), **stats,
+                    "_boss": getattr(getattr(build.ctx, "request", None), "boss", None)}
+            baited, bait = dup.duplicity_rate(build, read)
+            own = _number(stats.get("LedgerBaseMultiplier")) * 100
+            attack = "Attack" in main_types and own > 0
+            hit = (_number(stats.get("AverageHit") or stats.get("MainHand.AverageHit")) * VOLATILE_PCT / own
+                   if attack else 0.0)
+            dps = baited * hit
+            added += dps
+            notes.append({"label": f"Volatile Shades on Duplicity{ASTERISK}", "value": f"{dps:,.0f} DPS",
+                          "confidence": "LOW",
+                          "basis": (f"one Shade a Duplicity trigger ({baited:.3f}/s), taken to die to the Hit it takes "
+                                    f"(327 Life) and explode, {VOLATILE_PCT:g}% against {main.name}'s {own:g}% (the Shade "
+                                    f"taken to carry the main skill's modifiers, LOW), {hit:,.0f} a blast"
+                                    + ("" if attack else f"; {main.name} isn't an Attack, so no yardstick: 0")
+                                    + f". Row: 0 if the Shade survives the Hit{ASTERISK}"),
+                          "play": f"Bait the boss's attacks with Duplicity: each Shade that dies explodes{ASTERISK}"})
             continue
         makers = [s for s in supports(group) if s in SHADE_MAKERS]
         if not makers:
