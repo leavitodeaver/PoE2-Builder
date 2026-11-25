@@ -92,3 +92,42 @@ def test_real_pob_one_wildwoods_gifts_copy_is_read(engine):
     two = build.call("chargeGain")["blooms"]["rate"]
     assert two == pytest.approx(one)
 
+
+def test_devour_quality_and_gorge_turn_the_adds_corpses_into_flask_charges():
+    """Devour's quality chance (as though killing) and Gorge's 10 Life / 10 Mana Flask charges a corpse, on the preset's
+    add corpses split over the corpse skills by what they ask (flasks.CORPSE_CHARGES' note); a lone boss: unchanged."""
+    from types import SimpleNamespace
+
+    from builder.search import flasks
+
+    class Fake:
+        ctx = SimpleNamespace(gems={"Devour": {"skillTypes": ["TargetsDestructibleCorpses"]},
+                                    "Detonate Dead": {"skillTypes": ["TargetsDestructibleCorpses"]}})
+
+        def groups(self):
+            return [{"index": 1, "enabled": True, "gems": [{"name": "Devour"}, {"name": "Gorge"}],
+                     "skills": [{"name": "Devour"}]},
+                    {"index": 2, "enabled": True, "gems": [{"name": "Detonate Dead"}],
+                     "skills": [{"name": "Detonate Dead"}]}]
+
+        def call(self, what, **kw):
+            if what == "useRates":
+                return {"rates": [{"speed": 0.5 if kw["indices"] == [1] else 0.5}]}
+            return {"skills": [{"name": "Devour", "group": 1,
+                                "levelStats": {flasks.DEVOUR_FLASK_STAT: 50.0},
+                                "supportStats": {flasks.GORGE_STATS["Life"]: 10.0, flasks.GORGE_STATS["Mana"]: 10.0}}]}
+
+    gain = flasks.Charges(add_kills=1.0)
+    got = flasks.corpse_flask_charges(Fake(), gain)
+    # Devour asks 0.5 x 3 = 1.5 corpses/s, Detonate Dead 0.5: 1.0 taken, Devour's share 0.75
+    assert got.corpse_kills == pytest.approx(0.75 * 0.5)
+    assert got.gorge_life == pytest.approx(7.5) and got.gorge_mana == pytest.approx(7.5)
+    assert flasks.kill_charges(got) == pytest.approx((1.0 + 0.375) * flasks.KILL_CHARGES_NORMAL)
+    life = {"kind": "Flask"}
+    assert flasks.charges_per_second(life, got, "Life") > flasks.charges_per_second(life, gain, "Life") + 7.5
+    # no Devour / Gorge: unchanged
+    class Plain(Fake):
+        def groups(self):
+            return [{"index": 2, "enabled": True, "gems": [{"name": "Detonate Dead"}], "skills": [{"name": "Detonate Dead"}]}]
+
+    assert flasks.corpse_flask_charges(Plain(), gain) is gain

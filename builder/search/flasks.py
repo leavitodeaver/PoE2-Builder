@@ -125,6 +125,12 @@ class Charges:
     bloom_effect: float = 0.0
     # (MECHC9, A23-4) the boss preset's adds killed per second (models.kill_rate's enemies; Charges.of reads them)
     add_kills: float = 0.0
+    # (MECHC62: CORPSE_CHARGES' note) corpses Devour's quality turns into kill charges a second, Gorge's Life / Mana
+    # Flask charges a second, and how
+    corpse_kills: float = 0.0
+    gorge_life: float = 0.0
+    gorge_mana: float = 0.0
+    corpse_how: str = ""
     # (MECHC12) the build's Perfect Timing skills other than the main one, pressed per second, and how (Charges.of:
     # models.press_use_rate over their groups, their cooldown, duration or the search's chosen rate; 0 with none)
     perfect_press_rate: float = 0.0
@@ -176,6 +182,8 @@ class Charges:
                                deflect_stops=deflect_stops(texts or []))
         if gain.bloom_rate > 0:  # (MECHC61: BLOOM_REMNANTS' note)
             gain = bloom_remnants(build, gain, texts if texts is not None else _texts(build))
+        if gain.add_kills > 0:  # (MECHC62: CORPSE_CHARGES' note; a lone boss leaves no corpses: no bridge call)
+            gain = corpse_flask_charges(build, gain)
         life_slot = next((k for k, v in FLASK_SLOTS.items() if v == "Life"), None)
         drunk = (getattr(build, "equipped", None) or {}).get(life_slot) is not None
         texts_now = (texts if texts is not None else _texts(build)) if drunk else []
@@ -526,6 +534,79 @@ def bloom_note(gain: Charges) -> str:
             f"{gain.bloom_effect:g}% increased effect scales the charges (UNVERIFIED, leaning yes, MEDIUM-LOW: not counted)")
 
 
+# Flask and charm charges from corpses (MECHC62; COV57's offence ranking rows 94 / 183 / 184, example builds 20 / 05; an
+# UNDERCOUNT of flask / charm charges where the boss preset's adds leave corpses). Game wording (PoB's copies of game
+# 26650308's descriptions): Devour's quality "{0}% chance to gain Flask and Charm charges as though killing the enemy on
+# Corpse consumption" (wyvern_devour_flask_charm_charge_gain_chance_%, 2.5 a quality point: PoB act_str.lua 3697) and
+# Gorge's "Supported Skills grant {0} Life Flask Charges / Mana Flask Charges for each Corpse Consumed"
+# (SupportGorgePlayer: support_grants_X_life / mana_flask_charges_on_using_corpse, 10 each). Carriers (checked: each
+# stat over every table of game 26650308: Gorge's stat set alone for the two; Devour's quality row in PoB, none in the
+# game's Mods / PassiveSkills); PoB reads none (no Modules or SkillStatMap entry). The corpses: the preset's add kills'
+# (bosses.kill_stats; a lone boss leaves none, and then nothing is read), split over the build's corpse users by what
+# each asks (its uses a second x the corpses a use: Devour 1 + 2 nearby, models.DEVOUR_CORPSES_A_USE; other corpse
+# skills one, MEDIUM-LOW), Sacrifice's undead minions not counted here (a lower reading). Devour's share x its chance
+# becomes extra kills for kill_charges (every flask and charm, the adds taken as Normal with Power 1, as kill_charges);
+# a Gorge-supported skill's share x 10 goes to the Life and Mana flasks, before "increased Flask Charges gained"
+# (MEDIUM: they are charges gained).
+DEVOUR_SKILL, GORGE = "Devour", "Gorge"
+DEVOUR_FLASK_STAT = "wyvern_devour_flask_charm_charge_gain_chance_%"
+GORGE_STATS = {"Life": "support_grants_X_life_flask_charges_on_using_corpse",
+               "Mana": "support_grants_X_mana_flask_charges_on_using_corpse"}
+
+
+def corpse_flask_charges(build, gain: "Charges") -> "Charges":
+    """(MECHC62: CORPSE_CHARGES' note) `gain` with Devour's quality and Gorge's corpse charges."""
+    from dataclasses import replace
+
+    from builder.search import models
+
+    listing = getattr(build, "groups", None)
+    if not callable(listing) or getattr(build, "ctx", None) is None:  # (a stand-in build without its groups)
+        return gain
+    groups = [g for g in listing() if g.get("enabled", True)]
+    named = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)}
+    if DEVOUR_SKILL not in named and GORGE not in named:
+        return gain
+    gems = getattr(build.ctx, "all_gems", None) or build.ctx.gems
+    users: list[tuple[int, str, float]] = []  # (group, skill, corpses it asks a second)
+    for g in groups:
+        for skill in g.get("skills") or []:
+            name = skill.get("name")
+            types = set((gems.get(name) or {}).get("skillTypes") or [])
+            if not name or not models.CORPSE_TYPES & types:  # (the game's corpse skill types: models' note)
+                continue
+            rate = next(iter(build.call("useRates", indices=[g["index"]], actives=[name])["rates"]), {}) or {}
+            a_use = models.DEVOUR_CORPSES_A_USE if name == DEVOUR_SKILL else 1.0
+            users.append((g["index"], name, models.number(rate.get("speed")) * a_use))
+    asked = sum(u for _, _, u in users)
+    if asked <= 0:
+        return gain
+    taken = min(gain.add_kills, asked)
+    raw = build.call("activeSkills", levelStats=[DEVOUR_SKILL] if DEVOUR_SKILL in named else [],
+                     supportStats=list(GORGE_STATS.values()))["skills"]
+    kills, life, mana, parts = 0.0, 0.0, 0.0, []
+    for index, name, want in users:
+        share = taken * want / asked
+        found = [s for s in raw if s.get("name") == name and s.get("group") == index and not s.get("disabled")]
+        if name == DEVOUR_SKILL:
+            chance = max((models.number((s.get("levelStats") or {}).get(DEVOUR_FLASK_STAT)) for s in found), default=0.0)
+            if chance > 0:
+                kills += share * min(chance, 100.0) / 100
+                parts.append(f"Devour {share:.3f} corpses/s x {chance:g}% (its quality) as kills")
+        each = {p: max((models.number((s.get("supportStats") or {}).get(stat)) for s in found), default=0.0)
+                for p, stat in GORGE_STATS.items()}
+        if each["Life"] > 0 or each["Mana"] > 0:
+            life += share * each["Life"]
+            mana += share * each["Mana"]
+            parts.append(f"Gorge on {name}: {share:.3f} corpses/s x {each['Life']:g} Life / {each['Mana']:g} Mana Flask "
+                         "charges")
+    if not parts:
+        return gain
+    return replace(gain, corpse_kills=kills, gorge_life=life, gorge_mana=mana,
+                   corpse_how=(f"{'; '.join(parts)} (the preset's {gain.add_kills:.3f} add corpses a second, "
+                               f"{taken:.3f} taken, split over the corpse skills by the {asked:.2f}/s they ask; MEDIUM)"))
+
+
 # Charges from kills (MECHC9, AUDIT23 A23-4; before, none: "nothing dies"). The game files' KeywordPopups (build
 # 26476662): "Flask": "[Rarity|Normal] enemies grant Flask charges equal to half their [Power], [Rarity|Magic] enemies
 # ... equal to their [Power], [Rarity|Rare] and [Rarity|Unique] ... twice their [Power]"; "Charm": "Charm charges can be
@@ -541,7 +622,7 @@ def kill_charges(gain: Charges) -> float:
     """Flask (or charm) charges per second from the boss's adds the build kills."""
     from builder.search.models import ADD_POWER
 
-    return gain.add_kills * KILL_CHARGES_NORMAL * ADD_POWER
+    return (gain.add_kills + gain.corpse_kills) * KILL_CHARGES_NORMAL * ADD_POWER
 
 
 LETHAL_DRAW = re.compile(r"bow attacks consume (\d+(?:\.\d+)?)% of your maximum life flask charges if possible", re.I)
@@ -565,12 +646,13 @@ def drink_charges(info: dict, gain: Charges, pool: str | None) -> float:
 
 def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
     """Charges an item gains per second: generated, and from the boss's adds killed (kill_charges)."""
-    kills = kill_charges(gain) if gain.add_kills > 0 else 0.0
+    kills = kill_charges(gain) if gain.add_kills > 0 or gain.corpse_kills > 0 else 0.0
     if info.get("kind") == "Charm":
         generated, inc, granted = ((gain.charm + info.get("gainBase", 0) + bloom_charges(gain, "Charm") + kills)
                                    * gain.charm_gain_more, gain.charm_gain_inc, gain.granted_charm)
     else:
-        specific = gain.life_flask if pool == "Life" else gain.mana_flask if pool == "Mana" else 0.0
+        specific = (gain.life_flask + gain.gorge_life if pool == "Life" else gain.mana_flask + gain.gorge_mana
+                    if pool == "Mana" else 0.0)
         # (MECHC5, A14-2: "Gain a Flask Charge when you deal a Critical Hit" gives each flask a charge, at the main skill's
         # crits per second; PoB's own reading, CalcPerform's FlaskChargeOnCritChance, counted only in its flask outputs)
         on_crit = min(gain.flask_on_crit, 100) / 100 * gain.crit_rate
