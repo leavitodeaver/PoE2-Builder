@@ -5229,7 +5229,7 @@ def shotgun_fragment_count_share(skill: Skill, stats: dict, main: Skill | None =
 # is the note's "at random timing" row (combo_at_random_timing: E[min(cap, N)], N the hits in the chain ending at the
 # use; matches GEM41's Monte Carlo). The same check as usage.combo_decayed (RESEARCH25 combo-gain-decay.md: "decay is a
 # check, not a rate"). combo_falloff_speed_+% ("lose Combo N% slower": Disciplined Training, Flow) lengthens D since
-# GEM42 (R59-8, COMBO_SLOWER below; usage.combo_decayed doesn't read it yet). The Invoker's lines: COMBO_FACTS.
+# GEM42 (R59-8, COMBO_SLOWER below; usage.combo_decayed too since GEM43). The Invoker's lines: COMBO_FACTS.
 VRUUN_MAX_COMBO = 10.0  # (skill_maximum_number_of_combo_stacks; the share reads the gem's own value where given)
 VRUUN_DECAY_SECONDS = 6.0  # (base_combo_stacks_decay_delay_ms 6000: the fallback when the support's own isn't read)
 COMBO_DECAY_STAT = "base_combo_stacks_decay_delay_ms"  # (GEM42: summed over the skill's supports by the bridge)

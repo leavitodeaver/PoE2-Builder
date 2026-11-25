@@ -233,6 +233,16 @@ def test_combo_decays_between_strikes_further_apart_than_its_delay(fresh_rules):
     build.group_list = build.group_list + [combo_group(2, "Quarterstaff Strike")]
     assert usage.combo_rate("Combo Finisher II", 5)[2] == "Quarterstaff Strike"
     assert not usage.combo_decays("Combo Finisher II", 5) and usage.blockers("Combo Finisher II") == []
+    # (GEM43, R59-8, MEDIUM-LOW) "Skills lose Combo N% slower" lengthens the delay: D / (1 - N / 100)
+    from builder.search.usage import combo_delay
+    assert combo_delay("Combo Finisher II", 20) == 5.0 and combo_delay("Some Other Skill", 20) is None
+    assert combo_decayed("Combo Finisher II", 5, 0.22) and not combo_decayed("Combo Finisher II", 5, 0.22, slower=20)
+    build.group_list = [combo_group(0, "Falling Thunder", "Combo Finisher II"), combo_group(1, "Lazy Strike")]
+    build.speeds["Lazy Strike"] = 0.22  # (a Strike every 4.5 s: past 4 s, within 5 s)
+    assert usage.combo_decays("Combo Finisher II", 5)
+    build.stats = {"lines": [{"source": "passive:Disciplined Training", "text": "Skills lose Combo 20% slower"}]}
+    assert usage.combo_slower() == 20 and not usage.combo_decays("Combo Finisher II", 5)
+    assert usage.combo_rate("Combo Finisher II", 5)[2] == "Lazy Strike"
 
 def test_concoctions_need_a_mana_flask_that_gains_charges(fresh_rules):
     """A8-2 / COVC4: 5 Mana Flask charges a throw (flasks.THROW_CHARGES, all five Concoctions, though PoB's data has the

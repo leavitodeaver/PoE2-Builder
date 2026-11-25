@@ -95,11 +95,12 @@ sustainable source for what a use needs:
   Supported Skills to lose Combo if you generate no Combo for 4 seconds (previously 8)"). A builder whose Strikes come
   further apart than that (1 / its uses a second) loses each gain before the next, so it never reaches a count above one
   Strike's gain: it isn't a builder for that skill (COMBO_DECAY). Labelled: the lost Combo taken as all of it at once
-  (the patch wording "lose Combo"; MEDIUM). Not read (UNVERIFIED, left on the side of fewer uses): "Skills lose Combo
-  N% slower" (combo_falloff_speed_+%: the Disciplined Training passive -20, the Flow support -60, which PoB's gem data
-  doesn't hold; checked: the stat's columns in Mods, PassiveSkills, GrantedEffectStatSets and PerLevel): patch 0.5.0
-  names "Combo count loss ... 50% slower" beside the delay, so it slows the loss, not the delay, at a rate no source
-  gives.
+  (the patch wording "lose Combo"; MEDIUM). "Skills lose Combo N% slower" (combo_falloff_speed_+%: the Disciplined
+  Training passive -20, the Flow support -60, which PoB's gem data doesn't hold; checked: the stat's columns in Mods,
+  PassiveSkills, GrantedEffectStatSets and PerLevel) lengthens the delay: D / (1 - N / 100) (GEM43, as GEM42's
+  vruun_combo_share; RESEARCH59 R59-8, research/combo-falloff-r59.md, MEDIUM-LOW: Combo falls off all at once, so a
+  slower loss reads as a longer wait before it; the other reading, D x (1 - N / 100), is R59-8's row), from the build's
+  passive and item lines (Usage.combo_slower; the "slower" in the blocker's text).
 - a banner's placed effect (Requirement kind "placed banner", never a blocker; COVC8, COVC7's find). War, Dread and
   Defiance Banner (the three banners; checked: PoB Data/Skills SkillType.Banner, and the game's ActiveSkills ids
   holding "banner": the same three, each with a _reservation twin) are two effects (PoB: WarBannerReservationPlayer etc., HasReservation and Persistent, which "While
@@ -192,7 +193,7 @@ from dataclasses import dataclass
 from builder.search.conditions import UPTIME
 from builder.search.context import gem_of
 from builder.search.flasks import THROW_CHARGES, THROW_POOL
-from builder.search.models import DODGE_ROLL_SECONDS, SHIELD_CHARGE, SHIELD_CHARGE_MIN_TRAVEL
+from builder.search.models import COMBO_SLOWER, DODGE_ROLL_SECONDS, SHIELD_CHARGE, SHIELD_CHARGE_MIN_TRAVEL
 from builder.search.objective import number
 
 # Stats that mention a requirement but don't gate a use
@@ -450,8 +451,11 @@ class Usage:
             return "and no skill of the build Strikes to build it (Combo comes from Strikes on the same weapon set)"
         if self.combo_groups(name) and self.combo_rate(name, need.amount) is None:
             if self.combo_decays(name, need.amount):
-                return (f"and every builder Strikes less than once per {COMBO_DECAY[name]:g} s, so its Combo is lost "
-                        "between Strikes before it reaches the count (the decay check)")
+                slower = self.combo_slower()
+                return (f"and every builder Strikes less than once per {combo_delay(name, slower):.3g} s"
+                        + (f" ({COMBO_DECAY[name]:g} s, Combo lost {slower:g}% slower: R59-8, MEDIUM-LOW)" if slower
+                           else "") + ", so its Combo is lost between Strikes before it reaches the count (the decay "
+                        "check)")
             return "and no builder's Strikes reach it (no group of the build Strikes at a use rate PoB gives)"
         if uncapped := self.uncapped_groups(name):
             return (f"and its group {uncapped[0]} counts in Full DPS without a press cap (neither the main skill nor a "
@@ -555,7 +559,7 @@ class Usage:
         chance = self.combo_chance()
         gain = lambda r: 1.0 + adept + min(chance + self.group_combo_chance(r["index"]), 100.0) / 100
         builder = max((r for r in rates if r["index"] != mine[0]["index"] and number(r.get("speed")) > 0
-                       and not combo_decayed(name, amount, number(r.get("speed")), gain(r))),
+                       and not combo_decayed(name, amount, number(r.get("speed")), gain(r), self.combo_slower())),
                       key=lambda r: number(r.get("speed")) * gain(r), default=None)
         if builder is None:  # (every builder's Strikes too far apart to keep its Combo: the decay check)
             return None
@@ -572,8 +576,9 @@ class Usage:
         adept = 1.0 if self.has_passive(MARTIAL_ADEPT) else 0.0
         chance = self.combo_chance()
         live = [r for r in rates if r["index"] != mine[0]["index"] and number(r.get("speed")) > 0]
+        slower = self.combo_slower()
         return bool(live) and all(combo_decayed(name, amount, number(r.get("speed")), 1.0 + adept + min(
-            chance + self.group_combo_chance(r["index"]), 100.0) / 100) for r in live)
+            chance + self.group_combo_chance(r["index"]), 100.0) / 100, slower) for r in live)
 
     def combo_chance(self) -> float:
         """% chance to build an additional Combo on Hit from the build's passives and items (module docstring)."""
@@ -583,6 +588,16 @@ class Usage:
                 m = COMBO_CHANCE.match(str(line.get("text", "")).strip())
                 if m:
                     total += float(m.group(1)) if m.group(1) else 100.0
+        return total
+
+    def combo_slower(self) -> float:
+        """(GEM43, R59-8) N summed over the build's passive and item lines "Skills lose Combo N% slower"."""
+        total = 0.0
+        for line in self.build.call("sourceLines").get("lines") or []:
+            if str(line.get("source", "")).startswith(("passive:", "item:")):
+                m = COMBO_SLOWER.match(str(line.get("text", "")).strip())
+                if m:
+                    total += float(m.group(1))
         return total
 
     def group_combo_chance(self, index: int | None) -> float:
@@ -728,11 +743,21 @@ def throw_cost(base: float, used_inc: float = 0.0, used_more: float = 1.0, not_c
     return max(0.0, base * (1 + used_inc / 100) * used_more * (1 - min(max(not_consume, 0.0), 100.0) / 100))
 
 
-def combo_decayed(name: str, amount: float, builder_speed: float, gain: float = 1.0) -> bool:
-    """True when a builder Striking `builder_speed` times a second loses `name`'s Combo between Strikes before reaching
-    `amount` (the decay check, module docstring): its Strikes are more than COMBO_DECAY[name] s apart and one Strike's
-    `gain` is short of the count. A skill with no known delay never decays here."""
+def combo_delay(name: str, slower: float = 0.0) -> float | None:
+    """(GEM43) `name`'s Combo decay delay in seconds with the build's "lose Combo N% slower" (`slower` = N summed):
+    D / (1 - N / 100) (R59-8, MEDIUM-LOW; module docstring); None for a skill with no known delay."""
     delay = COMBO_DECAY.get(name)
+    if delay is None:
+        return None
+    return delay / (1 - min(max(slower, 0.0), 95.0) / 100)
+
+
+def combo_decayed(name: str, amount: float, builder_speed: float, gain: float = 1.0, slower: float = 0.0) -> bool:
+    """True when a builder Striking `builder_speed` times a second loses `name`'s Combo between Strikes before reaching
+    `amount` (the decay check, module docstring): its Strikes are more than the delay apart (COMBO_DECAY[name],
+    lengthened by `slower`, combo_delay) and one Strike's `gain` is short of the count. A skill with no known delay never
+    decays here."""
+    delay = combo_delay(name, slower)
     if delay is None or builder_speed <= 0 or gain >= amount:
         return False
     return 1.0 / builder_speed > delay
