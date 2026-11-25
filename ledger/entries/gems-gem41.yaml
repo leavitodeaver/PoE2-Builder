@@ -280,15 +280,57 @@
   test_in_game: "Not needed."
   status: proposed
 
-- id: model-gem41-tempest-bells-allowed
-  title: "Tempest Bell's Bells allowed: read by Assumptions.tempest_bell_shockwaves (MECHB61)"
+- id: model-gem41-fissure-limits
+  title: "Forge Hammer's 'Limit 10 Fissures' and Molten Crash's 'Limit 8 Fissures' with the build's Limit sources: the Fissure count model's cap"
   kind: model
-  model: tempest_bell_shockwaves
-  stats: ["base_number_of_tempest_bells_allowed"]
-  skill: [Tempest Bell]
+  model: fissure_count_model
+  stats: ["forge_hammer_base_maximum_number_of_fissures", "molten_crash_max_number_of_fissures"]
+  skill: [Forge Hammer, Molten Crash]
+  confidence: MEDIUM-LOW
+  notes: >-
+    Assumptions.fissure_limit -> stat_limit (GEM41): the stat at the gem's level (10 / 8), doubled by Overabundance III
+    (skill_has_double_limit; adds not doubled, the lower reading), + Overabundance I / II's base_limit_+, + the "+N to
+    Limit" lines whose types reach the skill (assumptions.LIMIT_LINES: "Skills", "Fissure Skills", and "for Elemental
+    Skills" on Forge Hammer, a Fire skill). Forge Hammer has the Limit type (R57-6: 10 -> 11 with Overabundance I / II,
+    HIGH). Molten Crash has none, so no Overabundance; the lines taken to reach it (R58-9, MEDIUM-LOW: GGG's 0.4.0
+    "described as a Limit"; unwired, it stays 8). models.fissure_count_model holds a use's Fissures to it (MECHB48's
+    reading of the Limit as a per-use cap); it binds only when a use's Fissures pass it.
+  sources: ["builder/search/assumptions.py (stat_limit, fissure_limit, LIMIT_LINES)", "builder/search/models.py (FISSURE_LIMIT_STATS)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/limit-lines-entangle-fissures-r57.md",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/limit-lines-without-limit-type-r58.md"]
+  test_in_game: "Molten Crash with 'Fissure Skills have +1 to Limit': do 9 Fissures stay up?"
+  status: proposed
+
+- id: model-gem41-gas-arrow-cloud-limit
+  title: "Gas Arrow's Poison Cloud Limit: the build's own (the bridge's instanceLimit on the Poison Cloud set, GEM39's LIMIT_SET)"
+  kind: model
+  model: gas_cloud_life
+  stats: ["number_of_poison_cloud_allowed"]
+  skill: [Gas Arrow]
   confidence: MEDIUM
   notes: >-
-    Assumptions.tempest_bell_shockwaves passes the skill's level stat as `allowed`.
-  sources: ["builder/search/assumptions.py (tempest_bell_shockwaves)"]
+    Assumptions.set_limit_and_duration reads the Poison Cloud set's instanceLimit (number_of_poison_cloud_allowed + PoB's
+    AdditionalCooldownUses, where PoB puts Overabundance's base_limit_+ and the "+N to Limit" lines) and its duration
+    (with Overabundance's less duration); models.gas_cloud_life counts the clouds alive from them (GEM39). Not read:
+    Overabundance III's doubling (UNVERIFIED in PoB's sum; an undercount at most).
+  sources: ["builder/search/assumptions.py (set_limit_and_duration)", "builder/search/models.py (gas_cloud_life, LIMIT_SET)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: gem-gem41-entangle-fissure-limit
+  title: "Entangle's 'Limit 8 Fissures': more Fissures add no hits on a lone boss (vines capped per enemy over all Fissures)"
+  kind: gem_stat
+  match: '^base_number_of_entangle_roots_allowed$'
+  replace: []
+  stats: ["base_number_of_entangle_roots_allowed"]
+  skill: [Entangle]
+  confidence: MEDIUM
+  notes: >-
+    RESEARCH57 R57-6 (HIGH): Overabundance and the "+N to Limit" lines raise Entangle's Fissure Limit, not its vines
+    per enemy ("Can attach up to 3 Vines to each enemy", not a Limit); R42-8 (MEDIUM): that vine cap is per enemy over
+    all Fissures. The model (fissure_count_model's FISSURE_VINES) counts each use's Fissures as it lands and 3 vine
+    hits a second while the boss stands on a live Fissure; the build's uses keep one under it at 1 use per 8 s. A
+    higher Limit only keeps older Fissures alive, elsewhere: no hit on a lone boss moves (MEDIUM).
+  sources: ["C:/PROJECTS/PoE2 Builder/scratch/manager/research/limit-lines-entangle-fissures-r57.md", "builder/search/models.py (FISSURE_VINES)"]
   test_in_game: "Not needed."
   status: proposed

@@ -3491,6 +3491,32 @@ def _zerphi_lines() -> tuple:
 # (GEM38) "+N to Limit" lines that reach Earthshatter (Assumptions.earthshatter_limit) and Overabundance's duration stat
 LIMIT_LINE = re.compile(r"^(?:Fissure )?Skills have \+(\d+) to Limit$", re.I)
 OVERABUNDANCE_DURATION = "support_limit_skill_effect_duration_+%_final"
+# (GEM41, the manager's 21:27 item 1: COV55's Limit-constant rows) Every "+N to Limit" line by the skill types it needs
+# (game 26650308 stat_descriptions; checked: every Stats id ending "limit_+" over GrantedEffectStatSets, Mods,
+# PassiveSkills and SoulCoreStats: base_limit_+ (Overabundance I / II "Supported Skills", Idol of Uldurn "Skills"),
+# elemental_skill_limit_+ (the Alloy "of the Stars", Stormweaver's AscendancySorceress1Notable4), orb_skill_limit_+
+# (notable orb5), fissure_skills_limit_+ (notable physical70_, a Bonded Soul Core), storm_skill_limit_+ (a Bonded Soul
+# Core), support_storm_skill_limit_+ (Morgana's Tempest); plant / temporary-minion / infusion ones aren't skill Limits
+# here). The skill types that let a line in: GEM40's LIMIT_LINE counted "Fissure Skills" for any skill (an OVERCOUNT on
+# the storm rows, fixed). Overabundance III: skill_has_double_limit ("Supported Skills have double Limit"), taken as
+# doubling the base before the adds (the lower reading: UNVERIFIED whether adds double too).
+LIMIT_LINES = ((re.compile(r"^Skills have \+(\d+) to Limit$", re.I), ()),
+               (re.compile(r"^Fissure Skills have \+(\d+) to Limit$", re.I), ("CreatesFissure",)),
+               (re.compile(r"^Orb Skills have \+(\d+) to Limit$", re.I), ("Orb",)),
+               (re.compile(r"^Storm Skills have \+(\d+) to Limit$", re.I), ("Storm",)),
+               (re.compile(r"^\+(\d+) to Limit for Elemental Skills$", re.I), ("Fire", "Cold", "Lightning")))
+LIMIT_SUPPORT_STATS = {"base_limit_+": (), "support_storm_skill_limit_+": ("Storm",)}
+LIMIT_DOUBLE_STAT = "skill_has_double_limit"
+
+
+def limit_line_adds(texts: list[str], types: set[str]) -> float:
+    """(GEM41) The "+N to Limit" lines of the build that reach a skill of these types (LIMIT_LINES)."""
+    total = 0.0
+    for t in texts:
+        for pattern, needs in LIMIT_LINES:
+            if (m := pattern.match(t.strip())) and (not needs or set(needs) & types):
+                total += int(m.group(1))
+    return total
 
 
 # (MECHC58) Charge Regulation's bonuses at each kind's share (Assumptions.regulation_mods; conditions.REGULATION)
@@ -4912,7 +4938,11 @@ class Assumptions:
         if main is not None and main.name == models.ICESTORM:  # (MECHB52: R42-3, an UNVERIFIED row only)
             ice_stats = build.call("stats", fields=["Speed", "Duration"])
             hand_notes = hand_notes + models.icestorm_overlap_note(main, number(ice_stats.get("Speed")),
-                                                                   number(ice_stats.get("Duration")))
+                                                                   number(ice_stats.get("Duration")),
+                                                                   self.stat_limit(  # (GEM41: the build's own Limit)
+                                                                       main.name, models.ICESTORM_LIMIT_STAT,
+                                                                       models.ICESTORM_STORMS,
+                                                                       [e["text"] for e in source_lines]))
         if main is not None and main.group is not None and any(  # (MECHB52: Primal Bounty's Owl Feathers, R42-15)
                 models.PRIMAL_FEATHER.match(e["text"].strip()) for e in source_lines):
             pb_stats = build.call("stats", fields=["Speed", "ProjectileCount"])
@@ -5352,7 +5382,8 @@ class Assumptions:
             fis_mods, fis_notes = models.fissure_count_model(
                 main, main.stat_set, sets, got.get("levelStats") or {}, got.get("supportStats") or {},
                 [e["text"] for e in source_lines], bosses.hit_radius(stats)[0], det_split, forbidden,
-                previous=self.mods, rage_paid=getattr(build, "rage_paid", None))  # (MECHB50: Molten Crash's Rage, MECHC48)
+                previous=self.mods, rage_paid=getattr(build, "rage_paid", None),  # (MECHB50: Molten Crash's Rage, MECHC48)
+                cap=self.fissure_limit(main.name, [e["text"] for e in source_lines]))  # (GEM41: the build's Limit)
             hand_mods, hand_notes = hand_mods + fis_mods, hand_notes + fis_notes
             hit_cut(build, fis_mods, main.name)  # (MECHB57: the Fissures' hits a use, models.HIT_CUT_PER_USE)
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
@@ -11319,11 +11350,24 @@ class Assumptions:
     def stat_limit(self, name: str, stat: str, base: float, texts: list[str]) -> float:
         """(GEM40, models.storm_limit_row) a skill's Limit from a stat the bridge's instanceLimit misses: the stat, its
         supports' base_limit_+ and the "+N to Limit" lines, as earthshatter_limit."""
-        got = next((x for x in self.build.call("activeSkills", levelStats=[name], supportStats=["base_limit_+"])["skills"]
-                    if x["name"] == name), {})
+        got = next((x for x in self.build.call("activeSkills", levelStats=[name], supportStats=[
+            *LIMIT_SUPPORT_STATS, LIMIT_DOUBLE_STAT])["skills"] if x["name"] == name), {})
+        ctx = self.build.ctx  # (item-granted skills such as Icestorm are only in all_gems: SEARCH40's skill_types reads both)
+        types = set((ctx.gems.get(name) or getattr(ctx, "all_gems", {}).get(name) or {}).get("skillTypes") or ())
+        support = got.get("supportStats") or {}
         limit = number((got.get("levelStats") or {}).get(stat)) or base
-        limit += number((got.get("supportStats") or {}).get("base_limit_+"))
-        return limit + sum(int(m.group(1)) for t in texts if (m := LIMIT_LINE.match(t.strip())))
+        if number(support.get(LIMIT_DOUBLE_STAT)) > 0:  # (GEM41: Overabundance III, LIMIT_LINES' note)
+            limit *= 2
+        limit += sum(number(support.get(k)) for k, needs in LIMIT_SUPPORT_STATS.items() if not needs or set(needs) & types)
+        return limit + limit_line_adds(texts, types)
+
+    def fissure_limit(self, name: str, texts: list[str]) -> float | None:
+        """(GEM41) A Fissure skill's Fissure Limit with the build's Limit sources (stat_limit), for
+        models.fissure_count_model's cap; None for a skill without one (models.FISSURE_LIMIT_STATS)."""
+        if name not in models.FISSURE_LIMIT_STATS:
+            return None
+        stat, base = models.FISSURE_LIMIT_STATS[name]
+        return self.stat_limit(name, stat, base, texts)
 
     def earthquake_patches(self, group: dict, texts: list[str]) -> tuple[float, float, float | None]:
         """(GEM38, models.earthquake_limit_model) (Limit, patch seconds, the fuse with Overabundance's less duration, R56-6)
@@ -11831,7 +11875,8 @@ class Assumptions:
                 models.FISSURE_EXTRA_STAT])["skills"] if x["name"] == hammer and x.get("group") == group["index"]), {})
             fis_mods, fis_notes = models.fissure_count_model(
                 models.Skill(hammer, group["index"], attack=True, melee=True), "Fissures", got.get("sets") or [],
-                row.get("levelStats") or {}, row.get("supportStats") or {}, texts or [], radius, share)
+                row.get("levelStats") or {}, row.get("supportStats") or {}, texts or [], radius, share,
+                cap=self.fissure_limit(hammer, texts or []))  # (GEM41: the build's Limit)
             if fis_mods:
                 real *= 1 + number(fis_mods[0].get("value")) / 100
                 count_how = f"; {fis_notes[0]['label']} {fis_notes[0]['value']}"

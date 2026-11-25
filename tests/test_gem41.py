@@ -61,3 +61,33 @@ def test_the_bridge_adds_melee_attack_totem_lines_to_shockwave_totems_limit(engi
         assert got["totemLimit"] == bare["totemLimit"] + 1
     finally:
         build.call("setConfig", vars={"customMods": "nil"}, fields=[])
+
+
+def test_limit_lines_reach_a_skill_by_its_types():
+    """GEM41 (the manager's 21:27 item 1): each "+N to Limit" line by the skill types it needs (LIMIT_LINES)."""
+    from builder.search import assumptions
+
+    lines = ["Skills have +1 to Limit", "Fissure Skills have +1 to Limit", "+2 to Limit for Elemental Skills",
+             "Storm Skills have +1 to Limit", "Orb Skills have +1 to Limit"]
+    assert assumptions.limit_line_adds(lines, {"Cold", "Storm", "Limit"}) == 4  # (Icestorm: all, elemental, storm)
+    assert assumptions.limit_line_adds(lines, {"Lightning", "Orb", "Limit"}) == 4  # (Galvanic Field)
+    assert assumptions.limit_line_adds(lines, {"CreatesFissure"}) == 2  # (Molten Crash: all, fissure)
+    assert assumptions.limit_line_adds(["Fissure Skills have +1 to Limit"], {"Fire", "Storm"}) == 0  # (GEM40's slip)
+
+
+def test_forge_hammers_fissure_cap_is_the_builds_limit():
+    hammer = Skill("Forge Hammer", 1, attack=True, melee=True)
+    sets = [{"label": "Impact", "TotalDPS": 60.0}, {"label": "Fissures", "TotalDPS": 50.0}]
+    args = (hammer, "Fissures", sets, {models.FISSURE_BASE_STAT: 5}, {models.FISSURE_EXTRA_STAT: 9}, [], 0.4)
+    base, _ = models.fissure_count_model(*args, det_share=1.0)
+    raised, _ = models.fissure_count_model(*args, det_share=1.0, cap=11.0)
+    assert base[0]["value"] == pytest.approx(100 * (50.0 / 110.0) * 9.0, abs=0.01)  # (held to 10)
+    assert raised[0]["value"] == pytest.approx(100 * (50.0 / 110.0) * 10.0, abs=0.01)  # (held to 11)
+    assert models.FISSURE_LIMIT_STATS["Molten Crash"] == ("molten_crash_max_number_of_fissures", 8.0)
+
+
+def test_icestorms_storms_row_reads_the_builds_limit():
+    ice = Skill(models.ICESTORM, 1, spell=True)
+    three = models.icestorm_overlap_note(ice, 1.0, 8.0)
+    five = models.icestorm_overlap_note(ice, 1.0, 8.0, limit=5)
+    assert "3.00 storms" in three[0]["label"] and "5.00 storms" in five[0]["label"]

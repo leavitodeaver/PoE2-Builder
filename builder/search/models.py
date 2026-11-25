@@ -24818,6 +24818,14 @@ FISSURE_CHANCE_STAT = "skill_additional_fissure_chance_%"
 FISSURE_CHANCE = re.compile(r"^skills which create fissures have a (\d+(?:\.\d+)?)% chance to create an additional "
                             r"fissure$", re.I)
 FISSURE_MAX_A_USE = {"Forge Hammer": 10.0, "Molten Crash": 8.0}  # (forge_hammer_base_maximum_number_of_fissures; its Limit 8)
+# (GEM41, the manager's 21:27 item 1) the stat and base of each cap above, read with the build's Limit sources
+# (Assumptions.stat_limit: Overabundance I-III, the "+N to Limit" lines by skill type). Forge Hammer has the Limit type
+# (R57-6: "Limit 10 Fissures" becomes 11 with Overabundance I / II, HIGH); Molten Crash's "Limit 8 Fissures" has no
+# Limit type, so no Overabundance, but the "Skills" / "Fissure Skills" lines are taken to reach it (R58-9, MEDIUM-LOW:
+# GGG's 0.4.0 rule "described as a Limit"; the other reading, unwired, keeps 8). The cap binds only when a use's
+# Fissures pass it.
+FISSURE_LIMIT_STATS = {"Forge Hammer": ("forge_hammer_base_maximum_number_of_fissures", 10.0),
+                       "Molten Crash": ("molten_crash_max_number_of_fissures", 8.0)}
 FISSURE_HALF_WIDTH, FISSURE_ARC_DEGREES, FISSURE_MELEE_METRES, FISSURE_ROW_METRES = 1.0, 120.0, 1.5, 3.0
 FISSURE_ENTRY = "model-mechb48-fissures-at-boss"
 
@@ -24847,15 +24855,16 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
                         support_stats: dict, texts: list[str], boss_radius: float,
                         det_share: float | None = None, forbidden: set[str] = frozenset(),
                         previous: list[dict] | None = None,
-                        rage_paid: dict | None = None) -> tuple[list[dict], list[dict]]:
-    """A Fissure skill's Fissures a use at the boss against PoB's one (see above). `level_stats` / `support_stats` the
+                        rage_paid: dict | None = None, cap: float | None = None) -> tuple[list[dict], list[dict]]:
+    """A Fissure skill's Fissures a use at the boss against PoB's one (see above). `cap`: the build's Fissure Limit
+    (Assumptions.fissure_limit, GEM41), else FISSURE_MAX_A_USE's base. `level_stats` / `support_stats` the
     activeSkills row's, `texts` the build's lines, `det_share` the share of a DETONATED_SETS skill's set-off part the
     detonated model counts (Earthshatter's spikes, Forge Hammer's hammers), None for the others; `rage_spent` MECH-C's
     build.rage_paid (Molten Crash's Rage Fissure)."""
     if main is None or main.name not in FISSURE_SETS or FISSURE_ENTRY in forbidden:
         return [], []
     labels, layout = FISSURE_SETS[main.name]
-    cap = FISSURE_MAX_A_USE.get(main.name, math.inf)
+    cap = cap if cap is not None and cap > 0 else FISSURE_MAX_A_USE.get(main.name, math.inf)
     base = min(cap, number(level_stats.get(FISSURE_BASE_STAT)) or 1.0)
     extra = number(support_stats.get(FISSURE_EXTRA_STAT))
     lines = [float(m.group(1)) for t in texts if (m := FISSURE_CHANCE.match(t.strip()))]
@@ -26776,18 +26785,23 @@ def tornado_ground_model(main: Skill | None, level_stats: dict, grounds: dict[st
 # icestorm_model). If each storm kept its own limit, storms up = min(3, its Duration x casts a second) would each hit the
 # boss at the limit: an UNVERIFIED upper row only (the 0.15 s limit equals one storm's own impact interval, so a
 # per-storm limit would be idle: R42-3 leans shared). The headline stays PoB's single storm.
+# (GEM41) its Limit read with the build's sources (Assumptions.stat_limit: Overabundance, the "+N to Limit" lines that
+# reach a Cold / Storm skill), no longer the fixed 3.
 ICESTORM_STORMS = 3
+ICESTORM_LIMIT_STAT = "icestorm_max_number_of_storms"
 
 
-def icestorm_overlap_note(main: Skill | None, speed: float, duration: float) -> list[dict]:
-    """An UNVERIFIED row: Icestorm's storms up at once, each at its own hit limit (see above)."""
+def icestorm_overlap_note(main: Skill | None, speed: float, duration: float,
+                          limit: float = ICESTORM_STORMS) -> list[dict]:
+    """An UNVERIFIED row: Icestorm's storms up at once, each at its own hit limit (see above); `limit` the build's."""
     if main is None or main.name != ICESTORM or speed <= 0 or duration <= 0:
         return []
-    up = min(float(ICESTORM_STORMS), duration * speed)
+    limit = limit if limit > 0 else ICESTORM_STORMS
+    up = min(float(limit), duration * speed)
     if up <= 1.0 + 1e-9:
         return []
     return [{"label": f"{ICESTORM}: {up:.2f} storms up at once (one counted)*", "value": "x1.000", "confidence": "LOW",
-             "basis": (f"up to {ICESTORM_STORMS} storms (icestorm_max_number_of_storms); at {speed:.2f} casts a second and "
+             "basis": (f"up to {limit:g} storms (the build's Limit: icestorm_max_number_of_storms 3 + its Limit sources); at {speed:.2f} casts a second and "
                        f"a {duration:.2f} s duration, {up:.2f} overlap on the boss. Whether each keeps its own 0.15 s "
                        "per-target limit is not settled (RESEARCH42 R42-3 leans shared: the limit equals one storm's own "
                        f"impact interval): the headline keeps PoB's one storm. Row (UNVERIFIED): each its own limit, x{up:.2f} "
