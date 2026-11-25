@@ -33,3 +33,17 @@ def test_triskelion_cascade_frame_rows_only_until_r61_10():
     mods, _ = models.triskelion_cascade_model(main, {"Spell", "Cascadable"}, 1.0, 1.0, 1.0, stats, areas=7)
     assert mods[0]["value"] == pytest.approx(100 * (f7 - 1), abs=0.01)
     assert models.triskelion_cascade_model(main, {"Spell"}, 1.0, 1.0, 1.0, stats) == ([], [])  # not Cascadable
+
+
+def test_wing_blast_shockwave_from_a_unique_boss_deals_50_percent_more(monkeypatch):
+    # (GEM44) the Heavy Stunned boss (Unique) releases the shockwave: the Shockwave set x1.5, Boneshatter unchanged
+    from tests.test_gem_description_mode import MAIN_STUN_STATS
+
+    sets = [{"label": "Wing Blast", "TotalDPS": 58.3, "Speed": 1.0}, {"label": "Shockwave", "TotalDPS": 330.5, "Speed": 1.0}]
+    wing = models.Skill("Wing Blast", 1)
+    with_more = models.stun_set_model(wing, "Shockwave", sets, MAIN_STUN_STATS, 50.0, "test")
+    monkeypatch.setattr(models, "STUN_WAVE_MORE", {})
+    without = models.stun_set_model(wing, "Shockwave", sets, MAIN_STUN_STATS, 50.0, "test")
+    f_with, f_without = (1 + with_more[0][0]["value"] / 100) * 330.5, (1 + without[0][0]["value"] / 100) * 330.5
+    assert f_with - 58.3 == pytest.approx(1.5 * (f_without - 58.3), rel=1e-3)  # the shockwave part x1.5
+    assert "Unique enemy" in with_more[1][0]["basis"] and "Unique enemy" not in without[1][0]["basis"]

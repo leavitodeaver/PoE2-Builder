@@ -10552,6 +10552,14 @@ def eye_of_winter_model(main: Skill | None, stats: dict, own: float = 0.0,
 STUN_SETS = {"Boneshatter": ("Initial Strike", "Shockwave", "model-gem18-boneshatter-shockwave-heavy-stun"),
              "Wing Blast": ("Wing Blast", "Shockwave", "model-gem18-wing-blast-shockwave-heavy-stun")}
 PRIMED_STUN_UNIQUE = 0.70  # KeywordPopups PrimedStun, Unique enemies
+# (GEM44; GEM's ranked list, an UNDERCOUNT) Wing Blast's Shockwave set: wing_blast_shockwave_damage_+%_final_if_created_
+# from_unique 50, "50% more damage with Hits for Shockwaves originating from a Unique enemy" (active_skill_gem_stat_
+# descriptions.csd, 26650308; PoB act_str.lua WingBlastPlayer's Shockwave set holds it, maps nothing). The shockwave is
+# released by the Heavy Stunned enemy ("Enemies Primed for Heavy Stun will be stunned, release a shockwave"), here the
+# boss, Unique as PRIMED_STUN_UNIQUE takes it: the Shockwave set x1.5 in stun_set_model. Its hits only (the bigger hit's
+# ailments not raised: a small undercount, said). HIGH for the text, MEDIUM that the shockwave hits the boss that
+# releases it (GEM18's reading).
+STUN_WAVE_MORE = {"Wing Blast": 50.0}
 
 
 def stun_uncold(row: dict) -> float:
@@ -10579,6 +10587,8 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
     plain, wave = dps.get(plain_label, 0.0), dps.get(wave_label, 0.0)
     if plain <= 0 or dps.get(scored, 0.0) <= 0:
         return [], []
+    wave_more = 1 + STUN_WAVE_MORE.get(main.name, 0.0) / 100  # (GEM44: Wing Blast's Unique shockwave)
+    wave_pob, wave = wave, wave * wave_more
     uses = number(rows[plain_label].get("Speed")) or number(stats.get("Speed"))
     rate, stun_how = 0.0, how
     if primed > 0:
@@ -10609,6 +10619,9 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
                   f"the boss is Primed by the build's other skills: {primed:.2f}% of the bar a second ({stun_how}): Heavy "
                   f"Stuns {every}, {share:.1%} of the {uses:.2f} uses a second, so {plain_label} + {wave_label} x "
                   f"{share:.1%} = {total:,.0f} DPS"
+                  + (f"; the {wave_label} x{wave_more:g} (\"{wave_more * 100 - 100:g}% more damage with Hits for "
+                     f"Shockwaves originating from a Unique enemy\", the boss releasing it; PoB maps nothing: GEM44; "
+                     f"row, PoB's {wave_label}: {plain + wave_pob * share:,.0f} DPS)" if wave_more != 1 and share > 0 else "")
                   + (f"; with none, the {wave_label} set is kept 10% under the {plain_label} so the search keeps it"
                      if steer else "")),
         "play": (f"{main.name}'s {wave_label} comes only when it hits a boss Primed for Stun, and its own hit builds no "

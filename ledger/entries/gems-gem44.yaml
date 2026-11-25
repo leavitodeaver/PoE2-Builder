@@ -38,3 +38,21 @@
             "scratch/gem44/probe_breath.log"]
   test_in_game: "Flame Breath with and without a Power Charge: does the breath deal extra Lightning damage?"
   status: proposed
+
+- id: model-gem44-wing-blast-unique-shockwave
+  title: "Wing Blast's Shockwave deals 50% more with Hits when the Unique boss releases it (GEM18's stun_set_model)"
+  kind: model
+  model: stun_set
+  stats: ["wing_blast_shockwave_damage_+%_final_if_created_from_unique"]
+  skill: [Wing Blast]
+  confidence: MEDIUM
+  notes: >-
+    The game (26650308): "{0}% more damage with Hits for Shockwaves originating from a Unique enemy" (50 on
+    WingBlastPlayer's Shockwave set; PoB holds it and maps nothing). The Heavy Stunned enemy releases the shockwave
+    ("Enemies Primed for Heavy Stun will be stunned, release a shockwave"): the boss, Unique as GEM18 reads every preset.
+    models.STUN_WAVE_MORE multiplies the Shockwave set x1.5 in stun_set_model (at its Heavy Stun share); the note's row
+    gives PoB's number. Probe scratch/gem44/probe_wing.log (PoB's sets 36.73 / 181.47): primed 2%/s 39.71 -> 41.20,
+    10%/s 46.15 -> 50.86. MEDIUM that the shockwave hits the boss that releases it (GEM18's reading).
+  sources: ["builder/search/models.py (STUN_WAVE_MORE, stun_set_model)", "scratch/gem44/probe_wing.log"]
+  test_in_game: "Wing Blast on a Primed Unique boss: is the shockwave's hit 50% larger than on a rare?"
+  status: proposed
