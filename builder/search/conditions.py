@@ -4652,7 +4652,43 @@ def chilled_share(stats: dict) -> float:
     # each consume (KeywordPopups Consume), so it is un-Chilled that long per consume: CHILL_CONSUMES' consumes a second
     lull = min(1.0, max(0.0, number(stats.get(CHILL_CONSUMES))) * models.CONSUME_IMMUNE)
     standing = 1.0 - (1.0 - ground) * (1.0 - aura)
-    return 1.0 - (1.0 - chill_share(stats)) * (1.0 - standing * (1.0 - lull))
+    consumed = consume_chill_share(stats)[0]  # (MECH108: Biting Frost II's Chill on each Freeze it consumes)
+    return 1.0 - (1.0 - chill_share(stats)) * (1.0 - standing * (1.0 - lull)) * (1.0 - consumed)
+
+
+# Biting Frost II's Chill after it consumes a Freeze (MECH108; GEM42's routed item, an UNDERCOUNT for "vs Chilled" lines on a
+# main skill that doesn't Chill by itself). The game: support_active_skill_consume_enemy_freeze_to_apply_chill "[Freeze|
+# Freezes] [Consume|Consumed] by Supported Skills [Chill] the target" (gem_stat_descriptions.csd, 26650308); its gem text
+# "consume their Freeze, leaving them Chilled". The stat is on SupportBitingFrostPlayerTwo's stat set alone (checked: Stats
+# row 24637's users in GrantedEffectStatSets, GrantedEffectStatSetsPerLevel, Mods and PassiveSkills on 26650308; PoB's
+# sup_int.lua carries it on Biting Frost II alone and maps it to nothing). Here: the main skill consumes the boss's Freeze
+# (models.immobilised_share's consumed branch: one Freeze every `period` s from the build's own buildup, the other groups'
+# included), and each consume leaves it Chilled for the Chill's duration: the line names none, so Chill's default, 8 s on
+# non-players (KeywordPopups Chill, CHILL_SECONDS), x the main skill's own Chill duration where PoB gives one (its
+# ChillDuration); periodic, so min(1, duration / period). Labelled (UNVERIFIED): the Chill's magnitude (no number in the
+# text) and whether the game's 30% floor applies to it: the headline counts it, as the text says it Chills; the evidence
+# shows the share without it. It only matters where the main skill doesn't Chill the boss itself (a Cold hit already does).
+FREEZE_CONSUME_CHILL_STAT = "support_active_skill_consume_enemy_freeze_to_apply_chill"
+FREEZE_CONSUME_CHILL = "_freeze_consume_chill"  # stats key: the main skill's supports carry the stat (Conditions.evidence)
+
+
+def consume_chill_share(stats: dict) -> tuple[float, str]:
+    """(share of the fight the boss is Chilled by the main skill's Freeze consumes, how); (0.0, "") without the stat."""
+    if not stats.get(FREEZE_CONSUME_CHILL) or "Freeze" not in (stats.get("_consumes") or {}):
+        return 0.0, ""
+    frozen, _ = models.immobilised_share(stats, "Freeze")
+    main = models.at_main_share(stats)
+    hits = models.hits_per_second(main)
+    if frozen <= 0 or hits <= 0:
+        return 0.0, ("Biting Frost II: its consumed Freezes Chill the boss, but nothing Freezes it (no Freeze buildup "
+                     "from the build's hits): 0")
+    last = min(models.immobilise_duration(main, "Freeze"), 1.0 / hits)  # (immobilised_share's consumed Freeze)
+    period = last / frozen
+    seconds = number(main.get("ChillDuration")) or CHILL_SECONDS
+    share = min(1.0, seconds / period)
+    return share, (f"Biting Frost II: each Freeze it consumes (one every {period:.2f} s) Chills the boss for {seconds:g} s "
+                   f"(the line names no duration: Chill's default, KeywordPopups): {share:.0%} of the fight (its magnitude "
+                   "and the 30% floor UNVERIFIED: counted, as the text says it Chills)")
 
 
 # Heart of Ice (MECH105; RESEARCH55 R55-1, a likely DPS UNDERCOUNT for The Whispering Ice, which grants it and Icestorm).
@@ -6338,6 +6374,14 @@ def main_consumes(build, main_skill: str, main_gems: set[str]) -> dict[str, str]
         for ailment in DRAIN_CONSUMES:
             found.setdefault(ailment, DRAIN_AILMENTS)
     return found
+
+
+def freeze_consume_chills(build, main_skill: str) -> bool:
+    """(MECH108) Does the main skill (its own stats or a support's) carry FREEZE_CONSUME_CHILL_STAT (Biting Frost II)?"""
+    raw = build.call("activeSkills", levelStats=[main_skill], supportStats=[FREEZE_CONSUME_CHILL_STAT])
+    main = next((s for s in raw["skills"] if s["name"] == main_skill and not s.get("disabled")), {})
+    return bool(number((main.get("levelStats") or {}).get(FREEZE_CONSUME_CHILL_STAT))
+                or number((main.get("supportStats") or {}).get(FREEZE_CONSUME_CHILL_STAT)))
 
 
 # PoB's Best Ignite DPS when the main skill consumes Ignite (MECH52; MECH51's follow-up, an OVERCOUNT). PoB counts
@@ -11716,6 +11760,8 @@ class Conditions:
         # Ailments the main skill consumes on hit (CONSUME_STATS; looked up only when a gem of its group says it consumes)
         if consumes := main_consumes(self.build, self.main_skill, main_gems):
             stats["_consumes"] = consumes
+            if "Freeze" in consumes and freeze_consume_chills(self.build, self.main_skill):  # (MECH108: Biting Frost II)
+                stats[FREEZE_CONSUME_CHILL] = True
         if side := side_consumes(self.build, self.main_skill):  # (MECH53: skills beside the main one)
             stats["_side_consumes"] = side
         if reapply := consume_reapply_chances(texts):  # (MECH85: Endless Circuit)
@@ -12118,6 +12164,9 @@ class Conditions:
                         reason += f"; consumed by {side[1]} ({side[2]}): each takes it off, then immune 1 s"
                     if beside := (stats.get("_ailment_others_how") or {}).get(SIDE_CONSUMED_BOXES.get(condition.var, "")):
                         reason += f"; with {beside}"
+                    if condition.var == "conditionEnemyChilled" and (chilled := consume_chill_share(stats))[1]:
+                        without = dict(stats, **{FREEZE_CONSUME_CHILL: False})  # (MECH108: the row without it)
+                        reason += f"; with {chilled[1]}; without it {chilled_share(without):.0%}"
             if condition.value_fn is not None:
                 value, basis, *share = condition.value_fn([line["text"] for line in lines], stats)
                 if value > 0 or basis:  # (a basis with 0: the build has sources, none of which a boss fight feeds)
