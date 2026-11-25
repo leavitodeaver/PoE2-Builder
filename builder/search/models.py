@@ -23949,13 +23949,23 @@ def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, to
     direct = count if main.name in SHOTGUN_SKILLS | SEQUENCE_SKILLS else 1.0
     per_use = count * (1 + penalty / 100) / direct
     uses = min(hits / count, duration * speed)
-    firing = uses / speed
-    factor = per_use * firing / (firing + 1 / tornado_speed)
+    # (MECHB62, O1 from COV56's calibration, an OVERCOUNT: a volley can't be fired in part) When the Tornado's H hits end
+    # it, not its duration, the player fires whole volleys: ceil(H / N) of them, and the last volley's arrows past the H-th
+    # fly on to the boss as a direct shot's share (a use's direct damage x the share not taken in; the lower reading,
+    # LOW). Before, the model charged only H / N uses' time (build 16: 1.39 volleys charged, 2 fired).
+    by_hits = hits / count < duration * speed
+    volleys = max(1.0, math.ceil(uses - 1e-9)) if by_hits else uses
+    left = volleys - uses if by_hits else 0.0
+    firing = volleys / speed
+    factor = (per_use * uses + left) / (volleys + speed / tornado_speed)
     how = (f"{count:g} arrow(s) a use" + (f" ({fired_how})" if fired_how else "") + ", each sucked in and copied into a ring of which one copy hits the boss at "
            f"{penalty:+g}% more (one copy of the ring a target: the ring leaves together, KeywordPopups 74; MEDIUM, "
            f"RESEARCH35 R35-15: a ring fired at once is the rule's own case), against {direct:g} direct "
            f"hit(s): x{per_use:.3f} a use; a Tornado takes {hits:g} arrows or lasts {duration:g} s, so {uses:.2f} uses "
-           f"({firing:.2f} s) a Tornado, and each Tornado costs a {TORNADO_SHOT} use ({1 / tornado_speed:.2f} s)")
+           f"of arrows a Tornado"
+           + (f", fired as {volleys:g} whole volleys ({firing:.2f} s; the last one's {left:.2f} of a use flies on to the "
+              f"boss as a direct shot: the lower reading, LOW)" if by_hits else f" ({firing:.2f} s)")
+           + f", and each Tornado costs a {TORNADO_SHOT} use ({1 / tornado_speed:.2f} s)")
     if factor <= 1:
         return [], [{"label": label, "value": "x1 (shoot the boss directly)", "confidence": "LOW",
                      "basis": f"{how}: x{factor:.3f}, below shooting the boss, so not counted. Without the Tornado: x1; "
@@ -23965,7 +23975,8 @@ def tornado_copy_model(main: Skill | None, main_types: set[str], stats: dict, to
         "basis": f"{how}: x{factor:.3f}. Play: put the Tornado on the boss, fire {main.name} into it, recast when it's "
                  f"gone. Without the Tornado: x1; through it: x{factor:.3f}. LOW: every arrow assumed to reach the "
                  "Tornado, and each arrow's ring its own group (if a volley's rings are one group, x"
-                 f"{(1 + penalty / 100) / direct * firing / (firing + 1 / tornado_speed):.3f}, so not worth it); "
+                 f"{((1 + penalty / 100) / direct * uses + left) / (volleys + speed / tornado_speed):.3f}, so not worth "
+                 "it); "
                  "the sucked-in arrow taken as not hitting (UNVERIFIED)"}]
 
 

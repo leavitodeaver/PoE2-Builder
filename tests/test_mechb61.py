@@ -12,9 +12,11 @@ def _skill(name, **kw):
     return M.Skill.of({"name": name, "attack": True, "group": kw.pop("group", 1), **kw})
 
 
-def _factor(count, speed=2.0, tornado_speed=1.5):
+def _factor(count, speed=2.0, tornado_speed=1.5):  # (MECHB62, O1: whole volleys when the 8 hits end the Tornado)
+    import math
     uses = min(8 / count, 15 * speed)
-    return count * 0.59 * (uses / speed) / (uses / speed + 1 / tornado_speed)
+    volleys = math.ceil(uses - 1e-9)
+    return (count * 0.59 * uses + (volleys - uses)) / (volleys + speed / tornado_speed)
 
 
 def test_ice_shots_shards_are_not_fired_at_the_tornado():
@@ -24,7 +26,7 @@ def test_ice_shots_shards_are_not_fired_at_the_tornado():
     stats = {"ProjectileCount": 14.66, "Speed": 2.0}
     mods, notes = M.tornado_copy_model(_skill("Ice Shot", statSet="Shards"), {"Attack", "Projectile"}, stats, tornado,
                                        L20, 1.5, ICE_SETS, {"Bow"})
-    assert mods[0]["scale"] == pytest.approx(100 * (_factor(5.75) - 1))
+    assert mods[0]["scale"] == pytest.approx(100 * (_factor(5.75) - 1), abs=1e-3)
     assert "not fired at the Tornado" in notes[0]["basis"]
     arrow, _ = M.tornado_copy_model(_skill("Ice Shot", statSet="Arrow"), {"Attack", "Projectile"},
                                     {"ProjectileCount": 5.75, "Speed": 2.0}, tornado, L20, 1.5, ICE_SETS, {"Bow"})
