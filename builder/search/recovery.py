@@ -1246,37 +1246,46 @@ GHOST_REGEN_STAT = "skill_base_ghost_dance_grants_%_evasion_as_es_regeneration_p
 # ghost_dance_max_stacks 3). The two closed forms above (each Shroud lost at the next hit; a Shroud always waiting) are
 # the ends; between them, and with the boss's hits bunched at random, the stock decides how many hits find a Shroud and
 # how the losses spread over the fight. ghost_dance_share now averages it: a seeded simulation of Poisson landed hits
-# against a Shroud every `interval` s (the timer taken to run on while 3 are held, the next Shroud then lost: the lower
-# reading, UNVERIFIED), the share of time with a loss in the past `recently` s. MEDIUM. The closed forms are the rows.
+# against a Shroud every `interval` s, the share of time with a loss in the past `recently` s. MEDIUM. The closed forms
+# are the rows. (MECHC62; RESEARCH60 R60-3, research/ghost-dance-timer-at-max-r60.md: what the timer does while 3 are
+# held is UNVERIFIED, no source.) The headline takes it to PAUSE at 3 (the next Shroud a whole interval after the first
+# loss from full: the LOWER reading, the defence lower-headline rule); a row takes it to run on (the Shroud due while
+# full lost, the timer keeping its rhythm: the higher one; about 0.005 of share apart, 0.293 vs 0.297 at 10.1 s, 0.1
+# hits/s).
 GHOST_STOCK = 3
 
 
-def ghost_dance_share(interval: float, hits: float, recently: float = 4.0) -> float:
+def ghost_dance_share(interval: float, hits: float, recently: float = 4.0, runs_on: bool = False) -> float:
     """Share of the fight you've lost a Ghost Shroud in the past `recently` s: a Shroud every `interval` s (at most
-    GHOST_STOCK held), landed hits `hits` a second (GHOST_STOCK's note)."""
+    GHOST_STOCK held), landed hits `hits` a second (GHOST_STOCK's note: the timer paused at the maximum; `runs_on`, the
+    row: it keeps running)."""
     if interval <= 0 or hits <= 0:
         return 0.0
-    return _ghost_cover(round(interval, 3), round(hits, 4), recently)
+    return _ghost_cover(round(interval, 3), round(hits, 4), recently, runs_on=runs_on)
 
 
 @functools.lru_cache(maxsize=512)
-def _ghost_cover(interval: float, hits: float, recently: float, shrouds: int = 3000) -> float:
+def _ghost_cover(interval: float, hits: float, recently: float, shrouds: int = 3000, runs_on: bool = False) -> float:
     import random
 
     rng = random.Random(61)
     warm = 20 * interval
     end = warm + shrouds * interval
-    stock, made, t, covered, last_end = GHOST_STOCK, 1, 0.0, 0.0, warm
+    stock, due, t, covered, last_end = GHOST_STOCK, (interval if runs_on else math.inf), 0.0, 0.0, warm
     while True:
         t += rng.expovariate(hits)
         if t >= end:
             break
-        due = int(t / interval)  # (Shrouds made by now, the timer running throughout)
-        if due >= made:
-            stock = min(GHOST_STOCK, stock + due - made + 1)
-            made = due + 1
+        while due <= t:  # (the Shrouds made by now)
+            stock = min(GHOST_STOCK, stock + 1)
+            if stock >= GHOST_STOCK and not runs_on:
+                due = math.inf  # (paused at the maximum)
+            else:
+                due += interval
         if stock <= 0:
             continue
+        if stock >= GHOST_STOCK and not runs_on:
+            due = t + interval  # (the timer starts again on the first loss from full)
         stock -= 1
         if t + recently > warm:
             start = max(t, last_end, warm)
@@ -1294,9 +1303,12 @@ def ghost_dance_income(income: Income, level_stats: dict, evasion: float, hits: 
     interval = _num(level_stats.get(GHOST_INTERVAL_STAT)) / 1000 / (recovery_rate if recovery_rate > 0 else 1.0)
     pct = _num(level_stats.get(GHOST_REGEN_STAT)) / 60 or 2.0
     share = ghost_dance_share(interval, hits)
+    on = ghost_dance_share(interval, hits, runs_on=True)  # (MECHC62, R60-3: the row)
     income.add("EnergyShieldGhostDanceRegen", pct / 100 * max(evasion, 0.0) * share,
                f"Ghost Dance: {pct:g}% of {evasion:,.0f} Evasion as Energy Shield a second while a Shroud was lost in the "
-               f"past 4 s, {share:.0%} of the fight (a Shroud every {interval:.1f} s; {hits_how}; MEDIUM)")
+               f"past 4 s, {share:.0%} of the fight (a Shroud every {interval:.1f} s, the timer taken to pause at "
+               f"{GHOST_STOCK} Shrouds, UNVERIFIED; {hits_how}; MEDIUM; row, the timer running on at {GHOST_STOCK}: "
+               f"{on:.1%} of the fight, {pct / 100 * max(evasion, 0.0) * on:,.1f}/s)")
 
 
 # Time of Need (MECHC51; GEM31's route, an UNDERCOUNT: no model before, PoB maps only its alternate quality's Life

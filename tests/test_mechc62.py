@@ -73,3 +73,22 @@ def test_real_pob_killing_palm_quality_and_soul_drain_reach_the_cull_income(engi
     income = recovery.Income()
     assert search.assumptions.cull_income(income, {"Mana": mana, bosses.CULLS_STAT: 0.0}, present) == []
 
+
+def test_real_pob_one_wildwoods_gifts_copy_is_read(engine):
+    """Real PoB (RESEARCH60 R60-2: at most one Wildwood's Gifts exists): a second copy (a level-1 group beside The Hollow
+    Mask's level 20, an impossible build) no longer adds its Blooms; the fastest copy alone counts."""
+    from test_engine_models import spark_with  # (tests/ is on sys.path under pytest)
+
+    build = spark_with(engine, []).build
+    mask = chr(10).join(["Rarity: Unique", "The Hollow Mask", "Hewn Mask", "Item Level: 82", "Implicits: 1",
+                         "Grants Skill: Level 20 Wildwood's Gifts"])
+    build.call("equip", slot="Helmet", raw=mask, fields=[])
+    one = build.call("chargeGain")["blooms"]["rate"]
+    assert 0.5 < one < 2.0
+    build.call("addSkillGroup", text="Wildwood's Gifts 1/0 1")
+    copies = [s for s in build.call("activeSkills")["skills"] if s["name"] == "Wildwood's Gifts" and not s.get("disabled")]
+    if len(copies) < 2:
+        pytest.skip(f"PoB made {len(copies)} Wildwood's Gifts copies from the group text: nothing to compare")
+    two = build.call("chargeGain")["blooms"]["rate"]
+    assert two == pytest.approx(one)
+

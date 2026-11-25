@@ -7739,8 +7739,11 @@ function bridge.chargeGain()
 				end
 			end
 			local ms = stats["breach_flame_spawn_rate_ms"] or 0
-			if ms > 0 then
-				blooms.rate = blooms.rate + 1000 / ms
+			-- (MECHC62; RESEARCH60 R60-2, research/wildwood-gifts-two-copies-r60.md: at most ONE Wildwood's Gifts exists, HIGH:
+			-- ModGrantedSkills has one mod for it, The Hollow Mask's; no other carrier; no Uncut gem; a Buff, and same-type
+			-- Buffs don't stack) one copy is read, the fastest (the highest level), never a sum over copies
+			if ms > 0 and 1000 / ms > blooms.rate then
+				blooms.rate = 1000 / ms
 				blooms.life = stats["ancient_gifts_life_flask_charges_restored"] or 0
 				blooms.mana = stats["ancient_gifts_mana_flask_charges_restored"] or 0
 				blooms.charm = stats["ancient_gifts_charm_charges_restored"] or 0
