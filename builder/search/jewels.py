@@ -43,7 +43,7 @@ from builder.search import anoints, desecrated
 from builder.search.context import ItemOption
 from builder.search.radius import Variants, compact, miscalculated, tree_changing, unlocks, variants_of, with_variants
 from builder.search.rares import (CATALYST_QUALITY, CATALYSTS, CATALYSTS_PER_20, MELANCHOLY_CRAFTS, RADIUS_CRAFT,
-                                  SCREEN_KEEP, Affix, magic_text,
+                                  RESIST_CRAFTS, SCREEN_KEEP, Affix, magic_text, roll,
                                   AffixPools, active_lines, boosted, catalysed_text, catalyst_matches, mod_lines,
                                   rare_price, rare_text, socket_count, unique_text, with_runes)
 from builder.search.state import EPSILON, Build
@@ -127,6 +127,13 @@ JEWEL_CATALYSTS = {"Refined " + name: name for name in CATALYSTS}
 RADIUS_SHAPES = ({"Prefix": 1, "Suffix": 3}, {"Prefix": 1, "Suffix": 2})
 ANCIENT_MELANCHOLY, ANCIENT_CONTEMPT = "Ancient Potent Liquid Melancholy", "Ancient Potent Liquid Contempt"
 RADIUS_TRIES = 2.0  # (LOW) the lone emotion keeps the chosen mods about half the time: which one it removes is random
+# (JEWEL4) Ancient Potent Liquid Ferocity's radius resistance (rares.RESIST_CRAFTS, a SUFFIX: the mirror of the radius craft):
+# 3 prefixes + 1 suffix + the craft by the 0.5 route with Ancient Potent Liquid Contempt's "+1 Prefix Modifier allowed" first,
+# and 2 prefixes + 1 suffix + the craft by the emotion alone (RADIUS_TRIES x (the jewel + the emotion), LOW). Defence: it
+# frees gear affixes from resistances. OFF until gated
+RESIST_SHAPES = ({"Prefix": 3, "Suffix": 1}, {"Prefix": 2, "Suffix": 1})
+ANCIENT_FEROCITY = "Ancient Potent Liquid Ferocity"
+RESIST_JEWEL = os.environ.get("POE2_SEARCH_RADIUS_RES", "0") == "1"
 JEWEL_CATALYST = os.environ.get("POE2_SEARCH_JEWEL_CATALYST", "0") == "1"  # (JEWEL3) OFF until gated
 RADIUS_JEWEL = os.environ.get("POE2_SEARCH_RADIUS_CRAFT", "0") == "1"  # (JEWEL3) the Very Large radius shapes; OFF until gated
 # (JEWEL3; RESEARCH52 R52-4) The Adorned, a unique Diamond (Limited to 1; Current version): "(0-150)% increased Effect of Jewel
@@ -425,7 +432,8 @@ class Jewels:
             # that pays more); the plain two-and-two shape stays a candidate (cheaper under a budget, and the Preserved
             # Cranium trial builds on it). Time-Lost bases can't take the effect line (HIGH, RESEARCH53 R-J2 / R-J3; checked:
             # every Ancient row of PoB's generated LiquidEmotions.lua, none has CraftedJewel{Prefix,Suffix}Effect; poe2db).
-            # Their own crafts, the Ancient emotions (Very Large radius, radius resistance), aren't offered yet: an UNDERCOUNT
+            # Their own crafts, the Ancient emotions, are offered behind switches OFF until gated: the Very Large radius
+            # (JEWEL3, POE2_SEARCH_RADIUS_CRAFT) and the radius resistance (JEWEL4, POE2_SEARCH_RADIUS_RES)
             shapes = [(JEWEL_LIMIT, [forced] if forced else [], None)]
             for kind in JEWEL_LIMIT if base_name in JEWEL_BASES else ():
                 if crafted := self.pools.crafted(kind):
@@ -434,12 +442,16 @@ class Jewels:
             radius = self.radius_affix() if base_name in RADIUS_BASES and RADIUS_JEWEL else None
             for limits in RADIUS_SHAPES if radius is not None else ():
                 shapes.append((limits, [radius] + ([forced] if forced else []), "radius"))
+            resist = self.resist_affix(base_name) if base_name in RADIUS_BASES and RESIST_JEWEL else None
+            for limits in RESIST_SHAPES if resist is not None else ():
+                shapes.append((limits, [resist] + ([forced] if forced else []), "resist"))
             for limits, fixed, boost in shapes:
                 shortlist = [a for kind in limits for a in [x for x in ranked if x.type == kind][:SCREEN_KEEP]]
-                if boost == "radius":  # (JEWEL3) the Very Large radius craft: its own route's price, a whole shape only
+                if boost in ("radius", "resist"):  # (JEWEL3 / JEWEL4) an Ancient emotion's craft: its own route's price
+                    craft = radius if boost == "radius" else resist
                     found = self.greedy(slot, base, shortlist, limits, fixed, left, deadline, required is not None,
-                                        full=True, free=(radius,))
-                    option = self.radius_rare(base, limits, found) if found else None
+                                        full=True, free=(craft,))
+                    option = self.radius_rare(base, limits, found, boost) if found else None
                     if option is not None and not shape_full(found[1], limits):  # (kept, with the note: THE USER 24 Nov)
                         self.mark_unfinished(option[1].raw, found[1], limits, deadline)
                     if option is not None and (option[0] <= left + 1e-9 or self.ctx.ssf):
@@ -485,35 +497,49 @@ class Jewels:
             return None
         return Affix(mod["id"], mod["group"], mod["type"], 1, tuple(mod_lines(mod)), crafted=True)
 
-    def radius_rare(self, base: dict, limits: dict[str, int], found: tuple) -> tuple[float | None, ItemOption] | None:
+    def resist_affix(self, base_name: str) -> Affix | None:
+        """(JEWEL4) Ancient Potent Liquid Ferocity's radius resistance for this Time-Lost colour as a crafted affix, rolled
+        as the request's tier rolls (None if this game data lacks it)."""
+        mod = next((m for m in self.pools.mods if m["id"] == RESIST_CRAFTS.get(base_name)), None)
+        if mod is None:
+            return None
+        return Affix(mod["id"], mod["group"], mod["type"], 1, tuple(roll(line, self.pools.roll) for line in mod_lines(mod)),
+                     crafted=True, ranged=True)
+
+    def radius_rare(self, base: dict, limits: dict[str, int], found: tuple,
+                    craft: str = "radius") -> tuple[float | None, ItemOption] | None:
         """(JEWEL3) (price, the jewel) for a whole Very Large radius shape greedy filled: 1 prefix + 3 suffixes by the 0.5
         route (rare_prices.jewel_craft with Ancient Potent Liquid Contempt and Melancholy in place of the basic emotions),
         1 prefix + 2 suffixes by the emotion alone (RADIUS_TRIES x (the jewel + one Ancient Potent Liquid Melancholy)).
+        (JEWEL4) craft "resist": Ancient Potent Liquid Ferocity's radius resistance, the mirror (a suffix craft: 3 prefixes
+        by the 0.5 route with "+1 Prefix Modifier allowed", or 2 prefixes + 1 suffix by the emotion alone).
         None without the emotions' prices (outside SSF)."""
         _, chosen, priced = found
         prices = self.ctx.payload.get("ancient_emotion_prices") or {}
         level = self.pools.item_level
+        emotion, third = (ANCIENT_MELANCHOLY, "Suffix") if craft == "radius" else (ANCIENT_FEROCITY, "Prefix")
+        line = next((" / ".join(a.lines) for a in chosen if a.crafted), "")
         if self.ctx.ssf:
-            price, route = None, "the Ancient Potent Liquid Melancholy craft (SSF: unpriced)"
-        elif ANCIENT_MELANCHOLY not in prices or (limits["Suffix"] == 3 and ANCIENT_CONTEMPT not in prices):
+            price, route = None, f"the {emotion} craft (SSF: unpriced)"
+        elif emotion not in prices or (limits[third] == 3 and ANCIENT_CONTEMPT not in prices):
             return None
-        elif limits["Suffix"] == 3:
+        elif limits[third] == 3:
             materials = {**rare_prices.active().materials, "Potent Liquid Contempt": prices[ANCIENT_CONTEMPT],
-                         "Potent Liquid Ferocity": prices[ANCIENT_MELANCHOLY]}
-            craft = rare_prices.jewel_craft(chosen, materials, lambda keep: rare_price("Jewel", keep))
+                         "Potent Liquid Ferocity": prices[emotion]}
+            made = rare_prices.jewel_craft(chosen, materials, lambda keep: rare_price("Jewel", keep))
             # (without the route's other materials priced (Chaos Orbs, the Erasure Omen): the jewel and both emotions,
             # about two tries, LOW)
-            price = craft["total"] if craft is not None else RADIUS_TRIES * (
-                rare_price("Jewel", priced) + prices[ANCIENT_CONTEMPT] + prices[ANCIENT_MELANCHOLY])
-            route = (f"the 0.5 route with Ancient emotions: Ancient Potent Liquid Contempt's \"+1 Suffix Modifier allowed\", a "
-                     "third suffix, the +1 line removed, then Ancient Potent Liquid Melancholy (\"Upgrades Radius to Very "
-                     f"Large\"); about {price:.3g} div (LOW, as the effect craft's route"
-                     + ("" if craft is not None else "; the route's Chaos Orbs and Omen unpriced: the jewel and both "
-                                                     "emotions, about two tries") + ")")
+            price = made["total"] if made is not None else RADIUS_TRIES * (
+                rare_price("Jewel", priced) + prices[ANCIENT_CONTEMPT] + prices[emotion])
+            route = (f"the 0.5 route with Ancient emotions: Ancient Potent Liquid Contempt's \"+1 {third} Modifier allowed\", "
+                     f"a third {third.lower()}, the +1 line removed, then {emotion} (\"{line}\"); about {price:.3g} div (LOW, "
+                     "as the effect craft's route"
+                     + ("" if made is not None else "; the route's Chaos Orbs and Omen unpriced: the jewel and both "
+                                                    "emotions, about two tries") + ")")
         else:
-            price = RADIUS_TRIES * (rare_price("Jewel", priced) + prices[ANCIENT_MELANCHOLY])
-            route = (f"buy the jewel with these 3 mods and any fourth, then Ancient Potent Liquid Melancholy (it removes a "
-                     f"random modifier and adds \"Upgrades Radius to Very Large\"); about two tries, {price:.3g} div (LOW)")
+            price = RADIUS_TRIES * (rare_price("Jewel", priced) + prices[emotion])
+            route = (f"buy the jewel with these 3 mods and any fourth, then {emotion} (it removes a random modifier and adds "
+                     f"\"{line}\"); about two tries, {price:.3g} div (LOW)")
         return price, ItemOption("Rare Jewel", base["name"], "Jewel", None, rare_text("Jewel", base, level, chosen), False,
                                  price, "ssf" if self.ctx.ssf else "estimate (craft route: Ancient emotions)", 0, rare=True,
                                  affixes=tuple(line for a in chosen for line in a.lines),

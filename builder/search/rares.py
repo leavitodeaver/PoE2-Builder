@@ -96,6 +96,15 @@ JEWEL_CRAFTS = {"Prefix": ("CraftedJewelAdditionalPrefixAllowed", "CraftedJewelP
 # (JEWEL3) Potent Liquid Melancholy's crafted suffixes, one per jewel colour (PoB Data/LiquidEmotions.lua, RESEARCH51
 # R51-11): Sapphire -> Exposure (jewels.exposure_rare offers it), Emerald -> Blind, Ruby -> Debilitate
 RADIUS_CRAFT = "CraftedJewelRadiusExtraLargeSize"  # (JEWEL3) Ancient Potent Liquid Melancholy, a prefix, Time-Lost only
+# (JEWEL4) Ancient Potent Liquid Ferocity's crafted SUFFIX on a Time-Lost rare, one per colour: "Notable Passive Skills in
+# Radius also grant +(5-7)% to <element> Resistance" (PoB Data/LiquidEmotions.lua EndgameDistilledEmotionTimeLost2, the
+# vendor copy the engine loads; RESEARCH53's table from poe2db agrees; the old v0.23.1 copy swapped Sapphire / Emerald).
+# (the Diamond's Chaos line is listed but the search builds Time-Lost rares only on jewels.RADIUS_BASES, which holds no
+# Time-Lost Diamond: AUDIT38 #220 is a real rare Time-Lost Diamond listing, an open lead in the JEWEL4 report)
+RESIST_CRAFTS = {"Time-Lost Ruby": "CraftedJewelRadiusFireResistance", "Time-Lost Sapphire": "CraftedJewelRadiusColdResistance",
+                 "Time-Lost Emerald": "CraftedJewelRadiusLightningResistance",
+                 "Time-Lost Diamond": "CraftedJewelRadiusChaosResistance"}
+ANCIENT_CRAFTS = {RADIUS_CRAFT, *RESIST_CRAFTS.values()}  # (JEWEL4) for the shopping list's crafted lines
 MELANCHOLY_CRAFTS = ("CraftedJewelExposureOnHitWhileRubyEmeraldSocketed", "CraftedJewelBlindOnHitWhileRubySapphireSocketed",
                      "CraftedJewelDebilitateOnHitWhileEmeraldSapphireSocketed")
 EFFECT = re.compile(r"(\d+(?:\.\d+)?)% increased Effect of (Prefixes|Suffixes)")

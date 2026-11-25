@@ -29,7 +29,7 @@ from builder.data.trade import TradeClient
 from builder.search.radius import TAG, variants_of
 from builder.search import anoints, granted_rolls, models
 from builder.report import bonded
-from builder.search.rares import EFFECT, JEWEL_CRAFTS, MELANCHOLY_CRAFTS, RANGE, TIER_RULES, boosted, rare_rules_tier, conflicts, mod_lines, pool_tags, roll
+from builder.search.rares import ANCIENT_CRAFTS, EFFECT, JEWEL_CRAFTS, MELANCHOLY_CRAFTS, RANGE, TIER_RULES, boosted, rare_rules_tier, conflicts, mod_lines, pool_tags, roll
 
 # (SEARCHC1; THE USER 23 Nov: never an empty rune socket, "quality of life runes (reduced curse duration, item rarity, cost
 # efficiency, the 'emergent' augments, etc.)") a socket nothing scored for holds a filler the player may swap
@@ -130,7 +130,7 @@ def identify(item: dict, data: GameData, fraction: float) -> list[tuple[dict | N
         return [(None, None, [line]) for line in item["affixes"]]
     # A crafted 0.5 jewel (builder/search/rares.py JEWEL_CRAFTS): its effect line boosts one kind
     effect = next(((float(m.group(1)), m.group(2)[:-2]) for line in item["affixes"] if (m := EFFECT.search(line))), None)
-    crafts = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids} | set(MELANCHOLY_CRAFTS)
+    crafts = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids} | set(MELANCHOLY_CRAFTS) | ANCIENT_CRAFTS
     candidates = list(ranked_affixes(data, item["base"], pool))
     if pool == "Jewel":
         candidates += [(m, 1) for m in data.mods.get("Jewel", []) if m["id"] in crafts]
@@ -411,7 +411,7 @@ def shopping_list(result: dict, data: GameData, prices: dict, stats: dict[str, d
                 entry["model_category"] = rare_prices.category(slot)
                 if gear.get("price") is not None:
                     entry["confidence"] = model.confidence(slot)
-            crafted_ids = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids} | set(MELANCHOLY_CRAFTS)
+            crafted_ids = {mod_id for ids in JEWEL_CRAFTS.values() for mod_id in ids} | set(MELANCHOLY_CRAFTS) | ANCIENT_CRAFTS
             effect = next(((m.group(1), m.group(2)) for line in gear["affixes"] if (m := EFFECT.search(line))), None)
             mods = []  # (affix entry, mod) for the crafting estimate
             for mod, tier, lines in identify(gear, data, fraction):

@@ -746,3 +746,54 @@ def test_a_desecrated_line_sits_on_the_crafted_jewel_with_nothing_removed(search
     assert all(l in cranium or any(boosted(p, percent) == l for p in plain) for l in added)
     assert "MEDIUM-LOW" in option.craft_route[0] and "0.5 route" in option.craft_route[1]
     assert option.price > rare_price("Jewel", priced)
+
+
+def test_the_radius_resistance_craft_makes_a_whole_time_lost_rare_pob_reads(search, monkeypatch):
+    """(JEWEL4, POE2_SEARCH_RADIUS_RES=1; RESEARCH53's table) Ancient Potent Liquid Ferocity's "Notable Passive Skills in
+    Radius also grant +(5-7)% to Fire Resistance" on a Time-Lost Ruby: the 3 prefixes + 1 suffix shape is whole and priced by
+    the Ancient emotions' route; with an allocated notable in its radius PoB adds the resistance (a probe, not a reading:
+    ModParser's "Passive Skills in Radius also grant")."""
+    from builder.search import jewels as module
+    from builder.search.rares import RESIST_CRAFTS, rare_text
+
+    jewels, build, engine = search.jewels, search.build, search.build.engine
+    assert not module.RESIST_JEWEL  # (OFF until gated)
+    monkeypatch.setattr(module, "RESIST_JEWEL", True)
+    monkeypatch.setitem(search.ctx.payload, "ancient_emotion_prices",
+                        {module.ANCIENT_FEROCITY: 0.25, module.ANCIENT_CONTEMPT: 12.7})
+    assert RESIST_CRAFTS["Time-Lost Ruby"].endswith("FireResistance")
+    slot = next((jewels.slot(s) for s in jewels.sockets() if not jewels.plain_only(s)), None)
+    if slot is None:
+        pytest.skip("no socket that takes a radius jewel")
+    resist = jewels.resist_affix("Time-Lost Ruby")
+    assert resist is not None and resist.type == "Suffix" and "Fire Resistance" in resist.lines[0]
+    base = search.ctx.bases_by_name["Time-Lost Ruby"]
+    ranked = jewels.ranked(slot, base, jewels.pools.pool(base["name"]))
+    limits = module.RESIST_SHAPES[0]
+    shortlist = [a for kind in limits for a in [x for x in ranked if x.type == kind][:module.SCREEN_KEEP]]
+    found = jewels.greedy(slot, base, shortlist, limits, [resist], 1e9, clock.now() + 300, full=True, free=(resist,))
+    assert found and module.shape_full(found[1], limits)
+    price, option = jewels.radius_rare(base, limits, found, "resist")
+    print("PROBE resist", option.affixes, price, option.craft_route)
+    assert resist.lines[0] in option.raw and price > 0
+    assert "+1 Prefix Modifier allowed" in option.craft_route[0] and module.ANCIENT_FEROCITY in option.craft_route[0]
+    snap = build.snapshot()
+    plain = rare_text("Jewel", base, jewels.pools.item_level, [a for a in found[1] if not a.crafted])
+    build.equip(slot, dataclasses.replace(option, raw=plain))
+    jewel = next(j for j in build.call("radiusJewels")["jewels"] if f"Jewel {j['socket']}" == slot)
+    in_radius = set(jewel.get("inRadius") or [])
+    notables = [n for n in engine.call("frontier", maxDistance=8)["nodes"] if n["type"] == "Notable" and n["id"] in in_radius]
+    if notables:
+        build.allocate(add=[min(notables, key=lambda n: n["distance"])["id"]])
+    fire = {}
+    for tag, raw in (("with", option.raw), ("without", plain)):
+        build.equip(slot, dataclasses.replace(option, raw=raw))
+        fire[tag] = build.call("stats", fields=["FireResist"])["FireResist"]
+    jewel = next(j for j in build.call("radiusJewels")["jewels"] if f"Jewel {j['socket']}" == slot)
+    build.restore(snap)
+    print("PROBE resist fire", fire, "affected", jewel.get("affected"))
+    if not jewel.get("affected"):
+        pytest.skip("no allocated passive in this socket's radius on the test tree")
+    assert fire["with"] >= fire["without"]
+    if notables:
+        assert fire["with"] > fire["without"]  # PoB applies the line through an allocated notable in radius
