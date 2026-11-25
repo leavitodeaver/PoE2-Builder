@@ -2306,7 +2306,10 @@ def combo_facts(build: Build, skills: list[models.Skill]) -> dict:
     adept = 1.0 if use.has_passive(usage_mod.MARTIAL_ADEPT) else 0.0
     chance = use.combo_chance()
     groups = {s.group for s in skills if s.group is not None}
-    return {"any_attack": use.has_passive(usage_mod.MARTIAL_MASTER),
+    slower = sum(float(m.group(1)) for line in build.call("sourceLines").get("lines") or []
+                 if str(line.get("source", "")).startswith(("passive:", "item:"))
+                 and (m := models.COMBO_SLOWER.match(str(line.get("text", "")).strip())))
+    return {"any_attack": use.has_passive(usage_mod.MARTIAL_MASTER), "falloff": -slower,  # (GEM42, R59-8)
             "gain": 1.0 + adept + min(chance, 100.0) / 100.0,
             "groups": {g: 1.0 + adept + min(chance + use.group_combo_chance(g), 100.0) / 100.0 for g in groups}}
 
@@ -5043,9 +5046,11 @@ class Assumptions:
         if main is not None and main.name in models.LEAP_ADDED_TIME:  # (MECHB51: R42-14, the distance leapt)
             leap_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
                            or conditions_mod.natural_distance({"Melee"} if main.melee else set(), main.name))
-            if main.name == models.DEVOUR:  # (GEM40: its damaging uses are far ones, models.DEVOUR_FAR_METRES)
-                leap_metres = max(leap_metres, models.DEVOUR_FAR_METRES)
-            leap_mods, leap_notes = models.leap_time_model(main, leap_metres, conditions_mod.MELEE_DISTANCE,
+            melee_metres = conditions_mod.MELEE_DISTANCE
+            if main.name == models.DEVOUR:  # (GEM40: its damaging uses are far ones, models.DEVOUR_FAR_METRES;
+                # GEM42, R59-14: it always leaps for its Slam, past melee reach, so never the beside-the-boss hop)
+                leap_metres, melee_metres = max(leap_metres, models.DEVOUR_FAR_METRES), 0.0
+            leap_mods, leap_notes = models.leap_time_model(main, leap_metres, melee_metres,
                                                            number(stats.get("Speed")), forbidden)
             hand_mods, hand_notes = hand_mods + leap_mods, hand_notes + leap_notes
         if main is not None and main.name == models.ORB_OF_STORMS and main.group is not None:  # (MECH-B: its recast

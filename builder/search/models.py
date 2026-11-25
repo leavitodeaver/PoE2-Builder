@@ -300,6 +300,9 @@ class Skill:
     # (GEM41) Totem Limit the game's is_melee_attack_totem lets "Melee Attack Skills have +N" lines add (bridge
     # meleeAttackTotemAdded; already in totem_limit; totem_count_model's "without it" row)
     melee_totem_added: float = 0.0
+    # (GEM42, RESEARCH59 R59-3) Totem Limit "Attack Skills have +N" lines add on top for such a totem (bridge
+    # attackTotemAdded; already in totem_limit; its own "without it" row, MEDIUM)
+    attack_totem_added: float = 0.0
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -312,7 +315,7 @@ class Skill:
                    number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")),
                    raw.get("ailmentTotems"), number(raw.get("markDuration")), raw.get("overTimeCost"),
                    number(raw.get("totemLimitOwn")), bool(raw.get("byTotem")), bool(raw.get("projectileAttack")),
-                   number(raw.get("meleeAttackTotemAdded")))
+                   number(raw.get("meleeAttackTotemAdded")), number(raw.get("attackTotemAdded")))
 
 
 # (MECH93, an OVERCOUNT before; the manager 07:25, MECHC45's list) AT_MAIN_SHARE: the main skill's share of the fight
@@ -5255,6 +5258,13 @@ def _strike_skill(skill: Skill) -> bool:
 # chance stat's carriers (Mods, PassiveSkills, SoulCoreStats, Practiced Combo), as usage.py's list. Assumptions hands
 # them in as stats["_combo"] = {"any_attack": bool, "gain": a hit's Combo by default, "groups": {index: a hit's Combo}}.
 COMBO_FACTS = "_combo"
+# (GEM42; RESEARCH59 R59-8, research/combo-falloff-r59.md) Combo falls off all at once after the delay (MEDIUM, kept), and
+# "Skills lose Combo N% slower" (combo_falloff_speed_+%, negative) lengthens the delay: D / (1 + speed / 100) (MEDIUM-LOW;
+# Flow's -60 would be x2.5), the row D x (1 - speed / 100) ("N% more time"). Carriers (R59-8, checked: Mods,
+# PassiveSkills, SoulCoreStats, GrantedEffectStatSets): the notable Disciplined Training (area_attacks59; PoB's ModCache
+# leaves "Skills lose Combo 20% slower" unparsed, so the bridge's sourceLines carry it) and the Flow support (-60), which
+# PoB's gem data doesn't hold, so no build here can socket it. COMBO_FACTS' "falloff" is the summed speed from the lines.
+COMBO_SLOWER = re.compile(r"^Skills lose Combo (\d+(?:\.\d+)?)% slower$", re.I)
 
 
 def _combo_builder(skill: Skill, any_attack: bool = False) -> bool:
@@ -5288,6 +5298,10 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
         return 0.0, ("no other melee Strike in the build to build its Combo (Combo comes from Strikes with other melee "
                      "attacks): 0 (no flat rate)"), VRUUN_PLAY + ". Without one it gets no area."
     decay = number(skill.support_stats.get(COMBO_DECAY_STAT)) / 1000 or VRUUN_DECAY_SECONDS
+    falloff = number((stats.get(COMBO_FACTS) or {}).get("falloff"))  # (GEM42, R59-8: "lose Combo N% slower")
+    base_decay = decay
+    if -100 < falloff < 0:
+        decay = decay / (1 + falloff / 100)
     hits, parts, unpressed, spacings, gains, combo_rate = 0.0, [], [], [], [], 0.0
     for index in builders:
         gain = number((facts.get("groups") or {}).get(index)) or base_gain  # (GEM42: a hit's Combo)
@@ -5326,8 +5340,11 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
     if unpressed:
         why += (f"; {', '.join(unpressed)} read at PoB's own rate, its time not taken from the supported skill (an "
                 f"overcount of Combo)")
+    if decay != base_decay:
+        why += (f"; Combo kept {decay:.3g} s without a Strike ({base_decay:g} s, {-falloff:g}% slower: R59-8's longer "
+                f"delay, MEDIUM-LOW; read as {base_decay * (1 - falloff / 100):.3g} s, the row)")
     if chain is not None and chain < plain:
-        why += (f"; the builders can't land a Strike within the {decay:g} s Combo decay of the last, even back to back "
+        why += (f"; the builders can't land a Strike within the {decay:.3g} s Combo decay of the last, even back to back "
                 f"(each every {', '.join(f'{g:.1f}' for g in spacings)} s): at most {chain:g} Combo a use (without the "
                 f"decay: {plain:.1f})")
     per_hit = combo_rate / hits
@@ -23239,13 +23256,23 @@ def totem_count_model(skills: list[Skill], main: Skill | None, texts: Iterable[s
               "play": f"Keep {up} {summoner.name} totems placed at the boss; re-place them as they expire.",
               "confidence": "MEDIUM"}]
     if summoner.melee_totem_added > 0:  # (GEM41) the is_melee_attack_totem reading, and the count without it
-        without = max(1, int(bond_totems(own, max(0.0, pob - own - summoner.melee_totem_added), doubled)[0]) - len(others))
+        without = max(1, int(bond_totems(own, max(0.0, pob - own - summoner.melee_totem_added
+                                                  - summoner.attack_totem_added), doubled)[0]) - len(others))
         notes.append({"label": f"{summoner.name}: Melee Attack totem lines", "value": f"{up} with / {without} without",
                       "basis": (f"the game flags {summoner.name} is_melee_attack_totem (GrantedEffectStatSets; poe2db's "
                                 f"hidden stats and Melee tag) though its skill types lack Attack and Melee, so the "
                                 f"build's \"Melee Attack Skills have +N to maximum number of Summoned Totems\" lines "
                                 f"(+{summoner.melee_totem_added:g}) are counted toward its limit, which PoB never does: "
-                                f"read as that flag's purpose (MEDIUM; no game text says so). Without them: {without} "
+                                f"the flag's purpose (MEDIUM-HIGH: RESEARCH59 R59-3, the hidden tag is only on its "
+                                f"summon set). Without them: {without} totems"),
+                      "confidence": "MEDIUM-HIGH"})
+    if summoner.attack_totem_added > 0:  # (GEM42, R59-3) "Attack Skills have +N" lines on such a totem, MEDIUM
+        without = max(1, int(bond_totems(own, max(0.0, pob - own - summoner.attack_totem_added), doubled)[0])
+                      - len(others))
+        notes.append({"label": f"{summoner.name}: Attack totem lines", "value": f"{up} with / {without} without",
+                      "basis": (f"the build's \"Attack Skills have +N to maximum number of Summoned Totems\" lines "
+                                f"(+{summoner.attack_totem_added:g}) counted for {summoner.name} as an Attack totem "
+                                f"(is_melee_attack_totem; RESEARCH59 R59-3: probably, MEDIUM). Without them: {without} "
                                 f"totems"),
                       "confidence": "MEDIUM"})
     return mods, notes
@@ -25966,7 +25993,18 @@ def leap_time_model(main: Skill | None, metres: float, melee_metres: float, spee
 #   (MEDIUM-LOW): near unless its attack time is over ~1.5 s.
 DEVOUR = "Devour"
 DEVOUR_NEAR, DEVOUR_FAR = -15.0, 20.0  # (WyvernDevourPlayer's two _+%_final stats, game 26650308)
-DEVOUR_FAR_METRES = 3.0  # (LOW: Leap Slam's leap_slam_animation_distance_threshold 30, Devour's own threshold unknown)
+# (GEM42; RESEARCH59 R59-14, research/devour-rampage-distances-r59.md, LOW-MEDIUM) Devour has NO leap-threshold stat:
+# it is a melee dash (base_melee_dash_range 4 m), so it leaps when the target is beyond melee reach, ~1.5 m: the
+# headline leap is the boss's distance, at least 1.5 m (leap_time_model's added time 0.5 s x 1.5 / 3 = +0.25 s a use);
+# Leap Slam's 3 m threshold (GEM40's reading, +0.5 s) is the row. Before: 3 m, an UNDERCOUNT of Devour's speed.
+DEVOUR_FAR_METRES = 1.5
+DEVOUR_FAR_ROW_METRES = 3.0
+
+
+def devour_far_added() -> float:
+    """(GEM42, R59-14) A far Devour's added attack time: the leap from DEVOUR_FAR_METRES (leap_time_model's linear
+    reading: the full 0.5 s at 3 m)."""
+    return LEAP_ADDED_TIME[DEVOUR] * min(1.0, DEVOUR_FAR_METRES / LEAP_FULL_METRES)
 DEVOUR_ENTRY = "model-gem40-devour-target-distance"
 
 
@@ -25975,7 +26013,7 @@ def devour_side_near(speed: float) -> bool:
     if speed <= 0:
         return True
     base = 1.0 / speed
-    return base / (1 + DEVOUR_NEAR / 100) <= base / (1 + DEVOUR_FAR / 100) + LEAP_ADDED_TIME[DEVOUR]
+    return base / (1 + DEVOUR_NEAR / 100) <= base / (1 + DEVOUR_FAR / 100) + devour_far_added()
 
 
 def devour_target_model(skills: list[Skill], main: Skill | None, devour_speed: float,
@@ -25992,23 +26030,25 @@ def devour_target_model(skills: list[Skill], main: Skill | None, devour_speed: f
             "basis": ("the game: \"If the target is far enough away, you will leap to them and damage nearby enemies "
                       "where you land. Targeting nearby enemies or corpses will not perform a leap or a Slam\"; "
                       "WyvernDevourPlayer's far-target +20% / near-target -15% final attack speed (poe2db the same), "
-                      "which PoB doesn't read. The damaging uses are far ones: +20%, and the leap's added time at "
-                      f"{DEVOUR_FAR_METRES:g} m (the far threshold isn't in the data: Leap Slam's 3 m taken, LOW). "
+                      "which PoB doesn't read. The damaging uses are far ones: +20%, and the leap's added time from "
+                      f"{DEVOUR_FAR_METRES:g} m (a melee dash: it leaps past melee reach, ~{DEVOUR_FAR_METRES:g} m, "
+                      f"RESEARCH59 R59-14, LOW-MEDIUM; Leap Slam's {DEVOUR_FAR_ROW_METRES:g} m is the row). "
                       "Row: near uses beside the boss (x0.85 speed) Slam nothing: 0"),
             "play": ("Devour a corpse or bell a few metres off the boss's far side so you leap onto it; one beside you "
                      "eats it with no Slam: without the leap 0 damage from Devour")}]
     near = devour_side_near(devour_speed)
     # (far: its +20% and the leap's +0.5 s together, as one speed factor on its own use time)
     value = DEVOUR_NEAR if near or devour_speed <= 0 else 100 * (
-        1 / (1 / (1 + DEVOUR_FAR / 100) + LEAP_ADDED_TIME[DEVOUR] * devour_speed) - 1)
+        1 / (1 / (1 + DEVOUR_FAR / 100) + devour_far_added() * devour_speed) - 1)
     return [raw_mod("Speed", "MORE", value, DEVOUR, tag=DEVOUR_ENTRY)], [{
         "label": "Devour: eating beside you, the target's distance sets its speed*",
         "value": f"x{1 + value / 100:.2f} speed ({'near' if near else 'far'})", "confidence": "MEDIUM-LOW",
         "entry": DEVOUR_ENTRY,
         "basis": ("WyvernDevourPlayer's near-target -15% / far-target +20% final attack speed (hidden stats, poe2db the "
                   "same), which PoB doesn't read; Devour isn't the main skill here, so it's used to eat (Power Charges), "
-                  f"and the quicker use is taken: {'near (no leap)' if near else 'far (a leap, +0.5 s)'} at PoB's "
-                  f"{devour_speed:.2f} uses/s (the player's choice, MEDIUM-LOW)")}]
+                  f"and the quicker use is taken: {'near (no leap)' if near else 'far (a leap)'} at PoB's "
+                  f"{devour_speed:.2f} uses/s (the player's choice, MEDIUM-LOW; a far use leaps from "
+                  f"{DEVOUR_FAR_METRES:g} m, +{devour_far_added():g} s, R59-14)")}]
 
 
 # Momentum (GEM40; COV56's turn 2, an UNDERCOUNT: PoB applies its 40% only under the unticked "Moved 2m during Skill

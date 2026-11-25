@@ -42,10 +42,11 @@ def test_devour_main_is_a_far_use_and_side_eats_near():
     assert "far" in notes[0]["label"] and "0" in notes[0]["basis"]
     side, side_notes = models.devour_target_model([devour, palm], palm, 1.7)
     assert side[0]["value"] == pytest.approx(-15.0) and "near" in side_notes[0]["value"]
-    # (a very slow Devour: the far use's +20% outweighs the leap's +0.5 s)
+    # (a very slow Devour: the far use's +20% outweighs the leap's added time; GEM42, R59-14: the leap is from ~1.5 m,
+    # +0.25 s, not Leap Slam's 3 m and +0.5 s)
     assert not models.devour_side_near(0.5)
     slow, _ = models.devour_target_model([devour, palm], palm, 0.5)
-    assert slow[0]["value"] == pytest.approx(100 * (1 / (1 / 1.2 + 0.5 * 0.5) - 1), abs=0.01)
+    assert slow[0]["value"] == pytest.approx(100 * (1 / (1 / 1.2 + 0.25 * 0.5) - 1), abs=0.01)
     assert models.devour_target_model([palm], palm, 1.7) == ([], [])
 
 

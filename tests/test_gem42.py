@@ -118,3 +118,78 @@ def test_the_gain_caps_at_the_skills_maximum_and_counts_in_the_chain_check():
     assert combo == pytest.approx(2.0) and "at most 2 Combo a use" in why  # (one hit a use, 2 Combo each)
     fast = {**stats, "_groups": {2: {**groups[2], "speed": 30.0, "cooldown": 0}}}
     assert models.vruun_combo_share(main, fast, main)[0] == pytest.approx(10.0)
+
+
+# (GEM42 turn 4: the RESEARCH59 answers)
+from tests.test_gem41 import engine  # noqa: E402,F401
+from builder.search import assumptions  # noqa: E402
+
+ATTACK_LINE = "Attack Skills have +1 to maximum number of Summoned Totems"
+
+
+def test_attack_totem_lines_reach_shockwave_totem_with_their_own_row():
+    """R59-3: Ancestral Artifice's Melee Attack lines MEDIUM-HIGH; "Attack Skills have +N Totems" probably counts too
+    (MEDIUM), its own row."""
+    slam = Skill("Shockwave Slam", 1, attack=True, melee=True)
+    totem = Skill("Shockwave Totem", 1, totem_limit=3, totem_limit_own=1, melee_totem_added=1, attack_totem_added=1)
+    _, notes = models.totem_count_model([slam, totem], slam)
+    melee = next(n for n in notes if "Melee Attack totem lines" in n["label"])
+    attack = next(n for n in notes if n["label"].endswith(": Attack totem lines"))
+    assert melee["confidence"] == "MEDIUM-HIGH" and melee["value"] == "3 with / 1 without"
+    assert attack["confidence"] == "MEDIUM" and attack["value"] == "3 with / 2 without" and "R59-3" in attack["basis"]
+
+
+def test_the_bridge_adds_attack_totem_lines_to_shockwave_totems_limit(engine):
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Shockwave Totem", ascendancies=["Warbringer"], level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Shockwave Totem"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+
+    def totem():
+        return next(s for s in build.call("activeSkills")["skills"] if s["name"] == "Shockwave Totem")
+
+    bare = totem()
+    build.call("setConfig", vars={"customMods": ATTACK_LINE}, fields=[])
+    try:
+        got = totem()
+        assert got["attackTotemAdded"] == 1 and not got.get("meleeAttackTotemAdded")
+        assert got["totemLimit"] == bare["totemLimit"] + 1
+    finally:
+        build.call("setConfig", vars={"customMods": "nil"}, fields=[])
+
+
+def test_the_idol_of_maxarius_bonded_storm_limit_reaches_storm_skills_only():
+    """R59-6: PoB doesn't parse "Storm Skills have +1 to Limit" (the Idol of Maxarius's Bonded line, ModRunes.lua);
+    the bridge's sourceLines give a Bonded rune line, "Bonded: " stripped, only while PoB applies it (runeLineApplies),
+    and LIMIT_LINES reads it by skill type."""
+    line = "Storm Skills have +1 to Limit"
+    assert assumptions.limit_line_adds([line], {"Storm", "Spell"}) == 1
+    assert assumptions.limit_line_adds([line], {"Orb", "Spell"}) == 0
+
+
+def test_lose_combo_slower_lengthens_the_decay():
+    """R59-8: "Skills lose Combo N% slower" lengthens the delay, D / (1 + speed / 100) (MEDIUM-LOW)."""
+    assert models.COMBO_SLOWER.match("Skills lose Combo 20% slower").group(1) == "20"
+    main = _main()  # (Culmination I: 4 s)
+    skills = [main, Skill("Slow Strike", 2, attack=True, melee=True)]
+    groups = {2: {"index": 2, "name": "Slow Strike", "speed": 1 / 4.5, "cooldown": 4.5, "HitChance": 100,
+                  "_press": 1.0}}
+    stats = {"Speed": 0.05, "_groups": groups, "_skills": skills}
+    assert "at most 1 Combo" in models.vruun_combo_share(main, stats, main)[1]  # (a Strike every 4.5 s > 4 s)
+    slower = {**stats, models.COMBO_FACTS: {"falloff": -20.0}}
+    combo, why, _ = models.vruun_combo_share(main, slower, main)  # (4 s / 0.8 = 5 s: the Strike chains)
+    assert "at most" not in why and "Combo kept 5 s" in why and combo == pytest.approx(min(10.0, (1 / 4.5) / 0.05))
+
+
+def test_devour_leaps_from_one_and_a_half_metres_with_three_a_row():
+    """R59-14: Devour is a melee dash with no leap threshold: it leaps past melee reach, ~1.5 m (LOW-MEDIUM)."""
+    devour = Skill("Devour", 1, attack=True, melee=True)
+    assert models.DEVOUR_FAR_METRES == 1.5 and models.DEVOUR_FAR_ROW_METRES == 3.0
+    mods, notes = models.leap_time_model(devour, models.DEVOUR_FAR_METRES, 0.0, 1.0)
+    assert mods[0]["value"] == pytest.approx(0.25) and "3 m" in notes[0]["basis"]

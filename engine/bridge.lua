@@ -6182,8 +6182,11 @@ function bridge.activeSkills(args)
 			-- ShockwaveTotemPlayer, 26650308; poe2db's hidden stats and its Melee tag), while its own skill types (the
 			-- game's and PoB's) hold neither Attack nor Melee, so PoB's "Melee Attack Skills have +N to maximum number of
 			-- Summoned Totems" (Ancestral Artifice; the Ulaman mace prefix: SkillType Melee + Attack tags) never reached
-			-- its limit. Read as the flag's purpose (MEDIUM; no game text says so): the limit lines are tabulated as for a
-			-- Melee Attack skill. models.totem_count_model gives the "without it" row (meleeAttackTotemAdded)
+			-- its limit. Read as the flag's purpose (MEDIUM-HIGH since RESEARCH59 R59-3: the hidden tag is only on its
+			-- summon set): the limit lines are tabulated as for a Melee Attack skill. (GEM42, R59-3, MEDIUM) "Attack
+			-- Skills have +N to maximum number of Summoned Totems" (KeywordFlag Attack, not a skill type) probably counts
+			-- too: tabulated with the Attack keyword on top, its share reported apart (attackTotemAdded).
+			-- models.totem_count_model gives the "without it" rows (meleeAttackTotemAdded, attackTotemAdded)
 			local function meleeAttackTotemCfg(cfg)
 				for _, set in ipairs(activeSkill.activeEffect.grantedEffect.statSets or { }) do
 					for _, stat in ipairs(set.stats or { }) do
@@ -6192,24 +6195,29 @@ function bridge.activeSkills(args)
 							wider.skillTypes = copyTable((cfg and cfg.skillTypes) or { }, true)
 							wider.skillTypes[SkillType.Attack] = true
 							wider.skillTypes[SkillType.Melee] = true
-							return wider
+							local widest = copyTable(wider, true)
+							widest.skillTypes = copyTable(wider.skillTypes, true)
+							widest.keywordFlags = require("bit").bor(wider.keywordFlags or 0, KeywordFlag.Attack)
+							return wider, widest
 						end
 					end
 				end
 			end
 			local ok, limit = pcall(function()
 				local list, cfg = activeSkill.skillModList, activeSkill.skillCfg
-				local melee = meleeAttackTotemCfg(cfg)
+				local melee, attack = meleeAttackTotemCfg(cfg)
 				if melee then
-					local plain, wide = 0, 0
-					for _, entry in ipairs(list:Tabulate("BASE", cfg, "ActiveTotemLimit", "ActiveBallistaLimit")) do
-						plain = plain + entry.value
+					local function sum(c)
+						local total = 0
+						for _, entry in ipairs(list:Tabulate("BASE", c, "ActiveTotemLimit", "ActiveBallistaLimit")) do
+							total = total + entry.value
+						end
+						return total
 					end
-					for _, entry in ipairs(list:Tabulate("BASE", melee, "ActiveTotemLimit", "ActiveBallistaLimit")) do
-						wide = wide + entry.value
-					end
+					local plain, wide, widest = sum(cfg), sum(melee), sum(attack)
 					skills[#skills].meleeAttackTotemAdded = wide - plain
-					cfg = melee
+					skills[#skills].attackTotemAdded = widest - wide
+					cfg = attack
 				end
 				local override = list:Override(cfg, "ActiveTotemLimit", "ActiveBallistaLimit")
 				if override then
