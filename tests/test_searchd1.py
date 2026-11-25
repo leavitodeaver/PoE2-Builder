@@ -123,13 +123,17 @@ def test_a_replaced_seed_says_why():
     run.notes = []
     run.at_least_seed({"dps": 600000.0, "clear": 0.0, "deficits": []}, {"dps": 501578.0, "clear": 0.0, "deficits": []})
     assert "misses the requirements no more" in run.notes[-1] and "Short in this one: none." in run.notes[-1]
-    # The seed kept: only the floor's own note; a focus run: no note (it has its before / after)
+    # The seed kept: only the floor's own note
     run.notes = []
     run.at_least_seed({"dps": 90.0, "clear": 0.0, "deficits": []}, {"dps": 100.0, "clear": 0.0, "deficits": []})
     assert len(run.notes) == 1 and run.notes[0].startswith("The search found nothing better")
+    # A focus run (it has its own before / after): the note only when its DPS fell (TRAIN 143's POE2T5753 Gloves case)
     run.notes = []
-    run.request = SimpleNamespace(objective="boss", focus=SimpleNamespace(kind="tree"))
+    run.request = SimpleNamespace(objective="boss", focus=SimpleNamespace(kind="slot"))
     run.at_least_seed(lower, dict(seed))
+    assert len(run.notes) == 1 and "at 15,086 DPS instead of 501,578" in run.notes[0]
+    run.notes = []
+    run.at_least_seed({"dps": 600000.0, "clear": 0.0, "deficits": []}, dict(seed))
     assert run.notes == []
 
 

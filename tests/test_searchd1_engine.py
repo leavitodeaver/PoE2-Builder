@@ -128,6 +128,15 @@ def test_a_one_part_run_delivers_before_and_after_and_holds_the_rest():
     result = run.execute()
     assert result.get("code"), result.get("reasons")
     focus = result["focus"]
+    floor = result["floor"]
+    print("one part, Gloves:", {k: focus.get(k) for k in ("dps_before", "dps_after", "passes", "undone", "overtime")},
+          "floor:", floor, "why:", [n for n in result["notes"] if n.startswith("The build you gave was")])
     assert focus["held_changed"] == [], focus
-    assert focus["dps_after"] >= focus["dps_before"] - 1e-6 or focus.get("problem"), focus
+    # What the code guarantees is RANK, not DPS (SEARCHD2; TRAIN 143's POE2T5753: 481,942 delivered against the seed's
+    # 501,578): the part's moves are kept on the score, which counts the request's floors, and the floor delivers the
+    # search's build when it ranks at least as high (objective.rank_key: fewer requirements short first, then the goal).
+    # When the DPS falls the result says why in plain words.
+    assert floor is not None and floor["delivered_key"] <= floor["seed_key"], floor
+    if focus["dps_after"] < focus["dps_before"] - 1e-6:
+        assert any(n.startswith("The build you gave was") for n in result["notes"]), result["notes"]
     assert "before" in focus and "after" in focus

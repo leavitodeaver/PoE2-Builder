@@ -684,10 +684,12 @@ class Run:
                               "Optimize one part, may still improve it.")
             seed_final["floor_kept"] = True
             return seed_final
-        if not isinstance(final, WorkerError) and getattr(self.request, "focus", None) is None:
+        focus = getattr(self.request, "focus", None) is not None
+        if not isinstance(final, WorkerError) and (not focus or number(final["dps"]) < number(seed_final["dps"])):
             # (SEARCHD2; the manager, 24 Nov 20:06, after POE2T8212 delivered a 15,086-DPS build over a 501,578-DPS seed
             # that missed more requirements: the result says plainly why another build than the one given comes back. A
-            # focus run shows its own before / after instead.)
+            # focus run shows its own before / after, so it gets the note only when its DPS fell: TRAIN 143's POE2T5753,
+            # a Gloves focus delivered 481,942 against the seed's 501,578, ranked higher by the requirements.)
             self.notes.append(replaced_seed_note(seed_final, final))
         return final
 
