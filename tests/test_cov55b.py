@@ -10,8 +10,9 @@ def test_cov55_surge_cap_is_read_and_limit_constants_stay_open():
     for skill in ("Chaotic Surge", "Elemental Surge"):
         assert coverage.stat_covered(covered, "maximum_number_of_instilling_stacks", skill) == (
             "model", "model-read-cov55-surge-cap")
-    for stat, skill in (("entangle_vines_maximum_number_of_vines_allowed", "Entangle"),
-                        ("firestorm_max_number_of_storms", "Firestorm"),
+    # (COV58: Entangle's vine cap is marked now: RESEARCH57 R57-6, HIGH: Limit lines raise its Fissure Limit, not its
+    # vines per enemy, so models.FISSURE_VINES' fixed 3 a second ignores no "+N to Limit"; test_cov58 asserts it read)
+    for stat, skill in (("firestorm_max_number_of_storms", "Firestorm"),
                         ("galvanic_field_maximum_number_of_spheres", "Galvanic Field"),
                         ("icestorm_max_number_of_storms", "Icestorm"),
                         ("base_number_of_tempest_bells_allowed", "Tempest Bell")):

@@ -1,0 +1,59 @@
+# COV58 turn 1 (25 Nov 2026; COV43's rule): Twister's hit interval, Entangle's vine cap, Raise Shield's bash reach: readers found while ranking the fresh blind probe's open rows (POE2T8069 on
+# 73718d8a + 06ee12d7), each checked against the code that names it. All three readers predate TRAIN 147 (TRAIN 147 itself had
+# nothing to mark: its Limit lines are PoB-parsed rows, Rampage's stats were marked). Links only: each adds nothing to PoB.
+# Left open on purpose (each checked in the code): Entangle's entangle_apply_vines_every_X_ms (100 ms: the model's 3 vine
+# hits a second assume the attach rate outruns the cap, so the interval is a premise, not read); its two Overgrown stats
+# entangle_vines_additional_number_of_vines_allowed_when_wet (+3: FISSURE_VINES' 6.0 is a row only, COV55's ruling for
+# rows) and entangle_duration_speed_+%_when_wet (the game's text: "Overgrown fissures expire 25% slower"; nothing reads it:
+# the headline counts no Overgrown, the lower reading).
+
+- id: model-read-cov58-twister-hit-interval
+  title: "Twister hits an enemy at most once every 0.66 s (recovery.TWISTER_INTERVAL, MECHC33 / MECHC35)"
+  kind: model
+  model: twister_hits
+  stats: ["twister_hit_interval_ms"]
+  skill: [Twister]
+  confidence: HIGH
+  notes: >-
+    660 at every level (GrantedEffectStatSets TwisterPlayer's constant stats, game 26650308; PoB act_dex.lua the same) =
+    recovery.TWISTER_INTERVAL 0.66. recovery.twister_hits caps the hits a cast at floor(duration / 0.66) + 1 and spaces
+    them by it; Assumptions scales the main Twister's DPS by that headline (a MORE mod, MECHC35, the user's answer of
+    16 Nov) and conditions reads it for on-hit charges (MECHC44) and a side Twister (MECHC47). HIGH is the model's for the
+    0.66 s cap (its hit count is MEDIUM-LOW). A link only.
+  sources: ["builder/search/recovery.py (TWISTER_INTERVAL, twister_hits)", "builder/search/assumptions.py (the Twister hits row)", "builder/search/conditions.py (HITS_A_USE, SIDE_TWISTER)"]
+  status: proposed
+
+- id: model-read-cov58-entangle-vine-cap
+  title: "Entangle attaches at most 3 Vines to an enemy, each for 1 s: 3 vine hits a second (models.FISSURE_VINES, MECHB51)"
+  kind: model
+  model: fissure_count
+  stats: ["entangle_vines_maximum_number_of_vines_allowed", "entangle_vine_duration_ms"]
+  skill: [Entangle]
+  confidence: MEDIUM
+  notes: >-
+    3 and 1000 at every level (GrantedEffectStatSets EntangleVinePlayer's constant stats, game 26650308) give
+    FISSURE_VINES' 3.0 vine hits a second on the boss (3 attached / 1 s each, a vine hitting once as it attaches;
+    RESEARCH42 R42-8 MEDIUM on the cap). Limit lines don't raise it (RESEARCH57 R57-6, HIGH: "+N to Limit" / Overabundance raise
+    Entangle's Fissure Limit, not its vines per enemy), so the fixed constant misses no build line (COV55's reason to leave it
+    open, answered). fissure_count_model adds 3.0 x the Vines set's hit to the use (beside the
+    Fissures), which scales the main skill's DPS. One entry for both stats: the model's constant is their quotient. A link
+    only.
+  sources: ["builder/search/models.py (FISSURE_VINES, fissure_count_model)"]
+  status: proposed
+
+- id: model-read-cov58-raise-shield-bash-reach
+  title: "Raise Shield's Shield Bash reaches 1.4 m further (models.SHIELD_BASH_RANGE, MECHB34): the boss within reach is Challenged"
+  kind: model
+  model: boss_power
+  stats: ["melee_strike_bonus_attack_distance"]
+  skill: [Raise Shield]
+  confidence: MEDIUM
+  notes: >-
+    14 at every level (GrantedEffectStatSets ShieldBlockPlayer's constant stats, game 26650308) = the 1.4 m in
+    SHIELD_BASH_RANGE 22 units (0.8 m unarmed + 1.4 m; RESEARCH26 R26-63, MEDIUM). shield_bash_reach adds the build's
+    Melee Strike Range lines; challenge_share counts a Bash after each parried telegraphed hit only with the boss within
+    that reach, which sets Runefather's Challenge share and so the boss's Power (models.boss_power: the Energy / Glory /
+    roar models and PoB's EnemyPower readers). Only for Raise Shield (Parry / Hazardous Holdout carry the same 14 and
+    aren't read). A link only.
+  sources: ["builder/search/models.py (SHIELD_BASH_RANGE, shield_bash_reach, challenge_share, boss_power)"]
+  status: proposed
