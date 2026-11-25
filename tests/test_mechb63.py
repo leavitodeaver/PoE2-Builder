@@ -119,3 +119,19 @@ def test_ancestral_cry_is_charged_at_its_glory_when_nothing_else_charges_it(engi
     assert len(mods) == 1 and "Ancestral Cry 0.050/s (its Glory: test Glory)" in notes[0]["basis"]
     build.objective.glory_busy = 0.1  # (Glory presses charged something: maybe this Cry, so not again)
     assert a.warcry_presses(found, main, kaom=False) == ([], [])
+
+
+def test_rampage_pays_its_default_stance_time_once_a_channel():
+    """RESEARCH59 R59-5 (MEDIUM-LOW): Rampage's +0.5 s 'if not standing' once a channel (its 3.65 s minimum), not on
+    every slam PoB times as a use; every slam paying it is the row."""
+    ramp = models.Skill("Rampage", 1, attack=True, melee=True)
+    rate = {"speed": 2.0, "speedMod": 1.0, "TotalDPS": 2000.0}  # (0.5 s a slam from standing)
+    slam_mods, _ = models.bear_stance_model(ramp, 2.0, rate=rate)
+    mods, notes = models.bear_stance_model(ramp, 2.0, rate=rate, channel=3.65)
+    assert slam_mods[0]["value"] == pytest.approx(0.5)
+    assert mods[0]["value"] == pytest.approx(0.5 * 0.5 / 3.65, abs=1e-5)  # (a slam's share of one 0.5 s a channel)
+    assert "R59-5" in notes[0]["basis"] and "every slam pays it" in notes[0]["basis"]
+    assert notes[0]["confidence"].startswith("MEDIUM-LOW")
+    fs = models.Skill("Furious Slam", 1, attack=True, melee=True)  # (not a channel: unchanged)
+    assert models.bear_stance_model(fs, 2.0, rate=rate)[0][0]["value"] == pytest.approx(0.4)
+

@@ -25648,15 +25648,27 @@ BEAR_DEFAULT_STANCE = {"Furious Slam": 0.4, "Rampage": 0.5, "Walking Calamity": 
 BEAR_STANCE_ENTRY = "model-mechb50-bear-stance"
 BEAR_STANDERS = ("Maul", "Walking Calamity")  # pressed before the skill (R41-3)
 BEAR_ROAR = "Ferocious Roar"  # a cooldown Warcry that also stands the bear (R41-3)
+# (MECHB63; RESEARCH59 R59-5, research/rampage-stance-cost-r59.md, MEDIUM-LOW; MECHC59's question) Rampage is ONE
+# channelled use whose slams PoB times as uses (castTime 1), so the added time above landed on every slam. The game's
+# "+0.5 seconds to base attack time if not standing" is most likely the rear-up at the channel's start: it also sits on
+# Walking Calamity (a 10 s buff, a one-time start), beside Rampage's other start-only form costs
+# (shapeshift_minimum_channel_time_ms_+, base_minimum_channel_time_ms), and players call Rampage's slams rapid with a
+# clunky start. The headline pays it once a channel: each channel taken at its minimum length (CHANNEL_MIN_STATS, 3.65 s:
+# MECHC59's recast play; a channel held longer pays less, the lower reading), so a slam carries added x plain / channel
+# of base time; the stand-before plays (a Maul / Roar before each channel) the same way. Row: every slam pays it (the
+# reading before). MECHC59's recast play takes its recast gap as this charge (conditions.CHANNEL_RECAST's note), now
+# once a channel as there.
+BEAR_ONCE_A_CHANNEL = frozenset({"Rampage"})
 
 
 def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = frozenset(), rate: dict | None = None,
-                      standers: list[dict] = (), dodges: float = 0.0, prev: list[dict] = ()
+                      standers: list[dict] = (), dodges: float = 0.0, prev: list[dict] = (), channel: float = 0.0
                       ) -> tuple[list[dict], list[dict]]:
     """The default stance's added base attack time on a bear skill, and the rotation that skips it (see above). `speed`
     PoB's attacks a second; `rate` the main skill's useRates row (speed, speedMod, TotalDPS) or None (every use from the
     default stance); `standers` the build's other skills that stand the bear, each {"name", "speed", "TotalDPS",
-    "full": its group in Full DPS}; `dodges` dodge rolls a second; `prev` this model's mods from the last pass."""
+    "full": its group in Full DPS}; `dodges` dodge rolls a second; `prev` this model's mods from the last pass;
+    `channel` a BEAR_ONCE_A_CHANNEL skill's minimum channel seconds (0: every use pays)."""
     if main is None or BEAR_STANCE_ENTRY in forbidden:
         return [], []
     added = BEAR_DEFAULT_STANCE.get(main.name)
@@ -25666,6 +25678,8 @@ def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = fr
     now = number((rate or {}).get("speed"))
     if rate is None or m <= 0 or now <= 0:
         row = ""
+        if channel > 0 and speed > 0:  # (R59-5: once a channel, see BEAR_ONCE_A_CHANNEL)
+            added = added * min(1.0, 1 / speed / channel)
         if speed > 0:
             row = f" (PoB's {speed:.2f} attacks/s before it: about x{1 / (1 + added * speed):.3f}, the speed modifiers aside)"
         return [raw_mod("Speed", "BASE", added, main.name, tag=BEAR_STANCE_ENTRY)], [{
@@ -25682,6 +25696,10 @@ def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = fr
             more_prev *= 1 + number(x.get("value")) / 100
     plain = max(1 / now - base_prev / m - time_prev, 1e-6)  # one use from standing, PoB's seconds without this model
     hit = number(rate.get("TotalDPS")) / now / (more_prev or 1.0)  # its damage a use
+    per_use, once = added, 1.0
+    if channel > 0:  # (R59-5: once a channel of `channel` s, spread over its slams; BEAR_ONCE_A_CHANNEL)
+        once = min(1.0, plain / channel)
+        added = added * once
     t_default = plain + added / m
 
     def dps(t: float, extra: float = 0.0) -> float:
@@ -25693,15 +25711,15 @@ def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = fr
         if st.get("name") == BEAR_ROAR:
             if rate_s <= 0:
                 continue
-            share = min(1.0, rate_s * t_default)  # (uses straight after a Roar)
+            share = min(1.0, rate_s * (channel if channel > 0 else t_default))  # (uses / channels after a Roar)
             t = plain + (1 - share) * added / m
             plays.append((f"{BEAR_ROAR} before it", f"{BEAR_ROAR} on its cooldown ({rate_s:.3f}/s) stands the bear: "
                           f"{share:.0%} of the uses skip the added time (the Roar's own cast time not charged, LOW)",
                           dps(t), [raw_mod("Speed", "BASE", (1 - share) * added, main.name, tag=BEAR_STANCE_ENTRY)]))
         elif st.get("name") in BEAR_STANDERS and st.get("name") != main.name and rate_s > 0:
-            own = number(st.get("TotalDPS")) / rate_s if not st.get("full") else 0.0
-            t = plain + 1 / rate_s
-            mods = [raw_mod("TotalAttackTime", "BASE", 1 / rate_s, main.name, tag=BEAR_STANCE_ENTRY)]
+            own = number(st.get("TotalDPS")) / rate_s * once if not st.get("full") else 0.0  # (once a channel)
+            t = plain + once / rate_s
+            mods = [raw_mod("TotalAttackTime", "BASE", once / rate_s, main.name, tag=BEAR_STANCE_ENTRY)]
             if own > 0 and hit > 0:
                 mods.append(raw_mod("DPS", "MORE", 100 * own / hit, main.name, tag=BEAR_STANCE_ENTRY))
             plays.append((f"{st['name']} then {main.name}",
@@ -25719,9 +25737,14 @@ def bear_stance_model(main: Skill | None, speed: float, forbidden: set[str] = fr
     rows = "; ".join(f"{name}: {how}, {value:,.1f} DPS (x{value / base:.3f})" if base > 0 else f"{name}: {how}"
                      for name, how, value, _ in plays)
     chosen = best[0] != "without it"
+    if channel > 0:  # (R59-5's row: every slam pays, the reading before)
+        slam = dps(plain + per_use / m)
+        rows += (f"; ONCE A CHANNEL (RESEARCH59 R59-5, MEDIUM-LOW): each {channel:.3g} s minimum channel pays it once "
+                 f"(x{once:.3f} of it a slam; a longer held channel pays less); row, every slam pays it: {slam:,.1f} DPS"
+                 + (f" (x{slam / base:.3f})" if base > 0 else ""))
     return best[3], [{
         "label": f"{main.name}: the bear's stance ({best[0]})*", "value": f"x{best[2] / base:.3f}" if base > 0 else "-",
-        "confidence": "MEDIUM", "entry": BEAR_STANCE_ENTRY,
+        "confidence": "MEDIUM-LOW (R59-5: once a channel)" if channel > 0 else "MEDIUM", "entry": BEAR_STANCE_ENTRY,
         "basis": (f"the game's '+{added:g} seconds to base attack time if not standing' "
                   "(bear_skills_additional_base_attack_time_when_performing_from_default_stance; PoB doesn't read it). "
                   "Maul, Ferocious Roar and Walking Calamity leave the bear standing; Slams, Rampage, dodge rolls and "

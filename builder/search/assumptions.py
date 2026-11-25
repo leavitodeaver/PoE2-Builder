@@ -12491,7 +12491,12 @@ class Assumptions:
                 ["enemySkillTime", *models.MODEL_FIELDS]))))
             dodges = dodge_share()[0] / every if every > 0 else 0.0
         prev = [m for m in self.mods or [] if m.get("tag") == models.BEAR_STANCE_ENTRY and m.get("skill") == main.name]
-        return rate, standers, dodges, prev
+        channel = 0.0  # (MECHB63, R59-5: a channelled bear skill pays once a channel; its minimum channel's seconds)
+        if main.name in models.BEAR_ONCE_A_CHANNEL:
+            own = next((r.get("levelStats") or {} for r in build.call("activeSkills", levelStats=[main.name])["skills"]
+                        if r.get("name") == main.name), {})
+            channel = sum(number(own.get(k)) for k in conditions_mod.CHANNEL_MIN_STATS) / 1000
+        return rate, standers, dodges, prev, channel
 
     MONSTER_SHORTLIST = 12  # (the best by PoB's monster DPS, re-rated with each support set; MECHB48's plan step 3)
 
