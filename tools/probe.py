@@ -1,21 +1,23 @@
-r"""Run a read-only probe through the probe server, or through a normal queue booking when the server can't take it
-(PERF22, 24 Nov 2026). The answer is the same either way: the server runs the very command, in a fresh process, from
-the same folder, with your POE2_* / PYTHON* / UV_* settings (tools/probe_server.py).
+r"""Run a read-only probe through the standing probe server, or through a normal queue booking when the server can't
+take it (PERF22, 24-25 Nov 2026). The answer is the same either way: the server runs the very command, in a fresh
+process, from the same folder, with your POE2_* / PYTHON* / UV_* settings (tools/probe_server.py).
 
-Command line (from your own folder; the same words as a normal probe booking, plus nothing):
+Command line (from your own folder; the same words as a normal probe booking):
     python tools/probe.py POE2T<n> <minutes> "<lane>: <what>" -- uv run python -X utf8 scratch/<job>/probe.py <args>
 prints the probe's output and exits with its exit code. POE2T<n> is used only if the probe falls back to a booking.
 
 From Python:
-    from tools.probe import probe          (or importlib from this file's path)
+    sys.path.insert(0, "tools"); from probe import probe
     result = probe(["uv", "run", "python", "-X", "utf8", "scratch/x/probe.py", "18"], job="POE2T6599", minutes=12,
                    what="MECH-A: Maim probe")
-    result.code, result.output, result.via   ("server POE2PS0007" or "booking POE2T6599")
+    result.code, result.output, result.via   ("server standing-1234" or "booking POE2T6599")
 
-Falls back to a normal booking (`tools/pc_queue.py run <job> test <minutes> ...`) when: no server is up; the only
-servers are stopping (they take no probe in their last minutes) or gone; `gate=True` / --gate (a probe that needs 8 GB
-or 6 engines); the server stopped the probe before it finished (its place ended). A server that is PAUSED (a measuring
-window, the user in VR) is waited for, as a booking would be: it says so once.
+Falls back to a normal booking (`tools/pc_queue.py run <job> test <minutes> ...`) when: no server is up; the server is
+HELD (a measuring window, MEASURING.lock, HOLD_poe2, the user in VR: the queue would hold it too) or stopping; it is
+busy (BUSY_WAITING probes already waiting); `gate=True` / --gate (a probe that needs 8 GB or 6 engines); the server
+stopped the probe (it ended, or a hold paused the probe past its own minutes); or the probe ran short of the server's
+engines or memory (PoolFull / MemoryError, the server's 4 GB and 6 slots being shared by 2 probes). A probe already
+running when a hold starts is paused with the server and goes on after it, as a booked run would.
 """
 
 from __future__ import annotations
@@ -52,12 +54,21 @@ def _forwarded() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k.upper().startswith(ps.FORWARDED)}
 
 
+BUSY_WAITING = 6  # probes already waiting for the server: at this many, a normal booking is likely sooner
+
+
 def _server_can_take(spool: Path, minutes: float) -> str | None:
-    """An accepting server with time left for the probe, else None."""
+    """A server taking probes now (not held, not stopping, not busy), with time left for the probe, else None."""
     for beat in ps.servers(spool):
-        if beat.get("state") == "accepting" and float(beat.get("stop_at", 0)) - ps._now() > minutes * 60 + 60:
+        stop_at = beat.get("stop_at")
+        room = stop_at is None or float(stop_at) - ps._now() > minutes * 60 + 60
+        if beat.get("state") == "accepting" and room and int(beat.get("waiting", 0)) < BUSY_WAITING:
             return beat["job"]
     return None
+
+
+FALLBACK_ERRORS = ("stopped: the server", "stopped: paused", "could not start")
+FALLBACK_OUTPUT = ("PoolFull", "MemoryError", "not enough memory")  # the server's 4 GB / 6 slots, shared by 2 probes
 
 
 def _booking(argv: list[str], job: str, minutes: int, what: str, gate: bool, cwd: Path) -> Result:
@@ -100,32 +111,35 @@ def probe(argv: list[str], job: str, minutes: int = 12, what: str = "probe", gat
         if answer:
             break
         if (spool / "inbox" / f"{rid}.json").exists():  # not claimed yet
-            if _server_can_take(spool, 0) is None:
-                beats = ps.servers(spool)
-                if any(b.get("state") == "paused" for b in beats):
-                    if not said_paused:
-                        _say("the probe server is paused (a measuring window or a hold): waiting, as a booking would")
-                        said_paused = True
-                elif not any(b.get("state") in ("accepting", "paused") for b in beats):
-                    try:
-                        os.remove(spool / "inbox" / f"{rid}.json")  # take it back (a server may just have claimed it)
-                    except OSError:
-                        time.sleep(0.5)
-                        continue
-                    _say("the probe server stopped taking probes before this one started: booking it normally")
-                    return _booking(argv, job, minutes, what, gate, cwd)
-        elif not any(b.get("state") in ("accepting", "draining", "paused") for b in ps.servers(spool)) \
-                and not answer_path.exists():
+            beats = ps.servers(spool)
+            if not any(b.get("state") == "accepting" for b in beats):
+                why = next((b["state"] for b in beats if b.get("state", "").startswith("held")), "stopping or gone")
+                try:
+                    os.remove(spool / "inbox" / f"{rid}.json")  # take it back (a server may just have claimed it)
+                except OSError:
+                    time.sleep(0.5)
+                    continue
+                _say(f"the probe server can't start it now ({why}): booking it normally")
+                return _booking(argv, job, minutes, what, gate, cwd)
+        elif not any(b.get("state") not in ("gone", "stuck") for b in ps.servers(spool)) and not answer_path.exists():
             time.sleep(2)  # the answer may be written in the server's last moment
             if not answer_path.exists():
                 _say("the probe server ended while running this probe: booking it normally")
                 return _booking(argv, job, minutes, what, gate, cwd)
+        elif not said_paused:
+            held = [b["state"] for b in ps.servers(spool) if b.get("state", "").startswith("held")]
+            if held:
+                _say(f"the probe server is {held[0]}: this probe is paused, as a booking would be")
+                said_paused = True
         time.sleep(0.5)
     output = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
     if echo:
         sys.stdout.write(output[shown:])
-    if answer.get("error", "").startswith("stopped: the server") or answer.get("error", "").startswith("could not start"):
+    if answer.get("error", "").startswith(FALLBACK_ERRORS):
         _say(f"{answer['error']}: booking it normally")
+        return _booking(argv, job, minutes, what, gate, cwd)
+    if answer.get("code") not in (0, None) and any(word in output for word in FALLBACK_OUTPUT):
+        _say("the probe ran short of the server's engines or memory: booking it normally")
         return _booking(argv, job, minutes, what, gate, cwd)
     if answer.get("error"):
         output += f"\nprobe: {answer['error']}\n"

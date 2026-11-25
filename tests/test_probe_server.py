@@ -1,8 +1,10 @@
-"""PERF22's probe server (tools/probe_server.py) and client (tools/probe.py): no PoB engine here, no queue booking."""
+"""PERF22's standing probe server (tools/probe_server.py) and client (tools/probe.py): no PoB engine, no queue booking.
+The queue's holds are read through pc_queue.py's own test switch, PC_QUEUE_DIR: a folder of our own with a fake
+MEASURING.lock / HOLD_poe2, never the user's files."""
 
 from __future__ import annotations
 
-import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -18,40 +20,59 @@ import probe_server as ps  # noqa: E402
 
 pytestmark = pytest.mark.spawns_processes  # a server and its probes
 
+TICKER = "import sys, time\nfor i in range(int(sys.argv[1])):\n    print('tick', i, flush=True)\n    time.sleep(0.5)\nprint('done', flush=True)"
+
+
+def _wait(condition, seconds=30.0):
+    end = time.time() + seconds
+    while time.time() < end:
+        if condition():
+            return True
+        time.sleep(0.2)
+    return False
+
 
 @pytest.fixture
-def server(tmp_path, monkeypatch):
-    """A server on a spool of its own (outside the queue), taking probes for 1 min; never a real booking."""
+def queue_dir(tmp_path):
+    folder = tmp_path / "queue"
+    folder.mkdir()
+    return folder
+
+
+@pytest.fixture
+def server(tmp_path, queue_dir, monkeypatch):
+    """A standing server on a spool of its own, reading holds from queue_dir; never a real booking."""
     monkeypatch.setenv("POE2_PROBE_NO_BOOKING", "1")
     spool = tmp_path / "spool"
-    proc = subprocess.Popen([sys.executable, str(ROOT / "tools" / "probe_server.py"), "serve", "--job", "UNIT",
-                             "--spool", str(spool), "--accept-minutes", "1", "--stop-minutes", "3"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    end = time.time() + 30
-    while not any(b.get("state") == "accepting" for b in ps.servers(spool)) and time.time() < end:
-        time.sleep(0.2)
+    env = {**os.environ, "PC_QUEUE_DIR": str(queue_dir), "POE2_PROBE_HOLD_GRACE": "1"}
+    proc = subprocess.Popen([sys.executable, str(ROOT / "tools" / "probe_server.py"), "serve", "--spool", str(spool),
+                             "--minutes", "4", "--no-keeper"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    assert _wait(lambda: any(b.get("state") == "accepting" for b in ps.servers(spool)))
     yield spool
     (spool / "STOP").write_text("x")
     try:
-        proc.wait(20)
+        proc.wait(30)
     except subprocess.TimeoutExpired:
         proc.kill()
 
 
 def test_a_probe_runs_fresh_with_the_clients_settings_folder_and_exit_code(server, tmp_path, monkeypatch):
     monkeypatch.setenv("POE2_UNIT_SETTING", "mine")
-    script = "import os,sys; print(os.environ.get('POE2_UNIT_SETTING'), os.environ['POE2_SLOT_SET'], os.getcwd(), os.getpid()); sys.exit(3)"
+    script = ("import os,sys; print(os.environ.get('POE2_UNIT_SETTING'), os.environ['POE2_SLOT_SET'], os.environ['PC_QUEUE_KIND'], "
+              "os.environ.get('PC_QUEUE_DIR', '-'), os.getcwd(), os.getpid()); sys.exit(3)")
     first = client.probe([sys.executable, "-c", script], job="POE2T0", minutes=1, cwd=tmp_path, spool=server)
     second = client.probe([sys.executable, "-c", script], job="POE2T0", minutes=1, cwd=tmp_path, spool=server)
-    assert first.via == "server UNIT" and first.code == 3
-    setting, slot_set, cwd, pid = first.output.split()
-    assert setting == "mine" and slot_set.startswith("probe-server-UNIT") and Path(cwd) == tmp_path
-    assert second.output.split()[3] != pid  # a fresh process for every probe
+    assert first.via.startswith("server standing-") and first.code == 3
+    setting, slot_set, kind, queue_dir, cwd, pid = first.output.split()
+    assert setting == "mine" and slot_set.startswith("probe-server-") and kind == "test" and queue_dir == "-"
+    assert Path(cwd) == tmp_path
+    assert second.output.split()[5] != pid  # a fresh process for every probe
+    assert "probe" in (server / "server.log").read_text(encoding="utf-8")
 
 
 def test_the_servers_own_settings_never_reach_a_probe():
-    env = ps.probe_env({"PATH": "p", "POE2_REPLAY_POB": "1", "PC_QUEUE_KIND": "test"}, {"POE2_REAL_POB": "1"}, "set")
-    assert env == {"PATH": "p", "PC_QUEUE_KIND": "test", "POE2_REAL_POB": "1", "POE2_SLOT_SET": "set"}
+    env = ps.probe_env({"PATH": "p", "POE2_REPLAY_POB": "1", "PC_QUEUE_DIR": "x"}, {"POE2_REAL_POB": "1"}, "set")
+    assert env == {"PATH": "p", "POE2_REAL_POB": "1", "PC_QUEUE_KIND": "test", "POE2_SLOT_SET": "set"}
 
 
 def test_no_server_means_a_normal_booking(tmp_path, monkeypatch):
@@ -60,22 +81,101 @@ def test_no_server_means_a_normal_booking(tmp_path, monkeypatch):
     assert result.via.startswith("booking refused")
 
 
-def test_a_server_about_to_stop_takes_no_probe_longer_than_its_time(tmp_path):
+def test_only_an_accepting_server_with_room_takes_a_probe(tmp_path):
     spool = tmp_path / "s"
     (spool / "servers").mkdir(parents=True)
-    ps._write_json(spool / "servers" / "X.json", {"job": "X", "pid": os.getpid(), "beat": time.time(), "started": time.time(),
-                                                  "state": "accepting", "stop_at": time.time() + 5 * 60})
-    assert client._server_can_take(spool, 3) == "X"
+
+    def beat(**fields):
+        ps._write_json(spool / "servers" / "X.json", {"job": "X", "pid": os.getpid(), "beat": time.time(), "started": 0,
+                                                      "state": "accepting", "stop_at": None, "waiting": 0, **fields})
+    beat()
+    assert client._server_can_take(spool, 12) == "X"  # standing: no end
+    beat(state="held: MEASURING.lock is held")
     assert client._server_can_take(spool, 12) is None
-    ps._write_json(spool / "servers" / "X.json", {"job": "X", "pid": os.getpid(), "beat": time.time() - 60, "started": 0,
-                                                  "state": "accepting", "stop_at": time.time() + 60 * 60})
-    assert ps.servers(spool)[0]["state"] == "paused"  # a stale heartbeat from a live process
+    beat(waiting=client.BUSY_WAITING)
+    assert client._server_can_take(spool, 12) is None  # busy: a booking is likely sooner
+    beat(stop_at=time.time() + 5 * 60)
+    assert client._server_can_take(spool, 3) == "X" and client._server_can_take(spool, 12) is None
+    beat(beat=time.time() - 60)
+    assert ps.servers(spool)[0]["state"] == "stuck"
 
 
 def test_a_probe_past_its_minutes_is_stopped(server, tmp_path):
     result = client.probe([sys.executable, "-c", "import time; print('start', flush=True); time.sleep(600)"], job="POE2T0",
                           minutes=0.05, cwd=tmp_path, spool=server)
-    assert result.via == "server UNIT" and "own minutes ran out" in result.output and result.code != 0
+    assert "own minutes ran out" in result.output and result.code != 0
+
+
+def test_a_measure_holds_the_server_pauses_its_probes_and_sends_new_ones_to_a_booking(server, queue_dir, tmp_path):
+    import threading
+
+    box = {}
+    worker = threading.Thread(target=lambda: box.update(r=client.probe([sys.executable, "-c", TICKER, "16"], job="POE2T0",
+                                                                         minutes=2, cwd=tmp_path, spool=server)))
+    worker.start()
+    logs = lambda: [p for p in (server / "out").glob("*.log")]  # noqa: E731
+    assert _wait(lambda: logs() and "tick 1" in logs()[0].read_text())
+    (queue_dir / "MEASURING.lock").write_text("a frame measure")  # pc_queue.MEASURING under PC_QUEUE_DIR
+    assert _wait(lambda: any(b.get("state", "").startswith("held") for b in ps.servers(server)), 15)
+    time.sleep(1.0)
+    before = logs()[0].read_text()
+    time.sleep(2.5)
+    assert logs()[0].read_text() == before  # suspended: not one tick while held
+    held_new = client.probe([sys.executable, "-c", "print(1)"], job="POE2T0", cwd=tmp_path, spool=server)
+    assert held_new.via.startswith("booking refused")  # a new probe goes to a normal booking
+    (queue_dir / "MEASURING.lock").unlink()
+    worker.join(60)
+    assert box["r"].code == 0 and "done" in box["r"].output and box["r"].via.startswith("server")
+    text = (server / "server.log").read_text(encoding="utf-8")
+    assert "HELD (MEASURING.lock is held)" in text and "hold over" in text
+
+
+def test_a_probe_held_past_its_minutes_goes_to_a_booking(server, queue_dir, tmp_path):
+    """Held while running for longer than its own minutes: stopped, and its client books it normally."""
+    import threading
+
+    box = {}
+    worker = threading.Thread(target=lambda: box.update(r=client.probe([sys.executable, "-c", TICKER, "40"], job="POE2T0",
+                                                                         minutes=0.1, cwd=tmp_path, spool=server)))
+    worker.start()
+    assert _wait(lambda: any("tick 1" in p.read_text() for p in (server / "out").glob("*.log")))
+    (queue_dir / "HOLD_poe2").write_text("unit")  # the queue's own hold file, under PC_QUEUE_DIR
+    worker.join(60)
+    assert box["r"].via.startswith("booking refused")
+    assert "paused past the probe's own minutes" in (server / "server.log").read_text(encoding="utf-8")
+
+
+def test_the_server_confines_itself_below_normal_off_the_users_processors():
+    code = ("import sys, ctypes; sys.path.insert(0, sys.argv[1]); import probe_server as ps; done = ps.confine_self(); "
+            "k = ctypes.WinDLL('kernel32'); k.GetCurrentProcess.restype = ctypes.c_void_p; "
+            "a, b = ctypes.c_size_t(), ctypes.c_size_t(); "
+            "k.GetProcessAffinityMask.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]; "
+            "k.GetProcessAffinityMask(k.GetCurrentProcess(), ctypes.byref(a), ctypes.byref(b)); "
+            "k.GetPriorityClass.argtypes = [ctypes.c_void_p]; "
+            "print(json.dumps({'done': done, 'priority': k.GetPriorityClass(k.GetCurrentProcess()), 'affinity': a.value, 'system': b.value}))")
+    out = subprocess.run([sys.executable, "-c", "import json; " + code, str(ROOT / "tools")], capture_output=True, text=True, timeout=60)
+    info = json.loads(out.stdout.strip().splitlines()[-1])
+    assert info["priority"] == ps.BELOW_NORMAL
+    assert info["affinity"] & 0x3 == 0 or info["system"] & ~0x3 == 0  # never on processors 0-1 (unless the PC has only those)
+    assert info["done"]["job"], info  # its own job: 4 GB, 24 processes, the CPU cap, kill-on-close
+
+
+def test_the_keeper_starts_the_server_again_when_it_dies(tmp_path, queue_dir):
+    spool = tmp_path / "spool"
+    env = {**os.environ, "PC_QUEUE_DIR": str(queue_dir), "POE2_PROBE_NO_BREAKAWAY": "1"}
+    subprocess.run([sys.executable, str(ROOT / "tools" / "probe_server.py"), "start", "--spool", str(spool)], env=env,
+                   capture_output=True, timeout=60)
+    try:
+        assert _wait(lambda: any(b.get("state") == "accepting" for b in ps.servers(spool)), 60)
+        first = next(b for b in ps.servers(spool) if b.get("state") == "accepting")
+        ps._kill_tree(int(first["pid"]))
+        assert _wait(lambda: any(b.get("state") == "accepting" and b["pid"] != first["pid"] for b in ps.servers(spool)), 90)
+    finally:
+        subprocess.run([sys.executable, str(ROOT / "tools" / "probe_server.py"), "stop", "--spool", str(spool)], env=env,
+                       capture_output=True, timeout=60)
+        assert _wait(lambda: not any(b.get("state") not in ("gone",) for b in ps.servers(spool)), 60)
+        keeper = ps._read_json(spool / "keeper.json")
+        assert _wait(lambda: not keeper or not ps._alive(int(keeper["pid"])), 30)
 
 
 def test_a_slot_set_names_slots_of_its_own(monkeypatch):
