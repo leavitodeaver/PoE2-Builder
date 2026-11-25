@@ -21,7 +21,8 @@
   title: "Cluster Grenade's mini grenades reaching the boss: about 3.2 of 18 on a 0.3 m boss at the headline (an UNDERCOUNT before: PoB scores one set)"
   kind: model
   model: cluster_grenade_model
-  stats: ["projectiles_nova", "base_number_of_projectiles", "projectile_distance_variance"]
+  stats: ["projectiles_nova", "base_number_of_projectiles", "projectile_distance_variance",
+          "area_of_effect_radius_modifiers_apply_to_projectile_speed"]  # (GEM43: A = sqrt(AreaOfEffectMod) on the flight)
   skill: [Cluster Grenade]
   confidence: LOW
   notes: >-

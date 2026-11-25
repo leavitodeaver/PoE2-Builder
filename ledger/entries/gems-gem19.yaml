@@ -227,8 +227,8 @@
   title: "Temper Weapon (Smith of Kitava): Combust on Empowered Melee Attacks (PoB gave Combust no rate: 0)"
   kind: model
   model: temper_weapon
-  stats: []
-  skill: [Temper Weapon]
+  stats: ["temper_weapon_empowers_per_strike", "imbue_weapon_combust_trigger_chance_%"]  # (GEM43: TEMPER_PER_STRIKE 3; one Combust an Empowered use, the 100%)
+  skill: [Temper Weapon, Combust]  # (GEM43: Combust = TemperWeaponCombustionPlayer, the trigger chance's carrier)
   confidence: MEDIUM
   notes: >-
     models.temper_weapon_model / temper_plan (GEM19); Assumptions.temper_weapon. Game (26650308): ActiveSkills

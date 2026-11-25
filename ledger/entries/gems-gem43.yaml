@@ -1,0 +1,26 @@
+# GEM43 (25 Nov 2026): gem stats read by our models (GEM lane).
+- id: model-gem43-shockwave-totem-eruption-melee
+  title: "Shockwave Totem's Jagged Ground Eruption counted as Melee (attack_is_melee_override; PoB's set lacked the melee flag)"
+  kind: model
+  model: set_flag
+  stats: ["attack_is_melee_override"]
+  skill: [Shockwave Slam]  # (the granted skill's name, ShockwaveTotemQuakePlayer: both its sets carry the stat)
+  confidence: MEDIUM
+  notes: >-
+    RESEARCH59 R59-3 (research/shockwave-totem-melee-limit-r59.md, MEDIUM): the game's Eruption set
+    (GrantedEffectStatSets ShockwaveTotemJaggedQuakePlayer, 26650308) has no stats of its own and the flag R59-3 reads as
+    "inherits the set before" (on 122 of 8,284 sets, almost all secondary hits); the Slam set before it holds
+    attack_is_melee_override, and the active skill's types hold Melee. PoB's copy (ShockwaveTotemQuakePlayer set 2) lists
+    the stat but gives baseFlags totem / attack / area, no melee, and PoB reads the stat nowhere (SkillStatMap.lua,
+    Modules/*.lua), so "Melee Damage" lines missed the set the search scores. engine/bridge.lua (installAttackSetFlags'
+    readings) adds the melee flag to that set only; setRates gives its DPS without it (TotalDPSWithoutAdded);
+    models.set_flag_model notes both (the row: not melee). Probe scratch/gem43/probe_eruption.py (Warbringer level 90):
+    with "100% increased Melee Damage" the Eruption 44.22 -> 92.41 DPS (without the reading 44.22, as before). The other
+    carriers (Fortifying Cry's Shield Wave, Shield Charge, Stampede, Shockwave Slam's Slam set) already have PoB's melee
+    flag (read, not probed: GEM41), so they stay open here. Both Shockwave Slam sets carry the stat: the Slam's melee
+    is PoB's own baseFlags, the Eruption's this reading.
+  sources: ["engine/bridge.lua (installAttackSetFlags, bridge.setRates)", "builder/search/models.py (set_flag_model)",
+            "C:/PROJECTS/PoE2 Builder/scratch/manager/research/shockwave-totem-melee-limit-r59.md (R59-3)",
+            "scratch/gem43/probe_before.log", "scratch/gem43/probe_after.log"]
+  test_in_game: "Shockwave Totem with and without a Melee Damage line: does the Jagged Ground eruption's damage change?"
+  status: proposed
