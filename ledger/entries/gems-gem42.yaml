@@ -1,0 +1,25 @@
+# GEM42 (25 Nov 2026): the GEM lane's Combo decay on Culmination / Vruun's Inevitability (GEM41's find).
+- id: model-gem42-combo-decay
+  title: "Culmination I / II and Vruun's Inevitability: Combo falls off after base_combo_stacks_decay_delay_ms without a Strike (models.vruun_combo_share's chain check)"
+  kind: model
+  model: vruun_combo
+  stats: ["base_combo_stacks_decay_delay_ms"]
+  skill: [Culmination I, Culmination II, Vruun's Inevitability]
+  confidence: MEDIUM
+  notes: >-
+    "Combo will fall off after a short time without this happening" (KeywordPopups Combo, build 26650308); the delay:
+    Culmination I 4000 ms, Culmination II and Vruun's Inevitability 6000 (GrantedEffectStatSets; PoB sup_dex.lua /
+    sup_str.lua hold the same; checked: every table row naming a stat id holding "combo_stacks_decay",
+    scratch/gem41/statuse.py: also Tempest Bell, Mantra of Destruction and Combo Finisher I / II, which usage.py's
+    decay check reads). The bridge sums it with the skill's other support stats (models.COMBO_DECAY_STAT);
+    vruun_combo_share reads it into the Combo a use holds: the player presses the builders right before each use (the
+    user's play-to-feed-it rule), so the decay cuts the Combo only where the build's Strikes, used back to back, can't
+    land within it of the last (then one Combo per builder group a use: models.combo_chain_cap). The decay as a check,
+    not a rate (RESEARCH25 combo-gain-decay.md), as usage.combo_decayed. The lower reading, Strikes at random times
+    (models.combo_at_random_timing, the expected capped Combo; matches a Monte Carlo), is a note row. Labelled: the
+    whole stock lost at once (MEDIUM, as usage.py); combo_falloff_speed_+% not read (UNVERIFIED what it slows).
+  sources: ["data/game-26650308/tables/KeywordPopups.json (Combo)", "data/game-26650308/tables/GrantedEffectStatSets.json",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua 1320-1650", "builder/search/models.py (vruun_combo_share)",
+            "scratch/manager/research/combo-gain-decay.md (RESEARCH25)"]
+  test_in_game: "Culmination I on a slow skill: Strike once, wait 5 s, use it: no Combo damage bonus; Strike once and use it within 4 s: the bonus for 1 Combo."
+  status: proposed

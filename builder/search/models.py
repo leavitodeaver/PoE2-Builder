@@ -4355,7 +4355,9 @@ def gem_stat_support_stats() -> list[str]:
                                          BURGEON_CAP_STAT, SALVO_PROJECTILE_STAT, SALVO_INTERVAL_STAT, SALVO_MAX_STAT,
                                          VOLT_PER_METRE_STAT, VOLT_MAX_STAT, VOLT_GAIN_STAT, RATHA_DODGE_STAT,
                                          BHATAIR_STAT, TRICKSTER_STAT, OLROTH_STAT, VRUUN_STAT,
-                                         UHTRED_RITE_STAT, NOVA_STAT, SACRIFICE_STAT})  # (gem_stat_life_loss and muster_kinds_model read these)
+                                         UHTRED_RITE_STAT, NOVA_STAT, SACRIFICE_STAT,
+                                         COMBO_DECAY_STAT})  # (gem_stat_life_loss and muster_kinds_model read these;
+    # GEM42: vruun_combo_share reads the Combo decay)
 
 
 def _skill_names(entry) -> list[str]:
@@ -5170,11 +5172,70 @@ def shotgun_fragment_count_share(skill: Skill, stats: dict, main: Skill | None =
 # rate) over the supported skill's own uses/s (its PoB Speed x its `_press`), capped at 10. One Combo per hitting use
 # (Martial Adept's +1 and "chance to build an additional Combo" lines not counted: an undercount; usage.Usage.combo_chance
 # has them but needs the build), the weapon set assumed shared (Combo builds only on the same weapon set: an overcount
-# where it isn't), the 6 s decay never reached (a use at least every 6 s, said where it isn't). No Strike group: 0 with a
-# note. LOW. Area moves a lone-boss number only through area-reading lines and models (grounds, AreaOfEffect
-# conditions): not claimed to move none.
+# where it isn't). No Strike group: 0 with a note. LOW. Area moves a lone-boss number only through area-reading lines and
+# models (grounds, AreaOfEffect conditions): not claimed to move none.
+# The decay (GEM42, from GEM41's find): "Combo will fall off after a short time without this happening" (KeywordPopups
+# Combo, game 26650308), after base_combo_stacks_decay_delay_ms without a Strike (checked: every table row naming a stat id
+# holding "combo_stacks_decay": Tempest Bell 8 s, Mantra of Destruction, Combo Finisher I / II, Culmination I 4 s,
+# Culmination II and Vruun's 6 s; scratch/gem41/statuse.py; patch 0.2.0's Combo Finisher line). The player who takes the
+# support plays to feed it (CLAUDE.md): they press the builders right before each use, so a stock is lost only when the
+# builders can't keep a chain going: when the build's Strikes, used back to back, can't land a hit within D of the last
+# (combined, sum of 1 / max(1 / speed, cooldown) under 1 / D), a use holds at most one hit per builder group (combo_chain_cap).
+# With today's Strike speeds and D of 4-6 s that's rare: the headline moves only there (an OVERCOUNT fixed there). The
+# lower reading, builder hits at random times (Poisson at the same rate, the stock lost after a gap over D or at a use),
+# is the note's "at random timing" row (combo_at_random_timing: E[min(cap, N)], N the hits in the chain ending at the
+# use; matches GEM41's Monte Carlo). The same check as usage.combo_decayed (RESEARCH25 combo-gain-decay.md: "decay is a
+# check, not a rate"). Not read: combo_falloff_speed_+% ("lose Combo N% slower": Disciplined Training, Flow; UNVERIFIED
+# what it slows, as usage.py says; it would only lengthen the D the chain check uses), Martial Adept's / the Invoker's
+# extra Combo, can_gain_combo_from_any_attack_hit (non-Strike builders: an undercount).
 VRUUN_MAX_COMBO = 10.0  # (skill_maximum_number_of_combo_stacks; the share reads the gem's own value where given)
-VRUUN_DECAY_SECONDS = 6.0  # (base_combo_stacks_decay_delay_ms 6000)
+VRUUN_DECAY_SECONDS = 6.0  # (base_combo_stacks_decay_delay_ms 6000: the fallback when the support's own isn't read)
+COMBO_DECAY_STAT = "base_combo_stacks_decay_delay_ms"  # (GEM42: summed over the skill's supports by the bridge)
+
+
+def combo_chain_cap(spacings: list[float], decay: float) -> float | None:
+    """(GEM42) The most Combo a use can hold when the builders are pressed right before it: None (no limit from the
+    decay) when the builders together can land a hit within `decay` s of the last (sum of 1 / spacing >= 1 / decay),
+    else one hit per builder (each used once, back to back). `spacings`: each builder's shortest time between hits."""
+    if decay <= 0 or not spacings:
+        return None
+    if sum(1.0 / g for g in spacings if g > 0) * decay >= 1.0 or any(g <= 0 for g in spacings):
+        return None
+    return float(len(spacings))
+
+
+@functools.lru_cache(maxsize=512)
+def combo_at_random_timing(hits: float, decay: float, period: float, cap: float, steps: int = 120) -> float:
+    """(GEM42) Expected Combo a use holds, capped, when builder hits come at random times (Poisson, `hits` a second),
+    the stock is lost after `decay` s without one, and the skill is used every `period` s (a use spends it). Going back
+    from the use the gaps are independent Exponential(hits): N >= k iff the first k gaps are each <= decay and sum to
+    <= period. E[min(cap, N)] = sum over k <= cap of P(N >= k), each by a grid convolution."""
+    if hits <= 0 or period <= 0 or decay <= 0 or cap <= 0:
+        return 0.0
+    da = period / steps
+    width = min(steps, int(round(decay / da)))
+    kernel = [hits * math.exp(-hits * (j + 0.5) * da) * da for j in range(width)]  # (a gap's mass per cell, <= decay)
+    dens = [0.0] * steps  # (mass of the k-gap sum per cell)
+    for j in range(width):
+        dens[j] = kernel[j]
+    total = 0.0
+    for k in range(1, int(cap) + 1):
+        if k > 1:
+            new = [0.0] * steps
+            for i, m in enumerate(dens):
+                if m:
+                    for j in range(width):  # (two cell midpoints sum to a cell edge: half to each side)
+                        if i + j >= steps:
+                            break
+                        new[i + j] += m * kernel[j] / 2
+                        if i + j + 1 < steps:
+                            new[i + j + 1] += m * kernel[j] / 2
+            dens = new
+        mass = sum(dens)
+        if mass < 1e-6:
+            break
+        total += mass
+    return total
 VRUUN_PLAY = ("Strike the boss with another melee attack between uses of the Vruun's skill: each Strike gives it a Combo "
               "(up to 10), and its next use spends them for more area")
 
@@ -5205,11 +5266,13 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
     if not builders:
         return 0.0, ("no other melee Strike in the build to build its Combo (Combo comes from Strikes with other melee "
                      "attacks): 0 (no flat rate)"), VRUUN_PLAY + ". Without one it gets no area."
-    hits, parts, unpressed = 0.0, [], []
+    decay = number(skill.support_stats.get(COMBO_DECAY_STAT)) / 1000 or VRUUN_DECAY_SECONDS
+    hits, parts, unpressed, spacings = 0.0, [], [], []
     for index in builders:
         if main is not None and index == main.group:
-            rate = number(stats.get("Speed")) * min(number(stats.get("HitChance", 100) or 100), 100.0) / 100
-            name, press = main.name, 1.0
+            speed = number(stats.get("Speed"))
+            rate = speed * min(number(stats.get("HitChance", 100) or 100), 100.0) / 100
+            name, press, cooldown = main.name, 1.0, 0.0
         else:
             row = groups.get(index)
             if row is None:
@@ -5218,24 +5281,37 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
             if press is None:
                 unpressed.append(str(row.get("name")))
             chance = min(number(row.get("HitChance", 100) or 100), 100.0) / 100
-            rate = number(row.get("speed")) * chance * number(press if press is not None else 1.0)
+            speed, cooldown = number(row.get("speed")), number(row.get("cooldown"))
+            rate = speed * chance * number(press if press is not None else 1.0)
             name = str(row.get("name"))
         if rate > 0:
             hits += rate
             parts.append(f"{name} {rate:.2f} hits/s")
+            spacings.append(max(1.0 / speed, cooldown))  # (GEM42: its shortest time between hits, used back to back)
     if hits <= 0:
         return 0.0, "the build's other Strikes hit at no rate PoB gives: 0", VRUUN_PLAY + "."
-    combo = min(cap, hits / uses)
+    plain = min(cap, hits / uses)
+    chain = combo_chain_cap(spacings, decay)
+    combo = plain if chain is None else min(plain, chain)
     why = (f"{combo:.1f} Combo expended a use ({' + '.join(parts)} over its {uses:.2f} uses/s, cap {cap:g}): "
            f"+{combo * number(skill.support_stats.get('area_of_effect_+%_per_combo_stack')):.0f}% area (LOW: one Combo "
            f"per Strike hit, Martial Adept and combo-chance lines not counted; same weapon set assumed")
     if unpressed:
         why += (f"; {', '.join(unpressed)} read at PoB's own rate, its time not taken from the supported skill (an "
                 f"overcount of Combo)")
-    if 1.0 / uses > VRUUN_DECAY_SECONDS:
-        why += f"; a use only every {1 / uses:.1f} s, past the {VRUUN_DECAY_SECONDS:g} s Combo decay (an overcount)"
+    if chain is not None and chain < plain:
+        why += (f"; the builders can't land a Strike within the {decay:g} s Combo decay of the last, even back to back "
+                f"(each every {', '.join(f'{g:.1f}' for g in spacings)} s): at most {chain:g} Combo a use (without the "
+                f"decay: {plain:.1f})")
+    random = min(combo, combo_at_random_timing(round(hits, 3), round(decay, 3), round(1.0 / uses, 3), cap))
+    if combo - random > 0.05:
+        why += (f"; the decay is met by pressing the builders right before each use: at random timing (the stock lost "
+                f"after {decay:g} s without a Strike) {random:.1f}")
     return combo, why + ")", VRUUN_PLAY + (f". Headline: {combo:.1f} Combo a use. Without the other Strikes: no added "
-                                           f"area; with them: +{combo:.1f} Combo's worth.")
+                                           f"area; with them: +{combo:.1f} Combo's worth. Strike within {decay:g} s of "
+                                           f"each use (Combo falls off after {decay:g} s without a Strike)"
+                                           + (f"; with the Strikes at random times: {random:.1f}" if combo - random
+                                              > 0.05 else "") + ".")
 
 
 CONFIG_SHARES = {"near_boss"}  # (share functions that read PoB's config: gem_stat_model passes `_config`)
@@ -8725,13 +8801,31 @@ def ailment_size(profile: dict, stacks: float) -> float:
     return (r + (1 - r) * ailment_roll(stacks)) * weight
 
 
+def set_damage(mods: list[dict], skill: str) -> float:
+    """(GEM42) The skill-wide "Damage" MORE a set model's mods put on `skill` (its steer: the scored set's hit held 10%
+    under another set's), as a factor; 1 with none. Its mix note carries it ("set_damage") for strongest_ailment_model."""
+    factor = 1.0
+    for mod in mods:
+        if mod.get("name") == "Damage" and mod.get("type") == "MORE" and mod.get("skill") == skill \
+                and not mod.get("keywordFlags") and not mod.get("condition"):
+            factor *= 1.0 + number(mod.get("value")) / 100.0
+    return factor
+
+
 def strongest_ailment_model(main: Skill | None, sets: list[dict], shares: dict[str, float], uses: float,
                             previous: list[dict] | None = None, forbidden: set[str] = frozenset(),
-                            how: str = "", ranges: dict[str, dict] | None = None) -> tuple[list[dict], list[dict]]:
+                            how: str = "", ranges: dict[str, dict] | None = None,
+                            steer: float = 1.0) -> tuple[list[dict], list[dict]]:
     """AilmentMagnitude MORE lines (Ignite / Bleed) that turn PoB's reading of the scored set's ailment into the
     strongest-wins mix of the sets the skill really uses (comment above). `sets`: setRates for its group; `shares`:
     {set label: uses of that set a use of the skill}; `uses`: the skill's uses a second; `previous`: the last pass's
-    mods (this model's own lines are taken back out of the sets' readings)."""
+    mods (this model's own lines are taken back out of the sets' readings). `steer` (GEM42; MECH107's find, POE2T8800-
+    8802: Rapid Assault's Explosion Bleed took the steer twice): the mix model's own skill-wide "Damage" MORE (its mix
+    note's set_damage). It sits on every set row and on the scored set, so the rows' ratio cancels it, but PoB then
+    applies it once more to the scored set's ailment, which the mix has already made the sets' own: so the line is
+    divided by it, and the mixed ailment is the sets' own (an UNDERCOUNT before where the steer is under 1, an
+    OVERCOUNT where it is over). Other models' "Damage" lines (real hit damage) stay in, as PoB applies them to every
+    set's ailment alike."""
     if main is None or STRONG_ENTRY in forbidden or not shares or uses <= 0:
         return [], []
     rows = {s.get("label"): s for s in sets}
@@ -8771,11 +8865,13 @@ def strongest_ailment_model(main: Skill | None, sets: list[dict], shares: dict[s
         game, free = 0.0, 1.0
         for full, up, _ in found:
             game, free = game + full * up * free, free * (1 - up)
-        factor = game / pob
+        factor = game / pob / (steer if steer > 0 else 1.0)  # (GEM42: the mix model's steer taken back out once)
         if abs(factor - 1) <= 0.005:
             continue
         mods.append(raw_mod("AilmentMagnitude", "MORE", 100 * (factor - 1), main.name, tag=tag, keywords=[ailment]))
-        parts.append(f"{ailment}: PoB {pob:,.0f} DPS on its {main.stat_set} set, the game's {game:,.0f} ("
+        parts.append(f"{ailment}: PoB {pob:,.0f} DPS on its {main.stat_set} set"
+                     + (f" (its set model's x{steer:.3f} on it, not on the sets' own ailments: taken back out)"
+                        if abs(steer - 1) > 1e-9 else "") + f", the game's {game:,.0f} ("
                      + "; ".join(f"{label} {full:,.0f} up {up:.0%}" for full, up, label in found) + ")"
                      + (f", each part's size at its own applications' roll and crit share (hit range min/max "
                         f"{(ranges or {})[ailment]['r']:.2f}, crit {(ranges or {})[ailment]['crit']:.1%} x"
@@ -9427,7 +9523,7 @@ def gated_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     return mods, [{
         "label": f"{main.name}: its {gated_label} part needs {resource}*", "value": f"x{factor:.3f}",
         "confidence": "LOW" if main.name in INFUSED_GATED else "MEDIUM", "entry": entry,
-        **({"set_shares": ({base_label: 1.0, gated_label: share} if adds
+        **({"set_damage": set_damage(mods, main.name), "set_shares": ({base_label: 1.0, gated_label: share} if adds
                            else {base_label: 1 - share, gated_label: share})} if mix else {}),  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {base_label} {base:,.0f}, {gated_label} "
                   f"{gated:,.0f}) and reads no gate. The game uses the {gated_label} part only with {resource}: {share:.0%} "
@@ -9773,6 +9869,7 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
         "label": (f"{main.name}: its {det_label} needs another skill to "
                   + ("set it off*" if main.name in DETONATED_BY or main.name in DETONATED_TEXT else "Detonate it*")), "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": entry,
+        "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
         "set_shares": {plain_label: 1.0, det_label: s},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {det_label} "
                   f"{det:,.0f}). The game sets the {det_label} off only when {by_note}: {s:.0%} of "
@@ -10248,6 +10345,7 @@ def stun_set_model(main: Skill | None, scored: str | None, sets: list[dict], sta
     return mods, [{
         "label": f"{main.name}: its {wave_label} only on a Heavy Stun*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": entry,
+        "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
         "set_shares": {plain_label: 1.0, wave_label: share},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {wave_label} "
                   f"{wave:,.0f}) as if every use made one. The game makes it when a use Heavy Stuns the boss Primed for "
@@ -10347,6 +10445,7 @@ def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
         return mods, [{
             "label": f"{main.name}: its {extra_label} only on a Parried boss*", "value": f"x{factor:.3f}",
             "confidence": "MEDIUM", "entry": entry,
+            "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
             "set_shares": {plain_label: 1.0, extra_label: share},  # (GEM22: strongest_ailment_model)
             "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, "
                       f"{extra_label} {extra:,.0f}) as if every hit made one. The game makes it only when the hit "
@@ -10362,6 +10461,7 @@ def shock_set_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     return mods, [{
         "label": f"{main.name}: its {extra_label} only on a Shocked boss*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": entry,
+        "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
         "set_shares": {plain_label: 1.0, extra_label: share},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {extra_label} "
                   f"{extra:,.0f}) as if every hit made one. The game makes it only when the hit finds the boss {ailment}"
@@ -10485,6 +10585,7 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     return mods, [{
         "label": f"{main.name}: its clouds explode only on an Ignited boss or a Detonation*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": GAS_ARROW_ENTRY,
+        "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
         "set_shares": {GAS_ARROW_SETS[0]: 1.0, GAS_ARROW_SETS[2]: share},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Arrow {arrow:,.0f}, Poison Cloud "
                   f"{cloud:,.0f} as a hit, Explosion {blast:,.0f}). The game: every use hits with the arrow and leaves a "
@@ -10669,6 +10770,7 @@ def magnetic_salvo_model(main: Skill | None, scored: str | None, sets: list[dict
     return mods, [{
         "label": f"{main.name}: its missiles explode only by a lingering Lightning arrow*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": MAGNETIC_SALVO_ENTRY,
+        "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
         "set_shares": {"Impact": 1 - e, "Explosion": e * count},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Impact {impact:,.0f}, Explosion "
                   f"{blast:,.0f})" + (" as if every missile exploded" if scored == "Explosion" else

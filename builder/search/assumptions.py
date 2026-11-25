@@ -5563,7 +5563,8 @@ class Assumptions:
                 sa_mods, sa_notes = models.strongest_ailment_model(main, sets, mix["set_shares"], uses,
                                                                    previous=self.mods, forbidden=forbidden,
                                                                    how=mix.get("label", "").rstrip("*"),
-                                                                   ranges=ranges)
+                                                                   ranges=ranges,  # (GEM42: the mix model's steer)
+                                                                   steer=number(mix.get("set_damage")) or 1.0)
                 hand_mods, hand_notes = hand_mods + sa_mods, hand_notes + sa_notes
         side_mods, side_notes = self.multi_set_side(main)  # (MECH-B, MECHB16: Rolling Slam in a Full DPS group)
         hand_mods, hand_notes = hand_mods + side_mods, hand_notes + side_notes
