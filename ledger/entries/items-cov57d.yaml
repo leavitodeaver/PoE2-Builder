@@ -1,0 +1,35 @@
+# COV57 turn 5 (25 Nov 2026; COV43's rule): TRAIN 144's readers (60612feb..59f7aabb, origin/main 59f7aabb), each checked
+# against the code that names it. Links only: each adds nothing to PoB. Not open rows, so nothing to mark: Into the
+# Breach's breach_flame_spawn_rate_ms and Rageforged's support_rageforged_enraged_damage_+%_final (MECHC60), and MECHB62's
+# U1 / Tornado-volley / Skyfall changes (no gem-stat row: base_number_of_tornado_shots_allowed and
+# tornado_shot_projectile_range stay open). Left open: chance_%_to_create_additional_remnant on Lingering Illusion (its
+# REMNANT_SOURCES 1.76 is the level-20 value, 0-96 by level, not read per level; the skill's name is blank in the dump).
+
+- id: model-read-cov57d-harmonic-remnants-extra
+  title: "Harmonic Remnants II's chance to create an additional Remnant, per supported source (assumptions.EXTRA_REMNANT_STAT, MECHC60)"
+  kind: model
+  model: remnants
+  stats: ["chance_%_to_create_additional_remnant"]
+  skill: [Harmonic Remnants II]
+  confidence: MEDIUM
+  notes: >-
+    20 at every level (SupportFleetingRemnantsPlayerTwo). Read from each Remnant source's supportStats and added to the
+    text lines' chance for that source only ((1 + g + s) / (1 + g), support_remnant_scale; the Infusion and Remnant rate
+    paths in assumptions and conditions). A link only.
+  sources: ["builder/search/assumptions.py (EXTRA_REMNANT_STAT, support_remnant_scale, the Remnant rate paths)",
+            "builder/search/conditions.py (the Infusion rates)"]
+  status: proposed
+
+- id: model-read-cov57d-kelari-critical-weakness-on-hit
+  title: "Kelari's hits apply 1 Critical Weakness each (models.CW_ON_HIT, MECH107)"
+  kind: model
+  model: critical_weakness
+  stats: ["apply_X_stacks_of_critical_weakness_on_hit"]
+  skill: ["Kelari, the Tainted Sands"]
+  confidence: MEDIUM
+  notes: >-
+    1 at every level (SummonSandDjinnPlayer) = models.CW_KELARI; djinn_critical_weakness turns the djinn's Command hits a
+    second (djinn_commands_model's presses) into stacks on the boss (4 s each), into critical_weakness_stacks. The Commands'
+    own 2 / 4 and the beetles' 1 are constants of the same model. A link only.
+  sources: ["builder/search/models.py (CW_ON_HIT, CW_KELARI, djinn_critical_weakness)"]
+  status: proposed
