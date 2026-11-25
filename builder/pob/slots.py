@@ -29,7 +29,15 @@ def slot_name() -> str:
 
     Real runs get one set of 6 per PoE2 folder (the main checkout and each worker's worktree), named from the folder this
     code lives in, so the queue can run one PoE2 run per folder at once without one starving another's engines (12 Nov
-    2026: the user stopped the other projects and PoE2's test places went above one; each run is still held to 6)."""
+    2026: the user stopped the other projects and PoE2's test places went above one; each run is still held to 6).
+
+    POE2_SLOT_SET=<name> (PERF22, 24 Nov 2026: tools/probe_server.py sets it for every probe it runs) names a set of 6
+    of its own: the probe server is ONE queue run that runs probes from many folders, so they all share its 6, and a
+    probe never takes a slot from its folder's own suite running in another place."""
+    named = os.environ.get("POE2_SLOT_SET", "").strip()
+    if named:
+        tag = hashlib.sha1(named.encode("utf-8")).hexdigest()[:12]
+        return "Local\\PoE2Builder.set." + tag + ".LuaJIT.%d"
     folder = os.environ.get("PC_QUEUE_DIR")
     if not folder:
         root = os.path.normcase(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
