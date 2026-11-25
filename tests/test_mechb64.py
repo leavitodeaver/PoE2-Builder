@@ -33,3 +33,12 @@ def test_a_bonestorm_feeder_with_pierce_counts_its_own_hit_and_shows_the_explosi
     row = (alone + 8.0 * 0.5 * 20 * 0.5) / 8.0
     assert "Pierce on it moves the explosion" in how and f"{row:.2f} Energy a use" in how and "R60-1" in how
 
+
+def test_energy_past_the_maximum_lost_is_a_row():
+    """R60-1's open question (UNVERIFIED): the headline carries Energy past Cast on Critical's maximum; the row loses
+    it, so a round takes the next whole number of crit hits (build 4's shape: 3.18 a round -> 4, x0.796)."""
+    row = models.energy_overflow_row(11.038, 35.15, 11.038)
+    assert "UNVERIFIED" in row and "4 hits a round" in row and "x0.796" in row
+    assert models.energy_overflow_row(10.0, 30.0, 10.0) == ""  # (a whole 3 hits a round: nothing lost either way)
+    assert models.energy_overflow_row(0.0, 30.0, 0.0) == ""
+

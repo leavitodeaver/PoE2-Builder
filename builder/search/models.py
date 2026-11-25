@@ -3738,6 +3738,25 @@ def bonestorm_flight_moves(row: dict) -> list[str]:
             if number(row.get(field)) > 0]
 
 
+def energy_overflow_row(fed: float, crits: float, rate: float) -> str:
+    """(MECHB64; RESEARCH60 R60-1's open question) The row for Energy past the meta's maximum being LOST rather than
+    carried. Energy comes a Critical Hit at a time (the feeders' crits a second, energy_feed), each worth cost x fed /
+    crits after the build's Energy modifiers, so a round takes crits / fed crit hits on the carried reading (the
+    headline: Energy gained is a rate, energy_rate) and the next whole number of them if each round's overflow is lost:
+    rounds = crits / ceil(crits / fed). Whether the game carries it is UNVERIFIED (the game text: "triggers socketed
+    Spells on reaching maximum Energy"; KeywordPopups Energy says nothing of overflow): a row, nothing moved."""
+    if fed <= 0 or crits <= 0 or rate <= 0:
+        return ""
+    hits = crits / fed
+    whole = math.ceil(hits - 1e-9)
+    if whole <= hits + 1e-9:
+        return ""
+    lost = rate * hits / whole
+    return (f"; Energy past the maximum carried to the next round (UNVERIFIED; the game text doesn't say): a round every "
+            f"{hits:.2f} Critical Hits of yours; row, if it's lost: {whole} hits a round, {lost:.3f} triggers a second "
+            f"(x{hits / whole:.3f})")
+
+
 def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, float, str]:
     """(Energy a second, crits a second, how) the build's self-used skills give a `kind` meta gem (see the note above).
     `feeders`: [{name, uses (0: at will), speed, why, row, final}]."""
@@ -3970,7 +3989,9 @@ def energy_model(inputs: Inputs, stats: dict, skills: list[Skill], main: Skill |
                            else f"; the presses keep up (they release up to {most:.3f} rounds a second; the store "
                                 f"would fill between them above that)" if most < float("inf") else "")
                         if info.get("invocation") else "")
-                     + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else ""),
+                     + (f"; its spells deal {info['less']:.0f}% less damage" if info.get("less") else "")
+                     + (energy_overflow_row(fed, feeding[1], rate)
+                        if feeding is not None and META_GEMS[meta.name]["gain"] == "crit" and not invocation else ""),
             "confidence": "theory"})
         if META_GEMS[meta.name]["gain"] == "dodge" and rate > 0:
             roll_seconds = (stats.get("_dodge_roll") or {}).get("seconds", DODGE_ROLL_SECONDS)
