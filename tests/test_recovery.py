@@ -2461,7 +2461,7 @@ def test_a_charge_bypasses_a_cooldown_only_with_the_charges_wasted_at_the_maximu
     assert eaten["_charge_flow"]["Endurance"][0] == pytest.approx(0.5 + 0.3) and "bypassing" in eaten["_charge_flow"]["Endurance"][1]
     mods, rows, inc = conditions.bypass_mods(eaten["_bypass_uses"], rage_support=True)
     assert inc["Infernal Cry"] == pytest.approx(100 * 0.3 * 8.0) and mods[0]["skill"] == "Infernal Cry"
-    assert mods[0]["name"] == "CooldownRecovery" and "NOT counted" in rows[0]["basis"]
+    assert mods[0]["name"] == "CooldownRecovery" and "spend Rage instead of Endurance Charges" in rows[0]["basis"]  # (MECHC61)
     none = conditions.bypass_mods({"Infernal Cry": (0.0, "x", 0.0, 8.0)})
     assert none[0] == [] and rows and none[1][0]["value"].startswith("0:")
 

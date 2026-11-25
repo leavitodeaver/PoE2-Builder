@@ -1955,8 +1955,8 @@ STEAL_NOTE = ("the boss holds no Charges to steal (research boss-charges-steal.m
 # (active_skill_cooldown_bypass_type_override_to_power_charge) sits on Cold Snap / Vigilant Strike rows, which are no gem
 # in 26650308 (no BaseItemTypes row), and on Flicker Strike, which has no cooldown in PoB (nothing to bypass): BYPASS_POWER
 # keeps them so a later game build that gives them a cooldown is read. Enraged Warcry I / II's "spend 20 / 15 Rage
-# instead" (warcry_bypass_cooldown_spending_X_rage_instead_of_endurance_charge): NOT counted (an UNDERCOUNT kept, said in
-# the row). Warbringer's "Ignore Warcry Cooldowns" (PoB: CooldownRecovery OVERRIDE 0) leaves no cooldown to bypass.
+# instead" (warcry_bypass_cooldown_spending_X_rage_instead_of_endurance_charge): counted since MECHC61
+# (ENRAGED_WARCRY_RAGE). Warbringer's "Ignore Warcry Cooldowns" (PoB: CooldownRecovery OVERRIDE 0) leaves no cooldown to bypass.
 # HEADLINE (MEDIUM): the skill bypasses with the charges that would otherwise be wasted at the maximum (a gain while at
 # the maximum only refreshes the duration), so the charges held don't fall: with a consumer of the kind (_charges_held's
 # flow form), net gains above maximum / duration; without one, the gains that arrive while at the maximum (the Poisson
@@ -1970,7 +1970,21 @@ STEAL_NOTE = ("the boss holds no Charges to steal (research boss-charges-steal.m
 # rate, charges held 0).
 BYPASS_LINE = re.compile(r"cooldown can be bypassed by expending an? (Endurance|Frenzy|Power) Charge", re.I)
 BYPASS_POWER = {"Cold Snap": "Power", "Vigilant Strike": "Power", "Flicker Strike": "Power"}
-BYPASS_RAGE_SUPPORTS = ("Enraged Warcry I", "Enraged Warcry II")  # (spend 20 / 15 Rage instead: not counted)
+BYPASS_RAGE_SUPPORTS = ("Enraged Warcry I", "Enraged Warcry II")  # (spend 20 / 15 Rage instead: ENRAGED_WARCRY_RAGE)
+# (MECHC61; COV57's offence ranking, row 139: warcry_bypass_cooldown_spending_X_rage_instead_of_endurance_charge, example
+# build 5's Fortifying Cry) Enraged Warcry I / II: "Supported Warcries spend {0} Rage to bypass their Cooldown, instead of
+# an Endurance Charge" (gem_stat_descriptions, game 26650308; the stat's constant 20 on SupportEnragedWarcryPlayer, 15 on
+# PlayerTwo; patch 0.4.0, the newest by grep_notes --history "Enraged Warcry": "now treated as spending Rage"). Two faults
+# before: (a) an OVERCOUNT: a supported warcry still bypassed with spare Endurance Charges ("instead of": it no longer
+# does); (b) an UNDERCOUNT: its Rage bypass was never counted. HEADLINE (MEDIUM-LOW): as the Endurance bypass, the warcry
+# spends only the Rage that would be wasted at the maximum (rage_at_max's surplus a second, R58-5's reading of "at
+# maximum"), so e = min(surplus / X, its cap above the cooldown) more uses a second; each drops Rage by X from the
+# maximum and the surplus refills it, so the Rage held falls by X / 2 x (e X / surplus) (a sawtooth from max - X to max
+# over the share of the time it refills). The spend joins the Rage spent ("treated as spending Rage"); Rage at the maximum
+# (Walking Calamity's Glory) keeps what's left. ROW: spending all Rage gained on it (up to its cap), Rage held then low.
+# A warcry in two groups, one supported: taken as supported (said). A supported warcry without a native bypass line is
+# read too (the support's own line gives the bypass; its cooldown must exist in PoB).
+ENRAGED_WARCRY_RAGE = {"Enraged Warcry I": 20.0, "Enraged Warcry II": 15.0}
 BYPASS_TAG = "CooldownBypass"
 
 
@@ -2025,8 +2039,8 @@ def bypass_mods(uses: dict, rage_support: bool = False) -> tuple[list[dict], lis
                      "value": (f"+{e:.3f} uses/s (+{inc:.0f}% Cooldown Recovery Rate)" if inc > 0 else
                                "0: no charge to spare (each one is kept for its own benefits)")
                               + (f"; spending every charge on it: +{all_in:.3f} uses/s" if all_in > e else ""),
-                     "basis": how + ("; Enraged Warcry's 'spend Rage instead': NOT counted (an UNDERCOUNT kept)"
-                                     if rage_support else ""),
+                     "basis": how + ("; Enraged Warcry: its supported warcries spend Rage instead of Endurance Charges "
+                                     "(ENRAGED_WARCRY_RAGE, MECHC61)" if rage_support else ""),
                      "confidence": ("MEDIUM (the spare charges); MEDIUM-LOW that 'expending' is consuming (R32-7): "
                                     "counted for 'on consuming a charge' effects; without that: not"),
                      "play": (f"Use {name} again before its cooldown ends whenever your charges are at their maximum"
@@ -3175,6 +3189,43 @@ def rage_at_max(held: float, most: float, net: float, events: float, lines: list
                                    "reading, MEDIUM-LOW)")
 
 
+def rage_bypass(stats: dict, warcries: list, held: float, gain: float, basis: str) -> tuple[float, str]:
+    """(MECHC61: ENRAGED_WARCRY_RAGE's note) (Rage held, basis) after the Enraged Warcry bypasses: `warcries` is
+    stats["_bypass"]["Rage"] ([(name, cap uses/s above its cooldown, how, base cooldown, Rage a bypass)]). Puts each on
+    stats["_bypass_uses"] (as bypass_share does), takes the spend off stats["_rage_at_max"] and adds it to
+    stats["_rage_spent_real"]."""
+    surplus, events, at_how = stats.get("_rage_at_max") or (0.0, 0.0, "")
+    surplus = number(surplus)
+    left, used, drop = max(surplus, 0.0), 0.0, 0.0
+    out = stats.setdefault("_bypass_uses", {})
+    parts = []
+    for name, cap, how, base, cost in warcries:
+        e = min(left / cost, max(cap, 0.0)) if cost > 0 else 0.0
+        left -= e * cost
+        used += e * cost
+        drop += e * cost * cost / 2
+        all_in = min(max(cap, 0.0), gain / cost) if cost > 0 else 0.0
+        out[name] = (e, (f"{e:.3f} more uses/s spending {cost:g} Rage each (Enraged Warcry: 'instead of an Endurance "
+                         f"Charge'), the Rage that would be wasted at the maximum ({surplus:.2f}/s: {at_how}; up "
+                         f"to {cap:.3f}/s above its cooldown, {how})")
+                     + (f"; spending all Rage gained on it instead: {all_in:.3f}/s, little Rage held" if all_in > e
+                        else ""), all_in, base)
+        parts.append(f"{name} {e:.3f} bypasses/s x {cost:g} Rage")
+    if used <= 0:
+        return held, basis + ("; Enraged Warcry: no Rage wasted at the maximum to bypass with (row: spending Rage on it "
+                              "anyway lowers the Rage held)")
+    fall = drop / surplus
+    new = max(held - fall, 0.0)
+    stats["_rage_at_max"] = (left, number(events) * left / surplus, at_how + f"; less {used:.2f}/s spent by "
+                             "Enraged Warcry bypasses")
+    real = stats.get("_rage_spent_real")
+    stats["_rage_spent_real"] = ((number(real[0]) if real else 0.0) + used,
+                                 ((real[1] + ", ") if real else "") + ", ".join(parts))
+    return new, basis + (f"; Enraged Warcry spends the Rage wasted at the maximum: {', '.join(parts)} ({used:.2f}/s), "
+                         f"each drop refilled by the surplus: {fall:.1f} less held on average ({held:.1f} -> {new:.1f}; "
+                         "MEDIUM-LOW; row, no bypass: the Rage above)")
+
+
 def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
     stats["_rage_max_reaches"] = None  # (MECHC47: (reaches of the maximum a second, how), RAGE_MAX_CHARGE's note)
     stats["_rage_spent_real"] = None  # (MECHC47: (Rage spent a second, how), DRUIDIC_PROWESS's note)
@@ -3330,6 +3381,8 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         basis += f"; below it between spends: {saw[1]} (row, the maximum all fight: {held:g})"
         held = saw[0]
     stats["_rage_at_max"] = rage_at_max(held, most, net, events, lines)  # (MECHC59: models.GLORY_FROM_RAGE)
+    if (warcries := (stats.get("_bypass") or {}).get("Rage")) and held > 0:  # (MECHC61: ENRAGED_WARCRY_RAGE's note)
+        held, basis = rage_bypass(stats, warcries, held, gain, basis)
     if held > 0 and (lost := number(stats.get("_main_rage_lost_on_crit"))) > 0:
         crits = models.crits_per_second(stats) * _main_share(stats) * models.per_use_factor(stats)  # (MECHC45; MECHC52)
         if crits > 0 and net > 0:
@@ -9940,6 +9993,18 @@ class Conditions:
         most uses a second is one per use (the row's castRate, MECHB47's; else PoB's one-use time, else its cast time)."""
         gems = getattr(self.build.ctx, "all_gems", None) or self.build.ctx.gems
         found = {n: k for n in gem_types if (k := bypass_kind(n, (gems.get(n) or {}).get("description") or ""))}
+        enraged: dict[str, float] = {}  # (MECHC61: ENRAGED_WARCRY_RAGE's note) {warcry: Rage a bypass}
+        if any(n in ENRAGED_WARCRY_RAGE for n in gem_types):
+            for g in self.build.call("groups")["groups"]:
+                if g.get("enabled") is False:
+                    continue
+                gem_rows = [x for x in g.get("gems") or [] if x.get("enabled", True)]
+                cost = max((ENRAGED_WARCRY_RAGE[x["name"]] for x in gem_rows if x.get("support")
+                            and x["name"] in ENRAGED_WARCRY_RAGE), default=0.0)
+                for x in gem_rows if cost > 0 else []:
+                    if not x.get("support") and "Warcry" in ((gems.get(x["name"]) or {}).get("skillTypes") or ()):
+                        enraged[x["name"]] = min(cost, enraged.get(x["name"], cost))
+                        found[x["name"]] = "Rage"
         if not found:
             return {}
         skills = {s["name"]: s for s in self.build.call("activeSkills")["skills"] if not s.get("disabled")}
@@ -9968,7 +10033,7 @@ class Conditions:
             plain = max(recovery - number(own.get(name)) / 100, 0.01) / base
             out.setdefault(kind, []).append((name, max(most - plain, 0.0),
                                              f"{plain:.3f}/s on its {1 / plain:.2f} s cooldown, at most {most:.2f}/s",
-                                             base))
+                                             base) + ((enraged[name],) if kind == "Rage" else ()))
         return out
 
     def runeforged_uses(self, gems: dict) -> float:

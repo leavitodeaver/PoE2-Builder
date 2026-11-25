@@ -149,3 +149,50 @@ def test_real_pob_side_rageforged_line_reaches_the_side_skill_only(engine):
     copies = search.conditions._rageforged_copies({"Rageforged II": 1.0}, {"Spark"})
     assert list(copies) == ["Rageforged II (Frost Bomb)"] and copies["Rageforged II (Frost Bomb)"] >= 0
 
+
+def test_enraged_warcry_spends_the_rage_wasted_at_the_maximum():
+    """Fortifying Cry with Enraged Warcry II (15 Rage a bypass): 6 Rage/s wasted at the maximum 30 -> 0.4 more uses/s,
+    Rage held 30 - 15 / 2 = 22.5; the cap binds below that; no surplus: nothing, said."""
+    from builder.search.conditions import rage_bypass
+
+    stats = {"_rage_at_max": (6.0, 1.0, "held at 30"), "_rage_spent_real": (2.0, "Rageforged II 2.00/s")}
+    held, basis = rage_bypass(stats, [("Fortifying Cry", 1.0, "cd", 8.0, 15.0)], 30.0, 8.0, "")
+    assert held == pytest.approx(22.5) and stats["_bypass_uses"]["Fortifying Cry"][0] == pytest.approx(0.4)
+    assert stats["_rage_at_max"][0] == pytest.approx(0.0) and stats["_rage_spent_real"][0] == pytest.approx(8.0)
+    assert "Enraged Warcry spends the Rage wasted" in basis
+    stats = {"_rage_at_max": (6.0, 1.0, "held at 30")}
+    held, _ = rage_bypass(stats, [("Fortifying Cry", 0.2, "cd", 8.0, 15.0)], 30.0, 8.0, "")
+    assert stats["_bypass_uses"]["Fortifying Cry"][0] == pytest.approx(0.2)
+    assert held == pytest.approx(30 - 15 / 2 * 0.5) and stats["_rage_at_max"][0] == pytest.approx(3.0)
+    stats = {"_rage_at_max": (0.0, 0.0, "no surplus")}
+    held, basis = rage_bypass(stats, [("Fortifying Cry", 1.0, "cd", 8.0, 15.0)], 12.0, 3.0, "")
+    assert held == 12.0 and stats["_bypass_uses"]["Fortifying Cry"][0] == 0 and "no Rage wasted" in basis
+
+
+def test_enraged_warcry_moves_its_warcry_off_the_endurance_bypass():
+    """A warcry the support sits on bypasses with Rage, not Endurance Charges ('instead of'); one without stays."""
+    class Ctx:
+        gems = {"Fortifying Cry": {"skillTypes": ["Warcry"], "description":
+                                   "This Skill's cooldown can be bypassed by expending an Endurance Charge."},
+                "Infernal Cry": {"skillTypes": ["Warcry"], "description":
+                                 "This Skill's cooldown can be bypassed by expending an Endurance Charge."},
+                "Enraged Warcry II": {"support": True}}
+
+    class Build:
+        ctx = Ctx()
+
+        def call(self, method, **kw):
+            if method == "groups":
+                return {"groups": [_group(1, ["Fortifying Cry"], ["Enraged Warcry II"]), _group(2, ["Infernal Cry"], [])]}
+            if method == "activeSkills":
+                return {"skills": [{"name": n, "cooldown": 8.0, "cooldownRecovery": 1.0} for n in Ctx.gems]}
+            if method == "useRates":
+                return {"rates": [{"index": i, "name": "x", "castRate": 1.0} for i in kw["indices"]]}
+            raise KeyError(method)
+
+    self = conditions.Conditions.__new__(conditions.Conditions)
+    self.build = Build()
+    out = self._bypass_skills({"Fortifying Cry": 1, "Infernal Cry": 1, "Enraged Warcry II": 1})
+    assert [r[0] for r in out["Rage"]] == ["Fortifying Cry"] and out["Rage"][0][4] == 15.0
+    assert [r[0] for r in out["Endurance"]] == ["Infernal Cry"]
+
