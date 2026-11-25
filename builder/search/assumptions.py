@@ -1849,6 +1849,7 @@ def djinn_commands(build: Build, main: models.Skill | None) -> tuple[float, list
                     disabled = pob_disabled(build)
                 if (group["index"], skill["name"]) not in disabled:
                     where.setdefault(skill["name"], (group["index"], n))
+    build.djinn_critical_weakness = []  # (MECH107: none without a djinn)
     if not where:
         return 0.0, [], []
     texts = [line["text"] for line in build.call("sourceLines")["lines"]]
@@ -1868,6 +1869,7 @@ def djinn_commands(build: Build, main: models.Skill | None) -> tuple[float, list
     boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
     radius = bosses.hit_radius({"_boss": boss})  # (MECH84: Brutality's blades on the boss, RESEARCH29 R29-3)
     dps, mods, notes, presses = models.djinn_commands_model(rows, player, chilled, radius)
+    build.djinn_critical_weakness = models.djinn_critical_weakness(presses, radius[0])  # (MECH107: CW_ON_HIT)
     held = getattr(build, models.ITEM_PRESSES, None)
     if isinstance(held, dict):  # (each Command a press: the button cap counts it, models.ITEM_PRESSES)
         held.update(presses)
@@ -4666,20 +4668,6 @@ class Assumptions:
         rod_mods, rod_notes = models.rod_model(found, stats, main)
         hand_mods, hand_notes = hand_mods + rod_mods, hand_notes + rod_notes
         texts = [e["text"] for e in source_lines]
-        malice = self.malice_rate(build)  # (MECH106, COV56 U2: Malice's aura, models.MALICE's note)
-        if malice or any(p.match(t.strip()) for t in texts for p in (models.CW_PRESENCE, models.CW_SPELL_CRIT,
-                                                                     models.CW_PARRY, models.CW_WARCRY, models.CW_MARK)):
-            cries = (0.0, "")
-            if any(models.CW_WARCRY.match(t.strip()) for t in texts):
-                cries = conditions_mod.event_rates(
-                    build.call("groups")["groups"], build.ctx.gems, name or "", main_types, models.number(stats.get("Speed")),
-                    lambda idx: build.call("useRates", indices=idx)["rates"], ["when you use a Warcry"],
-                    models.press_choices(build)).get("Warcry", (0.0, ""))
-            cw_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
-                         or natural_distance(main_types, name or ""))
-            cw_mods, cw_notes = models.critical_weakness_mods(
-                models.critical_weakness_stacks(texts, found, stats, main, cw_metres, cries, malice))
-            hand_mods, hand_notes = hand_mods + cw_mods, hand_notes + cw_notes
         agg_supports = set(supports.get(main.group) or ()) & {models.RUPTURE, models.RUSTED_SPIKES} if (
             main is not None and main.group is not None) else set()  # (MECH103: Rupture / Rusted Spikes on the main)
         if agg_supports or any(p.match(t.strip()) for t in texts for p in (
@@ -5785,6 +5773,27 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + spectral_mods, hand_notes + spectral_notes
         djinn, djinn_mods, djinn_notes = djinn_commands(build, main)  # (MECH83: the Disciple's djinn Commands; PoB 0)
         hand_mods, hand_notes = hand_mods + djinn_mods, hand_notes + djinn_notes
+        texts = [e["text"] for e in source_lines]  # (MECH107: the Critical Weakness hook, moved after the djinns)
+        malice = self.malice_rate(build)  # (MECH106, COV56 U2: Malice's aura, models.MALICE's note)
+        # (MECH107: the minions' and the djinn's on-Hit stacks, CW_ON_HIT; this hook runs after djinn_commands for its rates)
+        cw_hits = list(getattr(build, "djinn_critical_weakness", None) or [])
+        for beetle in (s for s in found if s.name == models.KELARI):
+            cw_rate, cw_how = models.kelari_beetle_explosions(beetle, {**stats, "_skills": found})
+            cw_hits.append((f"Kelari's Malediction's beetles: {cw_rate:.3g} explosions/s x {models.CW_BEETLE:g} ({cw_how})",
+                            cw_rate * models.CW_BEETLE))
+        if malice or cw_hits or any(p.match(t.strip()) for t in texts for p in (
+                models.CW_PRESENCE, models.CW_SPELL_CRIT, models.CW_PARRY, models.CW_WARCRY, models.CW_MARK)):
+            cries = (0.0, "")
+            if any(models.CW_WARCRY.match(t.strip()) for t in texts):
+                cries = conditions_mod.event_rates(
+                    build.call("groups")["groups"], build.ctx.gems, name or "", main_types, models.number(stats.get("Speed")),
+                    lambda idx: build.call("useRates", indices=idx)["rates"], ["when you use a Warcry"],
+                    models.press_choices(build)).get("Warcry", (0.0, ""))
+            cw_metres = (models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                         or natural_distance(main_types, name or ""))
+            cw_mods, cw_notes = models.critical_weakness_mods(
+                models.critical_weakness_stacks(texts, found, stats, main, cw_metres, cries, malice, cw_hits))
+            hand_mods, hand_notes = hand_mods + cw_mods, hand_notes + cw_notes
         soar_mods, soar_notes = models.soaring_ground_mods(conditions_mod.sacred_unity_onslaught(  # (MECH98, MECHC49)
             [e["text"] for e in source_lines], {**stats, "_main_types": main_types, "_main_share": main_time_share(build, main)}))
         hand_mods, hand_notes = hand_mods + soar_mods, hand_notes + soar_notes

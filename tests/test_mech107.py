@@ -61,3 +61,33 @@ def test_an_enemy_mod_reaches_the_minions_hits_where_the_player_mod_does_not(eng
     finally:
         engine.call("setAssumptions", mods=[], fields=[])
         engine.call("newBuild")
+
+
+KELARI_STATS = {"skill_specific_stat_description_mode": 2, "base_secondary_skill_effect_duration": 900}
+
+
+def test_kelaris_commands_apply_their_stacks_at_their_press_rates():
+    presses = {"Kelari's Brutality": (0.2, "x"), "Kelari's Judgment": (1 / 12, "x"), "Ruzhan's Brand": (0.3, "x"),
+               "Kelari's Deception": (0.25, "x")}
+    rows = dict((how.split(":")[0], rate) for how, rate in models.djinn_critical_weakness(presses, 0.3))
+    assert set(rows) == {"Kelari's Brutality", "Kelari's Judgment", "Kelari's Deception"}  # (Ruzhan's carry none)
+    assert rows["Kelari's Brutality"] == pytest.approx(0.2 * models.blades_on_boss(0.3) * 1.0)
+    assert rows["Kelari's Judgment"] == pytest.approx(4.0 / 12)
+    # a use every 4 s, within the clone's 4 s life: one clone explosion a use, the blast 1 + the clone 2
+    assert rows["Kelari's Deception"] == pytest.approx(0.25 * (1 + 2 * models.clone_explosions(4.0)))
+    assert models.djinn_critical_weakness({"Kelari's Judgment": (0.0, "x")}, 0.3) == []
+
+
+def test_beetle_explosions_follow_the_builds_corpses():
+    kelari = models.Skill("Kelari's Malediction", 1, corpses=True, level_stats=KELARI_STATS)
+    assert models.kelari_beetle_explosions(kelari, {models.ADD_KILLS_STAT: 0.25})[0] == pytest.approx(0.5)
+    assert models.kelari_beetle_explosions(kelari, {models.ADD_KILLS_STAT: 5.0})[0] == pytest.approx(2 / 0.9)
+    assert models.kelari_beetle_explosions(kelari, {})[0] == 0.0  # (no corpse source: 0)
+
+
+def test_on_hit_stacks_add_to_the_held_stacks():
+    stacks, how = models.critical_weakness_stacks([], [], {}, None, 2.0, on_hit=[("Kelari's Judgment: x", 1.0)])
+    assert stacks == pytest.approx(4.0) and "Kelari's Judgment" in how
+    assert models.critical_weakness_stacks([], [], {}, None, 2.0, on_hit=[("a", 3.0), ("b", 3.0)])[0] == 20.0
+    mods, _ = models.critical_weakness_mods((stacks, how))
+    assert mods[0]["name"] == "SelfCritChance" and mods[0]["enemy"] and mods[0]["value"] == pytest.approx(2.0)

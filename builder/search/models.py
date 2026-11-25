@@ -15126,8 +15126,8 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
 # UniqueCriticalWeaknessOnSpellCrit1 (a unique focus: "Critical Hits with Spells apply N Stacks"),
 # UniqueCriticalWeaknessOnParry1 (a unique shield: "Parrying applies 10 Stacks"); passives wolf14 ("Warcries inflict 3
 # Critical Weakness on Enemies") and AscendancyRanger1Notable8 (Deadeye: "Apply 10 Critical Weakness to Enemies when
-# Consuming a Mark on them"); on Hit: the Sand Djinn's skills and Kelari's Corpse Beetles' explosion (minion / djinn
-# skills: not counted here, labelled, MECH-B's / MECH49's skills). Stacks held = min(20, sum of stacks a second x their
+# Consuming a Mark on them"); on Hit: the Sand Djinn's skills and Kelari's Corpse Beetles' explosion (MECH107: CW_ON_HIT's
+# note). Stacks held = min(20, sum of stacks a second x their
 # seconds) (stacks taken as own timers, each 4 s unless the line says; the steady state, the climb at the fight's start
 # not taken off: MEDIUM). Rates from the build: the main skill's spell crits a second (Speed x HitChance x CritChance);
 # the Presence line while the boss stands in your Presence (the search's distance vs PoB's PresenceRadius), one stack a
@@ -15161,9 +15161,11 @@ MALICE, MALICE_STAT = "Malice", "critical_chance_against_aura_apply_brittle_ever
 
 def critical_weakness_stacks(texts: list[str], skills: list[Skill], stats: dict, main: Skill | None,
                              metres: float, warcries: tuple[float, str] = (0.0, ""),
-                             malice: tuple[float, float] | None = None) -> tuple[float, str]:
+                             malice: tuple[float, float] | None = None,
+                             on_hit: list[tuple[str, float]] = ()) -> tuple[float, str]:
     """(Critical Weakness stacks held on the boss, how) from the build's own sources (see the note above). `malice`:
-    (its application interval in ms, its duration in s) when the build runs Malice (MALICE's note)."""
+    (its application interval in ms, its duration in s) when the build runs Malice (MALICE's note); `on_hit`: (how,
+    stacks applied a second) from the minions' and the djinn's on-Hit sources (CW_ON_HIT's note)."""
     def total(pattern: re.Pattern) -> float:
         return sum(float(m.group(1)) for t in texts if (m := pattern.match(t.strip())))
 
@@ -15204,12 +15206,14 @@ def critical_weakness_stacks(texts: list[str], skills: list[Skill], stats: dict,
         rate, which = glory_mark_rate(skills, stats)
         held += n * rate * CRIT_WEAKNESS_SECONDS
         parts.append(f"{n:g} a consumed Mark x {rate:.2f} Activations/s ({which or 'no Mark'})")
+    for how, rate in on_hit:
+        held += max(rate, 0.0) * CRIT_WEAKNESS_SECONDS
+        parts.append(how)
     if not parts:
         return 0.0, ""
     stacks = min(CRIT_WEAKNESS_MAX, held)
     return stacks, (f"{stacks:.1f} of {CRIT_WEAKNESS_MAX:g} stacks held ({'; '.join(parts)}; each stack "
-                    f"{CRIT_WEAKNESS_SECONDS:g} s unless the line says, own timers, MEDIUM); minions' and the djinn's "
-                    "on-Hit stacks not counted")
+                    f"{CRIT_WEAKNESS_SECONDS:g} s unless the line says, own timers, MEDIUM)")
 
 
 def critical_weakness_mods(stacks: tuple[float, str]) -> tuple[list[dict], list[dict]]:
@@ -15222,6 +15226,63 @@ def critical_weakness_mods(stacks: tuple[float, str]) -> tuple[list[dict], list[
     if stacks[0] <= 0:
         return [], note
     return [raw_mod("SelfCritChance", "BASE", stacks[0] * CRIT_WEAKNESS_PER, enemy=True)], note
+
+
+# Critical Weakness from minions' and the djinn's Hits (MECH107; an UNDERCOUNT: every source below scored 0). The game's
+# one on-Hit stat, apply_X_stacks_of_critical_weakness_on_hit (checked: every Stats id holding "critical_weakness" or
+# "brittle" on 26650308 and its users in GrantedEffectStatSets ConstantStats, GrantedEffectStatSetsPerLevel, Mods and
+# PassiveSkills: only these four stat sets carry it; PoB minion.lua / other.lua carry the same four values and map the
+# stat to nothing), is on: SummonSandDjinnPlayer 1 (the summon's set, read as each of Kelari's hits: MEDIUM),
+# ExplosiveTeleportCloneSandDjinn 2 (Kelari's Deception's clone explosion), HandSlamSandDjinn 4 (Kelari's Judgment; +0.1 a
+# quality %, a granted Command at quality 0 here) and CorpseBeetleExplode 1 (Kelari's Malediction's beetles). Each Hit on
+# the boss applies that many stacks, each its own 4 s (KeywordPopups CriticalWeakness's default duration). Rates from the
+# build: each Command's uses a second as djinn_commands_model presses it (its cooldown, the djinn's shared time, the
+# button cap), x its hits on the boss a use (Brutality: blades_on_boss of its 12; Deception: its teleport blast at
+# Kelari's 1 + clone_explosions at 2; Judgment: one shockwave at 4); the beetles: one explosion each at
+# kelari_beetle_explosions' rate (the build's corpses, as kelari_beetles_share reads them; none on a lone boss without a
+# corpse source: 0). Reading (UNVERIFIED): a Command's own value REPLACES Kelari's 1 on that hit (the headline); if they
+# add, each Command hit applies one more (the row in the note).
+CW_ON_HIT = "apply_X_stacks_of_critical_weakness_on_hit"
+CW_KELARI, CW_CLONE, CW_JUDGMENT, CW_BEETLE = 1.0, 2.0, 4.0, 1.0
+
+
+def djinn_critical_weakness(presses: dict[str, tuple[float, str]], radius: float) -> list[tuple[str, float]]:
+    """[(how, stacks a second)] from Kelari's Commands at their press rates (`presses`: djinn_commands_model's)."""
+    out = []
+    for name, (rate, _) in presses.items():
+        if rate <= 0:
+            continue
+        if name == "Kelari's Brutality":
+            hits = blades_on_boss(radius)
+            per, plus = CW_KELARI * hits, 0.0
+            how = f"{hits:.1f} blades x {CW_KELARI:g}"
+        elif name == "Kelari's Deception":
+            booms = clone_explosions(1 / rate)
+            per, plus = CW_KELARI + CW_CLONE * booms, booms
+            how = f"its blast x {CW_KELARI:g} + {booms:.2f} clone explosions x {CW_CLONE:g}"
+        elif name == "Kelari's Judgment":
+            per, plus = CW_JUDGMENT, 1.0
+            how = f"one shockwave x {CW_JUDGMENT:g}"
+        else:
+            continue
+        out.append((f"{name}: {rate:.3f} uses/s x ({how}) = {per * rate:.2f} stacks/s"
+                    + (f" (if Kelari's own 1 adds: {(per + plus) * rate:.2f}/s, UNVERIFIED)" if plus else ""),
+                    per * rate))
+    return out
+
+
+def kelari_beetle_explosions(skill: Skill, stats: dict) -> tuple[float, str]:
+    """(Corpse Beetle explosions a second on the boss, how): kelari_beetles_share's rate (beetles per corpse x the
+    corpses its even share of the build's supply gives, at most one per its interval)."""
+    per = number(skill.level_stats.get("skill_specific_stat_description_mode")) or KELARI_PER_CORPSE
+    interval = number(skill.level_stats.get("base_secondary_skill_effect_duration")) / 1000 or KELARI_INTERVAL
+    skills = stats.get("_skills") or [skill]
+    supply = corpse_supply({s.name for s in skills}, stats)
+    users = {s.name for s in skills if s.corpses and not s.wrong_weapon} - set(CORPSE_OPTIONAL)
+    sharers = max(1, len(users | {skill.name}) + (1 if any(s.name == UNEARTH and s.corpses for s in skills) else 0))
+    corpses = min(supply / sharers, 1.0 / interval)
+    return per * corpses, (f"{per:g} beetles a corpse x {corpses:.3g} corpses/s" if supply > 0 else
+                           f"no corpse source ({add_corpses_note(stats)})")
 
 
 # Grisly Pyre's Ignite from another group (MECH74; AUDIT35, an UNDERCOUNT: with His Winnowing Flame as the main skill,
