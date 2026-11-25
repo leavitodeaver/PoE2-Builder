@@ -4146,9 +4146,9 @@ class Assumptions:
             up, kaom_busy, kaom_how = models.kaom_uptime(uses, models.number(row.get("duration")),
                                                          models.number(row.get("castTime")) or cry.cast_time, how, charges)
             embodiment = (up, kaom_how)
-            if kaom_busy > 0:  # (its casts take the main skill's time; warcry_presses leaves the Glory-paid Ancestral Cry out)
+            if kaom_busy > 0:  # (its casts take the main skill's time; warcry_presses then leaves Ancestral Cry out)
                 hand_mods = hand_mods + [models.line("1% more Attack and Cast Speed", -100 * kaom_busy, skill=main.name)]
-        cry_mods, cry_notes = self.warcry_presses(found, main)  # (MECHB63: the other Warcries' casts, GEM40's find)
+        cry_mods, cry_notes = self.warcry_presses(found, main, kaom_busy > 0)  # (MECHB63: the other Warcries' casts)
         hand_mods, hand_notes = hand_mods + cry_mods, hand_notes + cry_notes
         if embodiment[0] > 0 or any(models.KAOMS_BLESSING.match(t.strip()) or models.SHAPESHIFT_EVERY_SECOND_SLAM.search(t)
                                     or models.SHAPESHIFT_EVERY_SECOND_STRIKE.search(t)  # (MECHB45)
@@ -11438,7 +11438,8 @@ class Assumptions:
             objective.entry_scales[models.SKYFALL_MINION] = objective.entry_scales.get(models.SKYFALL_MINION, 1.0) * scale
         return [], notes
 
-    def warcry_presses(self, found: list[models.Skill], main: models.Skill | None) -> tuple[list[dict], list[dict]]:
+    def warcry_presses(self, found: list[models.Skill], main: models.Skill | None,
+                       kaom: bool = False) -> tuple[list[dict], list[dict]]:
         """(MECHB63, GEM40's find: a DPS OVERCOUNT) the main skill's time spent casting the Warcries no other model
         charges (models.warcry_press_model), each at conditions.skill_use_rate (the rate warcry_uses and the Warcry
         models count) x its use time (models.press_action: its castRate). Skipped, as charged elsewhere: a Warcry pressed
@@ -11446,11 +11447,17 @@ class Assumptions:
         effects (roar_model), the Glory-paid Ancestral Cry (Kaom's casts, glory_busy), a triggered Warcry (Ferocious
         Roar's socketed one: the Roar is the press) and one in a group the player doesn't press (a meta or totem uses it).
         The main skill triggered or used by a totem: not charged here (its hits don't come from the player's own uses;
-        the trigger's feeding skill losing the time is NOT counted, a small OVERCOUNT left, LOW)."""
+        the trigger's feeding skill losing the time is NOT counted, a small OVERCOUNT left, LOW).
+        (MECHB63 turn 2, the manager's item 4, a small OVERCOUNT) The Glory-paid Ancestral Cry IS charged here when
+        neither other path charges it: `kaom` False (Kaom's embodiment didn't charge its casts) and objective.glory_busy
+        0 (Glory presses charged nothing last round; with some charged there, it may hold Ancestral Cry: skipped, so never
+        charged twice, UNVERIFIED which). Its uses: the fewer of what its Glory pays for (glory_caps) and its use rate."""
         build = self.build
         ctx = build.ctx
-        cries = [s for s in found if s.group is not None and not s.triggered and s is not main and s.name not in
-                 models.GLORY_SKILLS and "Warcry" in (gem_of(ctx, s.name, None).get("skillTypes") or [])]
+        glory_free = not kaom and not number(getattr(getattr(build, "objective", None), "glory_busy", 0.0))
+        cries = [s for s in found if s.group is not None and not s.triggered and s is not main
+                 and (s.name not in models.GLORY_SKILLS or s.name == models.ANCESTRAL_CRY and glory_free)
+                 and "Warcry" in (gem_of(ctx, s.name, None).get("skillTypes") or [])]
         if main is None or not cries:
             return [], []
         if main.triggered or main.by_totem:
@@ -11487,6 +11494,10 @@ class Assumptions:
                 continue
             row = {**row, "warcry": True}  # (conditions.use_ceiling: its castRate, not PoB's double-slowed Speed)
             uses, why, _ = conditions_mod.skill_use_rate(row)
+            if name == models.ANCESTRAL_CRY:  # (Glory-paid: no more casts than its Glory pays for)
+                paid, paid_how = self.glory_caps().get(name, (0.0, "its Glory wasn't read"))
+                if paid < uses:
+                    uses, why = paid, f"its Glory: {paid_how}"
             presses.append((name, uses, why, models.press_action(row)))
         return models.warcry_press_model(presses, main.name)
 

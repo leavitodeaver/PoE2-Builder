@@ -91,3 +91,31 @@ def test_a_bonestorm_feeder_crits_with_its_explosion_too():
     assert crits_alone == pytest.approx(4.0) and crits == pytest.approx(4.0 + 1.6)
     assert both == pytest.approx(alone + 8.0 * 0.2 * 20 * 0.5) and "R59-4" in how
 
+
+def test_ancestral_cry_is_charged_at_its_glory_when_nothing_else_charges_it(engine):
+    """The Glory-paid Ancestral Cry: charged here only when Kaom's embodiment didn't (kaom False) and Glory presses
+    charged nothing, at the fewer of its Glory-paid uses and its use rate."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Boneshatter", ascendancies=["Titan"]))
+    skeleton = enumerate_skeletons(Context(payload), ["Boneshatter"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0, full=True)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Ancestral Cry 20/0 1")
+    group = next(g for g in build.groups() if any(x["name"] == "Ancestral Cry" for x in g["gems"]))
+    build.set_group(index=group["index"], fullDPS=False)
+    found = [models.Skill.of(s) for s in build.call("activeSkills")["skills"] if not s.get("disabled")]
+    main = next(s for s in found if s.name == "Boneshatter")
+    a = search.assumptions
+    a.glory_caps = lambda: {"Ancestral Cry": (0.05, "test Glory")}
+    build.objective.glory_busy = 0.0
+    assert a.warcry_presses(found, main, kaom=True) == ([], [])
+    mods, notes = a.warcry_presses(found, main, kaom=False)
+    print(mods, notes)
+    assert len(mods) == 1 and "Ancestral Cry 0.050/s (its Glory: test Glory)" in notes[0]["basis"]
+    build.objective.glory_busy = 0.1  # (Glory presses charged something: maybe this Cry, so not again)
+    assert a.warcry_presses(found, main, kaom=False) == ([], [])
