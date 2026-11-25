@@ -3712,6 +3712,11 @@ def minion_count(spell: Skill, rate: float, limit: float | None = None) -> tuple
 # energy_gain's: a crit Power x min(1, the crit / the Ailment Threshold); an ailment Power for a Shock, Power x the
 # Ignite's share for an Ignite. A feeder's Freezes aren't counted (buildup is read for the main skill only: lower).
 FEED_KINDS = ("crit", "ailment")
+# (MECHB63; RESEARCH59 R59-4, an UNDERCOUNT for Cast on Critical feeds, example build 4) a feeder whose each use also
+# hits with its other stat set (MULTI_SET_SKILLS' pair). Bonestorm's spike explodes on the boss it hits (MULTI_SET_WHY's
+# note, MEDIUM-LOW), an area hit with its own crit roll (O4: Cast on Critical's Energy is per Critical Hit). That set's
+# row (useRates on it) goes in the feeder's "beside" (Assumptions.energy_feeders); the own-hit-only reading is the row.
+FEED_BESIDE = frozenset({"Bonestorm"})
 
 
 def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, float, str]:
@@ -3719,8 +3724,14 @@ def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, flo
     `feeders`: [{name, uses (0: at will), speed, why, row, final}]."""
     power, threshold = power_of(stats), number(stats.get("EnemyAilmentThreshold"))
 
-    def each(f: dict) -> tuple[float, float]:  # (Energy a use, crits a use)
-        row = f["row"]
+    def each(f: dict) -> tuple[float, float]:  # (Energy a use, crits a use: its own hit, plus FEED_BESIDE's)
+        energy, crits = one(f["row"], f)
+        for row in f.get("beside") or ():
+            more, more_crits = one(row, f)
+            energy, crits = energy + more, crits + more_crits
+        return energy, crits
+
+    def one(row: dict, f: dict) -> tuple[float, float]:  # (Energy, crits) of one hit of a use
         hit = min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
         crit = min(max(number(row.get("CritChance")), 0.0), 100.0) / 100.0
         scale = max(0.0, 1.0 + number(f.get("final")) / 100.0)
@@ -3734,20 +3745,28 @@ def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, flo
         share = min(1.0, burn / threshold) if threshold > 0 else 1.0
         return hit * (shock + ignite * share) * power * scale, hit * crit
 
+    def beside_how(f: dict) -> str:
+        if not f.get("beside"):
+            return ""
+        own = one(f["row"], f)[0]
+        return (f" (its other stat set's hit each use too, its own crit roll: RESEARCH59 R59-4, "
+                f"MEDIUM-LOW; row, its own hit only: {own:.2f} Energy a use)")
+
     gain = crits = busy = 0.0
     parts: list[str] = []
     for f in (x for x in feeders if x["uses"] > 0):
         energy, crit = each(f)
         gain, crits = gain + f["uses"] * energy, crits + f["uses"] * crit
         busy += f["uses"] / f["speed"] if f["speed"] > 0 else 0.0
-        parts.append(f"{f['name']} {f['uses']:.2f} uses/s ({f['why']}) for {energy:.2f} Energy a use")
+        parts.append(f"{f['name']} {f['uses']:.2f} uses/s ({f['why']}) for {energy:.2f} Energy a use" + beside_how(f))
     filler = max((x for x in feeders if x["uses"] <= 0 and x["speed"] > 0),
                  key=lambda x: x["speed"] * each(x)[0], default=None)
     if filler is not None and each(filler)[0] > 0:
         uses = filler["speed"] * max(0.0, 1.0 - busy)
         energy, crit = each(filler)
         gain, crits = gain + uses * energy, crits + uses * crit
-        parts.append(f"{filler['name']} used at will in the time left, {uses:.2f} uses/s for {energy:.2f} Energy a use")
+        parts.append(f"{filler['name']} used at will in the time left, {uses:.2f} uses/s for {energy:.2f} Energy a use"
+                     + beside_how(filler))
     how = ("fed by the skills you use (a Triggered Skill's own effects give no Energy, KeywordPopups Energy): "
            + "; ".join(parts) + f"; the boss's Power {power:g} (MEDIUM)") if parts else ""
     return gain, crits, how
@@ -23939,7 +23958,18 @@ def stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
 # skill files are Combo or sequence strikes, each its own use (a different model, not this one) (checked: grep of
 # label = "First|Second|Third|Final" over PoB's Data/Skills: Rolling Slam's two, Second Wind I-III (supports), Final
 # Strike / Burst / Pulse, Third Strike).
-MULTI_SET_SKILLS = {"Rolling Slam": ("First Slam", "Second Slam")}
+# (MECHB63; RESEARCH59 R59-4, research/bonestorm-volley-landing-r59.md) Bonestorm: "release to fire them at enemies and
+# explode" (ActiveSkills bonestorm): each spike is a Projectile hit and its explosion an area hit at the contact point
+# (BonestormExplosionPlayer, is_area_damage), so a spike that hits the boss explodes on it: one use does both sets
+# (MEDIUM-LOW: the game text and a forum player's Concentrated Effect reading; no source says outright that the struck
+# target takes both). PoB scores one ("Projectile" or "Explosion"). The "spikes only" reading is the row.
+MULTI_SET_SKILLS = {"Rolling Slam": ("First Slam", "Second Slam"), "Bonestorm": ("Projectile", "Explosion")}
+MULTI_SET_WHY = {
+    "Rolling Slam": ("Both taken as hitting the boss (the second lands 1.5 m on)",
+                     "MEDIUM (game text: a slam, then a second slam; PoB's own per-set numbers; both on the boss "
+                     "LOW-MEDIUM)"),
+    "Bonestorm": ("each spike that hits the boss explodes on it (RESEARCH59 R59-4, MEDIUM-LOW); row, spikes only: x1",
+                  "MEDIUM-LOW (R59-4: the game text 'fire them at enemies and explode'; PoB's own per-set numbers)")}
 
 
 def multi_set_model(main: str | None, scored: str | None, sets: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -23956,8 +23986,8 @@ def multi_set_model(main: str | None, scored: str | None, sets: list[dict]) -> t
     return [raw_mod("DPS", "MORE", 100 * (more - 1), main)], [{
         "label": f"{main}: one use performs {' and '.join(want)}*", "value": f"x{more:.3f}",
         "basis": f"PoB scores the {scored} alone ({dps[scored]:,.0f} DPS); each use does both ({parts} DPS, each set "
-                 "calculated by PoB). Both taken as hitting the boss (the second lands 1.5 m on)",
-        "confidence": "MEDIUM (game text: a slam, then a second slam; PoB's own per-set numbers; both on the boss LOW-MEDIUM)"}]
+                 f"calculated by PoB). {MULTI_SET_WHY[main][0]}",
+        "confidence": MULTI_SET_WHY[main][1]}]
 
 
 # Tornado Shot's copied projectiles (MECHB17; FIX_QUEUE "Tornado Shot's copies", plans/term-projectile-range.md item 2;

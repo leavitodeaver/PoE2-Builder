@@ -66,3 +66,28 @@ def test_a_warcry_on_its_cooldown_takes_its_cast_time_from_the_main_skill(engine
     assert notes[0]["label"].startswith("Time casting Warcries")
     build.set_group(index=group["index"], fullDPS=True)  # (pressed in Full DPS: press_model's)
     assert search.assumptions.warcry_presses(found, main) == ([], [])
+
+
+def test_bonestorm_one_use_does_its_spike_and_its_explosion():
+    """RESEARCH59 R59-4: each spike that hits the boss explodes on it (MEDIUM-LOW): the use's two sets summed."""
+    sets = [{"label": "Projectile", "TotalDPS": 1000.0}, {"label": "Explosion", "TotalDPS": 500.0}]
+    mods, notes = models.multi_set_model("Bonestorm", "Projectile", sets)
+    assert mods[0]["value"] == pytest.approx(50.0) and "R59-4" in notes[0]["basis"]
+    assert notes[0]["confidence"].startswith("MEDIUM-LOW")
+    mods, _ = models.multi_set_model("Bonestorm", "Explosion", sets)
+    assert mods[0]["value"] == pytest.approx(200.0)
+    slam = [{"label": "First Slam", "TotalDPS": 1.0}, {"label": "Second Slam", "TotalDPS": 2.0}]
+    assert "1.5 m" in models.multi_set_model("Rolling Slam", "Second Slam", slam)[1][0]["basis"]
+
+
+def test_a_bonestorm_feeder_crits_with_its_explosion_too():
+    """R59-4 for Cast on Critical (O4: Energy per Critical Hit): the explosion's own crit roll beside the spike's."""
+    stats = {"EnemyAilmentThreshold": 1000.0, "_boss_power": (20.0, "")}
+    spike = {"HitChance": 100.0, "CritChance": 50.0, "PhysicalCritAverage": 2000.0}
+    blast = {"HitChance": 100.0, "CritChance": 20.0, "PhysicalCritAverage": 500.0}
+    feeder = {"name": "Bonestorm", "uses": 0.0, "speed": 8.0, "why": "", "final": 0.0, "row": spike}
+    alone, crits_alone, _ = models.energy_feed("crit", [feeder], stats)
+    both, crits, how = models.energy_feed("crit", [{**feeder, "beside": [blast]}], stats)
+    assert crits_alone == pytest.approx(4.0) and crits == pytest.approx(4.0 + 1.6)
+    assert both == pytest.approx(alone + 8.0 * 0.2 * 20 * 0.5) and "R59-4" in how
+
