@@ -21581,10 +21581,8 @@ CASCADE_PLAY = "Target the boss's centre with the Spell Cascade spell so its sid
 # So each side area reaches the boss only for the axes that pass near it. Counted: the boss's centre anywhere the main
 # area touches it (distance D uniform over that band, MEDIUM-LOW), the axis uniform over the turn; a side area centred
 # one main radius R from you (the spacing above) reaches the boss when its own area overlaps the boss's hit radius r.
-# The area: a ring from PoB's secondary radius to its radius (Bone Cage: active_skill_base_secondary_area_of_effect_radius
-# 10 inside active_skill_base_area_of_effect_radius 18; the secondary radius read as the ring's inner edge, UNVERIFIED),
-# each side area both radii x sqrt(0.8); a Nova with no secondary radius a full disc. Rows: a full disc (the upper), the
-# ring as its outer line alone (the lower). The main area's own hit: PoB's (at a boss distance past its reach the main
+# The area: a disc of PoB's radius, each side area x sqrt(0.8) (RESEARCH61 R61-3: a skill's secondary radius is its own
+# thing, Bone Cage's the spikes' explosion, not an inner edge; Bone Cage's ring is BONE_CAGE_RING's model below). The main area's own hit: PoB's (at a boss distance past its reach the main
 # ring misses too: the distance is conditions' / inner.choose_distance's, routed).
 CASCADE_NOVA_STEPS = 72  # (the axis and distance grid for the share)
 # (MECHB65, THE USER 25 Nov ~14:05: "the astral projection support lets you cast spells normally at your location
@@ -21622,6 +21620,79 @@ def nova_lands_at_target(main: Skill | None, support_stats: dict, texts: list[st
     return ""
 
 
+# Bone Cage's ring (MECHB65; RESEARCH61 R61-3, research/bone-cage-spikes-geometry-r61.md, HIGH on the shape; corrects
+# 3bfb02c2's ring reading, a possible OVERCOUNT). bone_cage.csd (26650308): active_skill_base_area_of_effect_radius 18
+# "Cage radius is 1.8 metres", active_skill_base_secondary_area_of_effect_radius 10 "Explosion radius is 1 metre" (a
+# touched spike's explosion, not the ring's inner edge); ActiveSkills bone_cage: "Raise a ring of bone spikes around you.
+# The spikes are destroyed when enemies touch them". So a ring hits the boss when its spikes' circle crosses the boss's
+# body: |distance from the ring's centre - R| <= the boss's hit radius (a spike's own size isn't in the data: not added,
+# the lower reading), R = PoB's AreaOfEffectRadius (area modifiers scale it). PoB counts one hit a cast, as a disc.
+# - Landing at the target (Astral Projection, nova_lands_at_target): the main ring is centred on the boss and passes R
+#   from its centre: a stationary boss smaller than R isn't touched (HIGH by geometry; the boss's ObjectSize MEDIUM). It
+#   touches it only by the boss's own movement, which no data gives (the boss preset has no repositioning rate): 0, said.
+#   Spell Cascade's side rings (R61-6 (b): a random axis through the target, HIGH; spacing one main radius, MEDIUM) are
+#   centred k R from the boss with radius R x sqrt(0.8) each: they cross it when |k R - R sqrt(0.8)| <= r, the axis
+#   not mattering (both sides symmetric about the boss).
+# - Around you: the main ring crosses the boss when you stand R from it (the play; the distance is MECH110's), each side
+#   ring for the axes nova_side_share's outer line gives (the boss anywhere along the main ring's band).
+# The touch reading (a spike raised inside a standing boss counts as touched, a hit at once) is UNVERIFIED (R61-3: a
+# lean, MEDIUM-LOW, from build 4's author killing bosses with it): the headline. Row: only when the boss moves (0, no data
+# on its movement). One hit per ring crossing the boss (several spikes in it, several explosions: an UNVERIFIED upper
+# reading). A triggered Nova landing at the target lands on the trigger's target (R61-6 (a), MEDIUM): the around-you
+# reading is a row.
+BONE_CAGE_RING = {"Bone Cage"}  # (the skills whose area is a ring of spikes; ring_of_bone_maximum_number_of_rings 1)
+
+
+def ring_nova_hits(radius: float, boss_radius: float, per_side: int, side_scale: float,
+                   at_target: bool) -> tuple[float, str]:
+    """(rings crossing a standing boss a cast, how) for a ring Nova (above): its main ring and Spell Cascade's
+    `per_side` side rings a side; `at_target`: the ring centred on the boss, else around you."""
+    r = max(boss_radius, 0.0)
+    side = radius * side_scale
+    if at_target:
+        main = 1.0 if radius <= r else 0.0
+        sides = sum(2.0 for k in range(1, per_side + 1) if abs(k * radius - side) <= r)
+        return main + sides, (f"the main ring {radius:.2f} m round the boss {'crosses' if main else 'misses'} its "
+                              f"{r:g} m body" + (f"; side rings {side:.2f} m centred {radius:.2f} m out pass "
+                                                 f"{abs(radius - side):.2f} m from its centre: "
+                                                 f"{'both cross it' if sides else 'neither crosses it'}"
+                                                 if per_side else ""))
+    shares = [nova_side_share(radius, radius, r, side_scale, k * radius) for k in range(1, per_side + 1)]
+    return 1.0 + 2 * sum(shares), ("the main ring crosses the boss with you standing its radius away (the play)"
+                                   + (f"; each side ring on a random axis through you crosses it "
+                                      f"{shares[0]:.0%} of the time" if per_side else ""))
+
+
+def bone_cage_ring_model(main: Skill, stats: dict, boss_radius: float, boss_how: str, at_target: str,
+                         per_side: int, side_scale: float) -> tuple[list[dict], list[dict]]:
+    """Bone Cage's rings against PoB's one hit a cast (above): (mods, notes)."""
+    radius = number(stats.get("AreaOfEffectRadius")) / 10
+    if radius <= 0:
+        return [], []
+    hits, how = ring_nova_hits(radius, boss_radius, per_side, side_scale, bool(at_target))
+    rows = []
+    if at_target and main.triggered:
+        around, _ = ring_nova_hits(radius, boss_radius, per_side, side_scale, False)
+        rows.append(f"if the triggered cast lands around you instead (R61-6 (a): on the trigger's target, MEDIUM): "
+                    f"x{around:.2f}")
+    rows.append("if a spike must be walked into (the boss's movement, no data): 0")
+    where = f"at the target ({at_target})" if at_target else "around you"
+    note = {"label": f"{main.name}: its spike rings crossing the boss*", "value": f"x{hits:.2f}",
+            "basis": (f"{main.name}'s spikes stand on a circle of radius {radius:.2f} m (PoB's, area modifiers in; "
+                      f"'Cage radius'; the 1 m secondary radius is a touched spike's explosion: RESEARCH61 R61-3, "
+                      f"HIGH), cast {where}; a ring hits when its circle crosses the boss ({boss_how}; a spike's own "
+                      f"size not in the data, not added): {how}: x{hits:.2f} hits a cast against PoB's one (a spike "
+                      "raised inside a standing boss taken as touched: UNVERIFIED, MEDIUM-LOW). Rows: "
+                      + "; ".join(rows)),
+            "play": (f"Cast {main.name} so its spike circle crosses the boss: x{hits:.2f} hits a cast"
+                     + ("; with Astral Projection the main ring circles the boss and only the Cascade's side rings "
+                        "cross it" if at_target else "")),
+            "confidence": "MEDIUM-LOW"}
+    if abs(hits - 1.0) < 1e-9:
+        return [], [note]
+    return [with_hits_per_use(raw_mod("DPS", "MORE", 100 * (hits - 1), main.name), hits)], [note]
+
+
 def nova_side_share(radius: float, inner: float, boss_radius: float, side_scale: float, spacing: float) -> float:
     """The chance a Nova's side area (centred `spacing` from you on a random axis; its radii the main area's x
     `side_scale`) overlaps a boss of hit radius `boss_radius` standing where the main area [inner, radius] touches it."""
@@ -21649,6 +21720,11 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
         return [], []
     per_side = number(main.support_stats.get(CASCADES_PER_SIDE))
     radius = number(stats.get("AreaOfEffectRadius")) / 10
+    if main.name in BONE_CAGE_RING and nova and radius > 0:  # (MECHB65, R61-3: its ring, with or without the support)
+        scale, part_notes = support_part_scale(main, "cascade") if per_side > 0 else ({}, [])
+        mods, notes = bone_cage_ring_model(main, stats, boss_radius, boss_how, at_target, int(per_side),
+                                           math.sqrt(number(scale.get("Area of Effect")) or 0.8))
+        return mods, notes + (part_notes if mods else [])
     if per_side <= 0 or radius <= 0:
         return [], []
     scale, part_notes = support_part_scale(main, "cascade")
@@ -21656,23 +21732,19 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
     side = radius * side_scale
     about_row = ""
     if nova and at_target:  # (the user, 14:05: Astral Projection; the targeted rule below, a triggered one's row here)
-        inner = number(stats.get("AreaOfEffectRadiusSecondary")) / 10
-        inner = inner if 0 < inner < radius else 0.0
-        share = sum(nova_side_share(radius, inner, boss_radius, side_scale, k * radius) for k in range(1, int(per_side) + 1))
+        share = sum(nova_side_share(radius, 0.0, boss_radius, side_scale, k * radius) for k in range(1, int(per_side) + 1))
         about_row = (f"; it's a Nova landing at the target ({at_target})"
                      + (f"; where a triggered one lands is UNVERIFIED (RESEARCH61 R61-6): around you, its side areas "
                         f"x{1 + 2 * share:.2f} (the row)" if main.triggered else ""))
         nova = False
     if nova:
-        inner = number(stats.get("AreaOfEffectRadiusSecondary")) / 10
-        inner = inner if 0 < inner < radius else 0.0
+        inner = 0.0  # (R61-3: a disc; the ring skills are BONE_CAGE_RING's above)
         shares = [sum(nova_side_share(radius, inn, boss_radius, side_scale, k * radius) for k in range(1, int(per_side) + 1))
                   for inn in (inner, 0.0)]
         line_share = sum(nova_side_share(radius, radius, boss_radius, side_scale, k * radius)
                          for k in range(1, int(per_side) + 1))
         hits, disc, thin = (1 + 2 * x for x in (shares[0], shares[1], line_share))
-        shape = (f"a ring {inner:.2f}-{radius:.2f} m (PoB's secondary radius as its inner edge, UNVERIFIED)" if inner
-                 else f"a disc of {radius:.2f} m")
+        shape = f"a disc of {radius:.2f} m"
         note = {"label": f"{main.name}: Spell Cascade's side areas on the boss*", "value": f"x{hits:.2f}",
                 "basis": (f"{main.name} is a Nova (its area centred on you), so its Cascades land on either side of you "
                           f"along a random axis, not around the boss: {shape}, side areas x{side_scale:.3f} the size "

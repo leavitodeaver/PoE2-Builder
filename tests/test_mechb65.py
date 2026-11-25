@@ -176,19 +176,16 @@ def test_fiery_death_reads_the_supported_skill_and_its_explosion_from_pob(engine
 
 
 def test_a_nova_spells_cascades_land_about_you_and_reach_the_boss_part_of_the_time():
-    """The manager's build 4 walk (an OVERCOUNT: x3 before): a Nova (Bone Cage, centred on you) cascades on a random
-    axis through you, so a side area reaches the boss only part of the time: the ring reading in the headline, a disc
-    and the outer line the rows; a targeted spell keeps the old geometry."""
-    cage = models.Skill("Bone Cage", group=2, spell=True, support_stats={models.CASCADES_PER_SIDE: 1})
+    """The manager's build 4 walk: a disc Nova centred on you cascades on a random axis through you, so a side area
+    reaches the boss only part of the time (a disc since R61-3: a secondary radius isn't an inner edge); a targeted
+    spell keeps the old geometry."""
+    nova = models.Skill("Ice Nova", group=2, spell=True, support_stats={models.CASCADES_PER_SIDE: 1})
     stats = {"AreaOfEffectRadius": 13.0, "AreaOfEffectRadiusSecondary": 7.2}
-    mods, notes = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss", nova=True)
-    share = models.nova_side_share(1.3, 0.72, 0.3, 0.8 ** 0.5, 1.3)
-    assert 0.3 < share < 0.5 and mods[0]["value"] == pytest.approx(100 * 2 * share, abs=0.01)
-    assert "Nova" in notes[0]["basis"] and "disc" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM-LOW"
+    mods, notes = models.spell_cascade_model(nova, stats, 0.3, "a 0.3 m boss", nova=True)
     disc = models.nova_side_share(1.3, 0.0, 0.3, 0.8 ** 0.5, 1.3)
-    line = models.nova_side_share(1.3, 1.3, 0.3, 0.8 ** 0.5, 1.3)
-    assert line < share < disc < 1.0
-    mods, _ = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss")  # (targeted: the boss on the target)
+    assert 0.4 < disc < 0.7 and mods[0]["value"] == pytest.approx(100 * 2 * disc, abs=0.01)
+    assert "Nova" in notes[0]["basis"] and "disc" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM-LOW"
+    mods, _ = models.spell_cascade_model(nova, stats, 0.3, "a 0.3 m boss")  # (targeted: the boss on the target)
     assert mods[0]["value"] == pytest.approx(200.0)
 
 
@@ -196,21 +193,42 @@ def test_a_nova_landing_at_the_target_keeps_the_targeted_cascade_rule():
     """THE USER, 25 Nov ~14:05 (Astral Projection): a Nova that lands at the target (its group's support stat, the
     item / passive line, Ice Nova on a Frostbolt) takes the targeted rule (x3); a triggered one shows the about-you
     reading as a row (RESEARCH61 R61-6)."""
-    stats = {"AreaOfEffectRadius": 13.0, "AreaOfEffectRadiusSecondary": 7.2}
-    cage = models.Skill("Bone Cage", group=2, spell=True, triggered=True, support_stats={models.CASCADES_PER_SIDE: 1})
-    why = models.nova_lands_at_target(cage, {models.NOVA_AT_TARGET_STAT: 1}, [], set())
+    stats = {"AreaOfEffectRadius": 13.0}
+    nova = models.Skill("Ice Nova", group=2, spell=True, triggered=True, support_stats={models.CASCADES_PER_SIDE: 1})
+    why = models.nova_lands_at_target(nova, {models.NOVA_AT_TARGET_STAT: 1}, [], set())
     assert "targeted location" in why
-    mods, notes = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss", nova=True, at_target=why)
+    mods, notes = models.spell_cascade_model(nova, stats, 0.3, "a 0.3 m boss", nova=True, at_target=why)
     assert mods[0]["value"] == pytest.approx(200.0)
-    assert "R61-6" in notes[0]["basis"] and "x1.8" in notes[0]["basis"]
-    assert models.nova_lands_at_target(cage, {}, [], set()) == ""
+    assert "R61-6" in notes[0]["basis"]
+    assert models.nova_lands_at_target(nova, {}, [], set()) == ""
     line = ["Nova Spells Cast at the targeted location instead of around you"]
-    assert models.nova_lands_at_target(cage, {}, line, set())
-    nova = models.Skill("Ice Nova", group=1, spell=True)
-    assert models.nova_lands_at_target(nova, {}, [], {"Frostbolt"}) and not models.nova_lands_at_target(nova, {}, [], set())
+    assert models.nova_lands_at_target(nova, {}, line, set())
+    assert models.nova_lands_at_target(nova, {}, [], {"Frostbolt"})
+    cage = models.Skill("Bone Cage", group=2, spell=True)
+    assert not models.nova_lands_at_target(cage, {}, [], {"Frostbolt"})
     burst = models.Skill("Voltaxic Burst", group=1, spell=True)
     named = ["Discharge and Voltaxic Burst are Cast at the targeted location instead of around you"]
     assert models.nova_lands_at_target(burst, {}, named, set()) and not models.nova_lands_at_target(cage, {}, named, set())
+
+
+def test_bone_cages_spike_rings_cross_the_boss_by_geometry():
+    """RESEARCH61 R61-3 (HIGH on the shape): Bone Cage's spikes stand on its radius; with Astral Projection the main ring
+    circles a small boss and misses it, the Cascade's two side rings cross it (x2 against PoB's one); with no Cascade
+    0; around you the main ring (you standing its radius away) plus the side rings' share; rows: around you for a
+    triggered cast, 0 if a spike must be walked into."""
+    stats = {"AreaOfEffectRadius": 13.0, "AreaOfEffectRadiusSecondary": 7.2}
+    cage = models.Skill("Bone Cage", group=2, spell=True, triggered=True, support_stats={models.CASCADES_PER_SIDE: 1})
+    mods, notes = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss", nova=True, at_target="AP")
+    assert mods[0]["value"] == pytest.approx(100.0) and notes[0]["value"] == "x2.00"
+    assert "R61-3" in notes[0]["basis"] and "x1.34" in notes[0]["basis"] and "walked into" in notes[0]["basis"]
+    alone = models.Skill("Bone Cage", group=2, spell=True)
+    mods, notes = models.spell_cascade_model(alone, stats, 0.3, "a 0.3 m boss", nova=True, at_target="AP")
+    assert mods[0]["value"] == pytest.approx(-100.0)
+    mods, notes = models.spell_cascade_model(alone, stats, 0.3, "a 0.3 m boss", nova=True)
+    assert mods == [] and notes[0]["value"] == "x1.00"
+    hits, _ = models.ring_nova_hits(1.3, 0.3, 1, 0.8 ** 0.5, False)
+    assert 1.2 < hits < 1.5
+    assert models.ring_nova_hits(1.3, 1.4, 0, 0.8 ** 0.5, True)[0] == 1.0  # (a boss bigger than the ring)
 
 
 def test_infernal_legion_ignites_only_while_the_boss_holds_half_flammability():

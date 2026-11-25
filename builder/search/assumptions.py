@@ -11636,7 +11636,8 @@ class Assumptions:
         """(MECHB65) spell_cascade_model's `nova` (the main skill's PoB type Nova) and `at_target` (why it lands at the
         target instead: models.nova_lands_at_target, its group's support stat read through activeSkills)."""
         types = set(((self.build.ctx.gems.get(main.name) or {}) if main is not None else {}).get("skillTypes") or [])
-        if main is None or "Nova" not in types or not number(main.support_stats.get(models.CASCADES_PER_SIDE)):
+        if main is None or "Nova" not in types or not (number(main.support_stats.get(models.CASCADES_PER_SIDE))
+                                                       or main.name in models.BONE_CAGE_RING):
             return {"nova": False}
         row = next((x for x in self.build.call("activeSkills", supportStats=[models.NOVA_AT_TARGET_STAT])["skills"]
                     if x["name"] == main.name and x.get("group") == main.group), {})
