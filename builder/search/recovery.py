@@ -539,6 +539,53 @@ def event_income(income: Income, stats: dict, texts: list[str], *, warcries: flo
                    f"{pct:g}% of maximum Mana a Shock x {shocks:.2f} Shocks/s (the main skill's hits x its Shock chance)")
 
 
+# Recovery on Culling (MECHC62; COV57's offence ranking row 44, example build 20's Killing Palm). Game wording
+# (gem_stat_descriptions / skill_stat_descriptions, PoB's copies of game 26650308's): "Recover {0}% of maximum Life / Mana
+# over four seconds on Culling an Enemy" (a skill's own stat: Killing Palm's quality, recover_%_maximum_mana_on_cull 0.2 a
+# quality point, PoB act_int.lua 13831) and "... when Supported Skills Cull an Enemy" (SupportLifeOnCullPlayer /
+# SupportManaOnCullPlayer, 12%); flat "active_skill_life_gained_on_cull" (Reap's level stat). Carriers (checked: every
+# Stats id holding "on_cull" with life / mana / recover, over every table of game 26650308 and PoB's Data/Skills: the two
+# supports' stat sets, Killing Palm's quality, Reap's per-level rows; life_gained_on_cull / mana_gained_on_cull only in
+# ModType, on no Mod); PoB reads none of them (no Modules or SkillStatMap entry). A Cull is a kill, so against a lone boss
+# only its adds' Culls count (bosses.kill_stats' AddCullsPerSecond, MECH-D's; the boss's own Cull ends the fight): 0 with
+# no killable adds, and nothing where the build can't Cull. Each add is Culled once, so the Culls go to the one carrier
+# that recovers most (a lower reading where two skills share the adds, MEDIUM-LOW); the "over four seconds" is a rate
+# with the same total, counted per second as the whole amount a Cull (MEDIUM).
+CULL_STATS = {"recover_%_maximum_life_on_cull": ("Life", True), "recover_%_maximum_mana_on_cull": ("Mana", True),
+              "active_skill_life_gained_on_cull": ("Life", False), "active_skill_mana_gained_on_cull": ("Mana", False)}
+
+
+def cull_income(income: Income, stats: dict, carriers: dict[str, dict], culls: float, culls_how: str,
+                can_cull: bool, why_cull: str) -> list[dict]:
+    """(MECHC62, CULL_STATS' note) Life / Mana a second from the build's on-Cull stats at the adds' Culls; `carriers`
+    {skill: {stat: value}} (its own level / quality stats and its supports' summed). Rows for the play guide."""
+    rows = []
+    for pool in ("Life", "Mana"):
+        size = _num(stats.get(pool))
+        best, who = 0.0, ""
+        for skill, found in carriers.items():
+            each = sum(_num(found.get(s)) * (size / 100 if pct else 1.0)
+                       for s, (p, pct) in CULL_STATS.items() if p == pool)
+            if each > best:
+                best, who = each, skill
+        if best <= 0:
+            continue
+        rate = culls if can_cull else 0.0
+        if rate > 0:
+            income.add(f"{pool}OnEventRecovery", best * rate,
+                       f"{pool} on Culling {best:,.0f} ({who}) x {rate:.3f} add Culls/s ({culls_how})")
+        rows.append({"label": f"{pool} recovered on Culling ({who})*",
+                     "value": f"{best * rate:,.1f} {pool} a second",
+                     "basis": (f"{best:,.0f} {pool} a Cull x " + (f"{rate:.3g} Culls/s ({culls_how}; {why_cull})"
+                                                                   if can_cull else f"0 Culls: {why_cull}")
+                               + "; a lone boss's own Cull ends the fight, so only its adds count; the four-second "
+                                 "recovery counted whole; each add Culled once, by the skill that recovers most"),
+                     "confidence": "MEDIUM (the adds' Cull rate: the boss preset's, LOW-MEDIUM)",
+                     "play": (f"Cull the boss's adds with {who} for its {pool}" if rate > 0
+                              else "")})
+    return rows
+
+
 def spent_income(income: Income, stats: dict, texts: list[str], *, endurance: tuple[float, str] = (0.0, ""),
                  power: tuple[float, str] = (0.0, ""), glory: tuple[float, str] = (0.0, ""),
                  combo: tuple[float, str] = (0.0, ""), corpses: tuple[float, str] = (0.0, ""),

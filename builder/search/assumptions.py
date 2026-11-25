@@ -7975,6 +7975,39 @@ class Assumptions:
                 True, expiry, share=below))
         return out
 
+    def cull_income(self, income, stats: dict, present: dict) -> list[dict]:
+        """(MECHC62, recovery.CULL_STATS' note) Life / Mana on Culling at the boss preset's add Culls; nothing (no bridge
+        call) without killable adds."""
+        from builder.search import bosses, recovery
+
+        culls = number(stats.get(bosses.CULLS_STAT))
+        if culls <= 0 or not present:
+            return []
+        build = self.build
+        raw = build.call("activeSkills", levelStats=sorted(present), supportStats=list(recovery.CULL_STATS))["skills"]
+        carriers: dict[str, dict] = {}
+        for s in raw:
+            if s.get("disabled") or s.get("name") not in present:
+                continue
+            found = {k: number((s.get("levelStats") or {}).get(k)) + number((s.get("supportStats") or {}).get(k))
+                     for k in recovery.CULL_STATS}
+            if any(v > 0 for v in found.values()):
+                old = carriers.get(s["name"]) or {}
+                carriers[s["name"]] = {k: max(v, number(old.get(k))) for k, v in found.items()}
+        if not carriers:
+            return []
+        mult = number(build.call("stats", fields=["CullMultiplier"]).get("CullMultiplier"))
+        gems = getattr(build.ctx, "all_gems", None) or build.ctx.gems
+        culler = next((n["name"] for g in build.groups() if g.get("enabled", True) for n in g.get("gems") or []
+                       if n.get("enabled", True) and re.search(r"\bcull", str((gems.get(n["name"]) or {})
+                                                                              .get("description") or ""), re.I)), None)
+        can_cull = mult > 1.0 or culler is not None
+        why_cull = (f"the main skill Culls (PoB's CullMultiplier x{mult:.3f})" if mult > 1.0 else
+                    f"{culler} Culls" if culler else "nothing in the build Culls (no Culling Strike)")
+        boss = stats.get("_boss") or bosses.DEFAULT
+        return recovery.cull_income(income, stats, carriers, culls, bosses.kills_per_second(boss)[1], can_cull,
+                                    why_cull)
+
     def life_mana_income(self, skills: list[dict], main: str | None) -> list[dict]:
         """Life and Mana a second from the sources PoB gives per event or not at all (recovery.py; MECHC12, the user's rule
         of 12 Nov: every recovery source counts): kills, Remnants, charms, Warcries, Heavy Stuns, Ignites and Shocks, at
@@ -8141,6 +8174,7 @@ class Assumptions:
         heavy, heavy_how = models.heavy_stun_rate(stats) if has(recovery.HEAVY_STUN_UNIQUE) else (0.0, "")
         recovery.event_income(income, stats, texts, warcries=warcries, warcry_how=warcry_how, heavy_stuns=heavy,
                               heavy_how=heavy_how, hits=hits)
+        guard_rows += self.cull_income(income, stats, present)  # (MECHC62: recovery.CULL_STATS' note)
         if any(has(p) for p in recovery.SPENT_LINES):
             recovery.spent_income(income, stats, texts, **self.spent_rates(skills, main, stats, lowered))
         if any(has(p) for p in recovery.HIT_LINES):
