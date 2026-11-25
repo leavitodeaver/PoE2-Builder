@@ -28,7 +28,7 @@ import re
 from builder.ledger import conditions
 from builder.request.constraints import PRESSED_META, PRESSED_TOTEM, presses
 from builder.search import conditions as conditions_mod, flasks as flasks_mod, models, passive_models, recovery as recovery_mod
-from builder.search.context import gem_of
+from builder.search.context import gem_of, skill_types_of
 from builder.search.conditions import (CHILL_FIELDS, INFUSED_SET, ailment_uptime, chill_share, curse_uses, natural_distance,
                                        shock_share)
 from builder.search.objective import number, per_second
@@ -1867,8 +1867,8 @@ def dark_effigy(build: Build) -> tuple[list[dict], list[dict]]:
             duration = number(row.get("duration"))
             debuffs.append((x["name"], uses * duration, f"{uses:.2f} uses/s x {duration:.2f} s"))
     hexed = any(g2.get("name") == models.DECAYING_HEX for g in groups for g2 in g.get("gems") or []
-                if any("Curse" in ((build.ctx.gems.get(s2["name"]) or {}).get("skillTypes") or []) or
-                       "AppliesCurse" in ((build.ctx.gems.get(s2["name"]) or {}).get("skillTypes") or [])
+                if any("Curse" in (skill_types_of(build.ctx, s2["name"])) or  # (SEARCH40: skill_types)
+                       "AppliesCurse" in (skill_types_of(build.ctx, s2["name"]))  # (SEARCH40: skill_types)
                        for s2 in g.get("skills") or []))
     config = build.call("getConfig")["input"]
     poisoned = bool(config.get("conditionEnemyPoisoned"))
@@ -1904,7 +1904,7 @@ def djinn_commands(build: Build, main: models.Skill | None) -> tuple[float, list
             got = build.call("minionSkillHit", index=index, active=n, skill=command.skill, statSet=stat_set)
             hits[stat_set] = got if isinstance(got, dict) else {}  # (an empty Lua table reaches Python as a list)
         rows.append((command, hits))
-    minion_main = main is not None and bool(set(build.ctx.gems.get(main.name, {}).get("skillTypes") or ()) & {"Minion"})
+    minion_main = main is not None and bool(set(skill_types_of(build.ctx, main.name)) & {"Minion"})  # (SEARCH40: skill_types)
     player = 0.0 if minion_main else per_second(build.call("stats", fields=HUNT_FIELDS))
     chilled = (getattr(build, "chilled_ground_up", None) or (0.0, ""))[0]
     from builder.search import bosses  # (as Assumptions' boss readers import it)
@@ -1944,7 +1944,7 @@ def barrage(build: Build, main: models.Skill | None, found: list[models.Skill]) 
     back to the model's factor (a DPS MORE on the main skill), from Barrage's level stats and the main skill's Speed."""
     if main is None or not main.attack:
         return [], []
-    types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+    types = set(skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
     barrage = next((s for s in found if s.name == models.BARRAGE), None)
     if barrage is None or "Barrageable" not in types:
         return [], []
@@ -2542,7 +2542,7 @@ def moonbeam(build: Build, main: models.Skill | None, stats: dict) -> tuple[floa
                   and any(s["name"] == models.MOONBEAM for s in g.get("skills") or [])), None)
     if group is None or main is None:
         return 0.0, []
-    types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+    types = set(skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
     if not models.WEREWOLF_MELEE_TYPES <= types:
         return 0.0, [{"label": "Lunar Blessing: Moonbeams*", "value": "0 DPS", "confidence": "MEDIUM-LOW",
                       "entry": models.MOONBEAM_ENTRY,
@@ -3071,7 +3071,7 @@ def natures_archon_effects(build: Build, found: list[models.Skill], texts: list[
     if not any(models.NATURES_ARCHON_GAIN.match(t.strip()) for t in texts):
         return [], []
     label = "Nature's Archon: 25% more Damage with Plant Skills*"
-    types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main is not None else set()
+    types = set(skill_types_of(build.ctx, main.name)) if main is not None else set()  # (SEARCH40: skill_types)
     if main is None or "Plant" not in types:
         return [], [{"label": label, "value": "0: the main skill isn't a Plant Skill",
                      "basis": "Nature's Archon buffs Plant Skills only (KeywordPopups NatureArchon)",
@@ -3765,7 +3765,7 @@ class Assumptions:
                           "confidence": "MEDIUM"})
         cries = []  # (MECHB51: a Warcry's Power only inside its area, kw-monster-power)
         for s_ in found:
-            kinds = set((build.ctx.gems.get(s_.name) or {}).get("skillTypes") or ())
+            kinds = set(skill_types_of(build.ctx, s_.name))  # (SEARCH40: skill_types)
             if "Warcry" in kinds and s_.group is not None and not s_.triggered:
                 spot = self.skill_spot(s_.group, s_.name)
                 sets = build.call("setRates", index=spot[0], active=spot[1])["sets"] if spot else []
@@ -3776,8 +3776,8 @@ class Assumptions:
             from builder.search import bosses as bosses_cry
 
             cry_mods, cry_notes = models.warcry_range_mods(
-                cries, (distance or 0) / 10 or conditions_mod.natural_distance(set((build.ctx.gems.get(
-                    main.name if main else "") or {}).get("skillTypes") or ()), main.name if main else ""),
+                cries, (distance or 0) / 10 or conditions_mod.natural_distance(set(skill_types_of(  # (SEARCH40: skill_types)
+                    build.ctx, main.name if main else "")), main.name if main else ""),
                 bosses_cry.hit_radius(stats)[0])
             mods, notes = mods + cry_mods, notes + cry_notes
         supports = {g["index"]: [x["name"] for x in g["gems"] if x["support"] and x.get("enabled", True)]
@@ -3853,7 +3853,7 @@ class Assumptions:
             mir_mods, mir_notes = models.mirror_of_refraction_model(
                 found, main, {**stats, **build.call("stats", fields=["ProjectileCount", "Speed"])},
                 build.call("getConfig")["input"], forbidden,
-                loop=models.mirror_loop_source(main, set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+                loop=models.mirror_loop_source(main, set(skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
                                                if main is not None else set(), (group or {}).get("gems") or []))
             stat_mods, stat_notes = stat_mods + mir_mods, stat_notes + mir_notes  # (GEM35: the loop, R47-2)
         # (MECHC43) a main skill that spends the Combo other Strikes build (Culmination / Vruun's Inevitability,
@@ -3871,7 +3871,7 @@ class Assumptions:
             build.combo_on_use = (held, why)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
-        main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()
+        main_types = set(skill_types_of(build.ctx, name)) if main is not None else set()  # (SEARCH40: skill_types)
         hand_mods, hand_notes = models.guided_hand_model(inputs, source_lines, stats, main, slam="Slam" in main_types)
         texts = [e["text"] for e in source_lines]
         # (MECHC46) Nebuloch: the main Attack Critically Hits when it spends an Endurance Charge (conditions.NEBULOCH_CRIT)
@@ -3978,7 +3978,7 @@ class Assumptions:
             seen_op = build.call("stats", fields=["PresenceRadius"])
             radius = number(seen_op.get("PresenceRadius")) / 10
             given = number(build.call("getConfig")["input"].get("enemyDistance")) / 10
-            types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main is not None else set()
+            types = set(skill_types_of(build.ctx, main.name)) if main is not None else set()  # (SEARCH40: skill_types)
             metres = given or conditions_mod.natural_distance(types, main.name if main is not None else "")
             inside = radius > 0 and metres <= radius + 1e-9
             if not inside:
@@ -4293,7 +4293,7 @@ class Assumptions:
         if any("Gemini Surge" in t for t in texts):  # (MECHB53: Double Vision's Surging Blasts at the reloads it makes)
             dv_stats = build.call("stats", fields=["FiringRate", "BoltCount", "ChanceToNotConsumeAmmo", "Speed",
                                                    "ForkCountMax", "SplitCount", "PierceCount"])
-            dv_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main is not None else set()
+            dv_types = set(skill_types_of(build.ctx, main.name)) if main is not None else set()  # (SEARCH40: skill_types)
             dv_mods, dv_notes, dv_groups = models.double_vision_model(
                 texts, dv_stats, found, main, dv_types, conditions_mod.surge_rate, forbidden)
             item_mods, item_notes, item_groups = item_mods + dv_mods, item_notes + dv_notes, item_groups | dv_groups
@@ -4646,7 +4646,7 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         unbound_mods, unbound_notes = models.unbound_model([e["text"] for e in source_lines])  # (MECHC10)
         hand_mods, hand_notes = hand_mods + unbound_mods, hand_notes + unbound_notes
-        main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
+        main_types = set(skill_types_of(build.ctx, name)) if name else set()  # (SEARCH40: skill_types)
         echo_mods, echo_notes = models.repeat_echo_model([e["text"] for e in source_lines], main_types, forbidden, main)
         hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
         parry_stun = (recovery_mod.parry_stun_of(build) if any(s.name == "Parry" for s in found)
@@ -4772,7 +4772,7 @@ class Assumptions:
                 models.AGGRAVATE_HIT, models.AGGRAVATE_CRIT, models.AGGRAVATE_OLDER, models.AGGRAVATE_EMPOWERED,
                 models.BEETLEBITE, models.PERFORATION)):
             # (MECH66: Aggravated Bleeding at the main skill's own hits, crits and Bleed duration)
-            agg_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if name else set()
+            agg_types = set(skill_types_of(build.ctx, name)) if name else set()  # (SEARCH40: skill_types)
             # (MECH104: PoB's own Aggravated bonus on, or a Bleed that takes no such extra: the model's line would multiply it)
             bleed_extra = build.call("bleedExtra")
             moving = bool(bleed_extra.get("aggravated") or bleed_extra.get("blocked"))
@@ -4813,12 +4813,12 @@ class Assumptions:
                 sum(number(mo_got.get(k)) for k in models.MOMENTUM_CHANNEL_STATS) / 1000)
             hand_mods, hand_notes = hand_mods + mo_mods, hand_notes + mo_notes
         if any(models.RUN_AND_GUN.search(t.strip()) for t in texts):  # (Run and Gun: shotgun and sequence-fired skills)
-            main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+            main_types = set(skill_types_of(build.ctx, name))  # (SEARCH40: skill_types)
             standing = bool(build.call("getConfig")["input"].get("conditionStationary"))
             gun_mods, gun_notes = models.run_and_gun_model(texts, stats, main, main_types, standing)
             hand_mods, hand_notes = hand_mods + gun_mods, hand_notes + gun_notes
         if any(models.APPARITION_LINE.match(t.strip()) for t in texts):  # (GEM29: Steward of Kulemak's Apparition)
-            app_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+            app_types = set(skill_types_of(build.ctx, name))  # (SEARCH40: skill_types)
             app_stats = {**stats, **build.call("stats", fields=conditions_mod.EVIDENCE_FIELDS)}
             app_gains, app_found = 0.0, []
             for t in texts:
@@ -4841,7 +4841,7 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + cascade_mods, hand_notes + cascade_notes
         hit_cut(build, cascade_mods, main.name if main else None)  # (MECHB54: its hits a use, models.with_hits_per_use)
         if main is not None and main.spell:  # (MECHB58: Spell Echo's Echoes as hits; Mystic Avalanche's side areas)
-            echo_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+            echo_types = set(skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
             echo_supports = set(supports.get(main.group, [])) if main.group is not None else set()
             echo_texts = [e["text"] for e in source_lines]
             echo_totem = models.cast_by_totem(found, main)
@@ -4908,7 +4908,7 @@ class Assumptions:
             hit_cut(build, cr_mods, main.name)
         if getattr(build, "channelling_share", None) is not None:  # (MECHB53: PoB's "while Channelling" lines)
             ch_share, ch_how = build.channelling_share
-            ch_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or []) if main is not None else set()
+            ch_types = set(skill_types_of(build.ctx, main.name)) if main is not None else set()  # (SEARCH40: skill_types)
             ch_on = (main is not None and "Channel" in ch_types and not main.triggered and not main.by_totem
                      and not ({"Trapped", "Mined"} & ch_types))  # (CalcPerform 378: not triggered / trap / mine / totem)
             ch_mods, ch_notes = models.channelling_lines_model([e["text"] for e in source_lines], ch_share, ch_on,
@@ -4941,7 +4941,7 @@ class Assumptions:
         # (MECHB51: R41-9; MECHB57, R49-8: any main skill, the visages' free casts of every valid Spell)
         if main is not None and any(s.name == models.ALIGN_FATE for s in found):
             def visage_can(s: models.Skill) -> bool:
-                kinds = set((build.ctx.gems.get(s.name) or {}).get("skillTypes") or ())
+                kinds = set(skill_types_of(build.ctx, s.name))  # (SEARCH40: skill_types)
                 return (s.spell and not s.triggered and not s.cooldown and s.group is not None
                         and not kinds & {"Channel", "Buff", "Cooldown"} and s.name != models.ALIGN_FATE)
             valid = sorted({s.name for s in found if visage_can(s)})
@@ -5017,7 +5017,7 @@ class Assumptions:
                 models.PRIMAL_FEATHER.match(e["text"].strip()) for e in source_lines):
             pb_stats = build.call("stats", fields=["Speed", "ProjectileCount"])
             pb_mods, pb_notes = models.primal_bounty_model(
-                main, set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ()), [e["text"] for e in source_lines],
+                main, set(skill_types_of(build.ctx, main.name)), [e["text"] for e in source_lines],  # (SEARCH40: skill_types)
                 number(pb_stats.get("Speed")), number(pb_stats.get("ProjectileCount")), forbidden)
             hand_mods, hand_notes = hand_mods + pb_mods, hand_notes + pb_notes
             hit_cut(build, pb_mods, main.name)  # (MECHB54: its hits a use, models.with_hits_per_use)
@@ -5135,12 +5135,12 @@ class Assumptions:
                                                            "PierceCount", "ChainMax"]), **models.dazed_stats(build)}
                 if getattr(getattr(build.ctx, "request", None), "boss", None):
                     mov_stats["_boss"] = build.ctx.request.boss
-                area = "Area" in ((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
+                area = "Area" in (skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
                 full = models.number(mov_stats.get("FullDPS"))  # (the fight, as the other fight readers)
                 mov_fight = conditions_mod.boss_pool(bosses.of(mov_stats).name) / full if full > 0 else None
                 # (MECH103, R52-3: reach by the main skill's area radius / pierce / chain; the visage's own Life, a
                 # normal monster's at the boss's level)
-                mov_types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
+                mov_types = set(skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
                 mov_passes = "Projectile" in mov_types and (models.number(mov_stats.get("PierceCount")) > 0
                                                              or models.number(mov_stats.get("ChainMax")) > 0)
                 mov_mods, mov_notes = models.moment_of_vulnerability_model(
@@ -5148,7 +5148,7 @@ class Assumptions:
                     radius=models.number(mov_stats.get("AreaOfEffectRadius")) / 10, passes=mov_passes,
                     life=models.pob_monster_life(enemy_level(build)))
                 hand_mods, hand_notes = hand_mods + mov_mods, hand_notes + mov_notes
-        warcries ={s.name for s in found if "Warcry" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
+        warcries ={s.name for s in found if "Warcry" in (skill_types_of(build.ctx, s.name))}  # (SEARCH40: skill_types)
         if warcries:  # (MECH-B: Echoing Cry's Echoes; COV-E's support_part_scale "warcry_echo")
             echo_mods, echo_notes = models.warcry_echo_model(found, supports, warcries, models.support_part_scale)
             hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
@@ -5179,14 +5179,14 @@ class Assumptions:
                 power_mods, power_notes = models.echoing_power_model(echoed, {r["name"]: r for r in rows},
                                                                      models.number(stats.get("Speed")))  # (R33-13)
                 hand_mods, hand_notes = hand_mods + power_mods, hand_notes + power_notes
-        persistent = {s.name for s in found if "Persistent" in ((build.ctx.gems.get(s.name) or {}).get("skillTypes") or [])}
+        persistent = {s.name for s in found if "Persistent" in (skill_types_of(build.ctx, s.name))}  # (SEARCH40: skill_types)
         diff_mods, diff_notes = models.different_skills_counts(found, main, persistent)  # (MECH-B: different skills per 8 s)
         hand_mods, hand_notes = hand_mods + diff_mods, hand_notes + diff_notes
         cascade_mods, cascade_notes = models.different_spells_cast_speed(  # (MECHB44: Casting Cascade / Effervescent)
             [e["text"] for e in source_lines], found, main, persistent)
         hand_mods, hand_notes = hand_mods + cascade_mods, hand_notes + cascade_notes
         ammo_mods, ammo_notes = models.ammo_grenade_counts(  # (MECHB43: Full Salvo / Demolitionist, PoB 0)
-            found, main, persistent, lambda name: (build.ctx.gems.get(name) or {}).get("skillTypes"),
+            found, main, persistent, lambda name: skill_types_of(build.ctx, name),  # (SEARCH40: skill_types)
             [e["text"] for e in source_lines])
         hand_mods, hand_notes = hand_mods + ammo_mods, hand_notes + ammo_notes
         if main is not None and main.name == models.RAPID_SHOT:  # (MECH-B: Rapid Shot's Heat lockout)
@@ -5964,12 +5964,12 @@ class Assumptions:
         rhythm_texts = [e["text"] for e in source_lines if models.RHYTHM_EVERY.search(e["text"].strip())
                         or models.FERVOUR_LINE.search(e["text"])]
         if rhythm_texts and main is not None and group and "Grenade" in (
-                (build.ctx.gems.get(main.name) or {}).get("skillTypes") or []):  # (MECHB47: Trarthan Cannon's cycle)
+                skill_types_of(build.ctx, main.name)):  # (MECHB47: Trarthan Cannon's cycle); (SEARCH40: skill_types)
             row = (build.call("useRates", indices=[group["index"]])["rates"] or [{}])[0]
             info = next((s for s in skills if s["name"] == main.name and s.get("group") == group["index"]), {})
             grenades = len({n["name"] for g in build.groups() if g.get("enabled") is not False for n in g["gems"]
                             if n.get("enabled", True) and not n.get("support")
-                            and "Grenade" in ((build.ctx.gems.get(n["name"]) or {}).get("skillTypes") or [])})
+                            and "Grenade" in (skill_types_of(build.ctx, n["name"]))})  # (SEARCH40: skill_types)
             rhythm_mods, rhythm_notes = models.explosive_rhythm_model(
                 main, rhythm_texts, row, number(info.get("cooldownRecovery")) or 1.0,
                 number(build.call("stats", fields=["ProjectileCount"]).get("ProjectileCount")), grenades, forbidden)
@@ -6267,7 +6267,7 @@ class Assumptions:
         stats = {**build.call("stats", fields=["MovementSpeedMod"]),
                  "_boss": getattr(getattr(build.ctx, "request", None), "boss", None)}
         name = next((str(r.get("name")) for r in rates if r["index"] == main), "")
-        types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+        types = set(skill_types_of(build.ctx, name))  # (SEARCH40: skill_types)
         metres = models.number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or natural_distance(types, name)
         from builder.search import bosses
         return models.orb_stand_share(models.dodge_roll(texts, stats), metres, bosses.moving_ceiling(stats))
@@ -6291,14 +6291,14 @@ class Assumptions:
         rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
         for r in rates:  # (MECHB47: a Warcry's PoB Speed counts the action speed twice, so press_use_rate's ceiling for
             # it is its castRate, 1 / WarcryCastTime: probe POE2T4710)
-            if "Warcry" in ((build.ctx.gems.get(str(r.get("name"))) or {}).get("skillTypes") or []):
+            if "Warcry" in skill_types_of(build.ctx, str(r.get("name"))):  # (SEARCH40: skill_types)
                 r["warcry"] = True
         # (MECHB29, probe POE2T1148) a curse's group in Full DPS (for its Doom Blast, Witchtoads or Annihilation) whose
         # rated skill is the curse: curse_model already charges its casts (and annihilation_model the extra ones), so
         # press_model doesn't charge them again. Before, it did: Despair once per duration (a double charge, an
         # UNDERCOUNT), and under Hayoxi's Fulmination's 2 s cooldown at 0.5 casts/s of 2 s each: the main skill at 0
         curses = {r["index"] for r in rates if r["index"] != main
-                  and "AppliesCurse" in ((build.ctx.gems.get(str(r.get("name"))) or {}).get("skillTypes") or [])}
+                  and "AppliesCurse" in skill_types_of(build.ctx, str(r.get("name")))}  # (SEARCH40: skill_types)
         # (MECH94, an UNDERCOUNT: a Mark's group in Full DPS (for Bloodhound's Mark's Blood Explosion) was charged as a
         # skill pressed nonstop, 1.03 casts/s of 0.97 s beside Boneshatter, leaving it 0% of the fight (probe POE2T5070);
         # mark_model already charges the Mark's casts (mark_use: recast once consumed or run out), as curse_model does
@@ -7819,7 +7819,7 @@ class Assumptions:
             light_amt, heavy_amt = per_stun * strength / 10, (heavy + per_stun) * strength / 10
             if vanguard:
                 hrate, hhow = models.heavy_stun_rate(stats)
-                main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
+                main_types = set(skill_types_of(build.ctx, main)) if main else set()  # (SEARCH40: skill_types)
                 lrate, lhow = models.light_stun_rate(stats, "Melee" in main_types)
             else:
                 hrate = lrate = 0.0
@@ -8147,7 +8147,7 @@ class Assumptions:
                                                   number(seen.get("DeflectEffect"))):
                 guard_rows.append(row)
         recovery.regen_burst_income(income, texts, number(stats.get("LifeRegen")))  # (MECHC47: Igniferis)
-        spell = main is not None and "Spell" in ((build.ctx.gems.get(main) or {}).get("skillTypes") or [])
+        spell = main is not None and "Spell" in (skill_types_of(build.ctx, main))  # (SEARCH40: skill_types)
         recovery.life_sacrifice_income(income, texts, number(stats.get("Life")), 1 / models.DODGE_EVERY,  # (MECHC41)
                                        number(stats.get("Speed")) * main_share if spell else 0.0,  # (MECHC47: Stitcher)
                                        f"{main}'s casts at its {main_share:.0%} share of the fight" if spell else
@@ -8170,7 +8170,7 @@ class Assumptions:
                 self.full_guard_mods = whole
         warcries, warcry_how = 0.0, ""
         if has(recovery.WARCRY_BOTH) or has(recovery.WARCRY_LIFE):
-            main_types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
+            main_types = set(skill_types_of(build.ctx, main)) if main else set()  # (SEARCH40: skill_types)
             events = conditions_mod.event_rates(
                 build.call("groups")["groups"], build.ctx.gems, main or "", main_types,
                 number(stats.get("Speed")) * main_share,  # (MECHC45: the main skill at its share of the fight)
@@ -8207,7 +8207,7 @@ class Assumptions:
                          if s["name"] == recovery.TIME_OF_NEED and not s.get("disabled")), {})
             recovery.time_of_need_income(income, need.get("levelStats") or {}, number(need.get("cooldownRecovery")) or 1.0)
         if has(recovery.SACRIFICE_ES):  # (MECHC27) Eldritch Empowerment's ES sacrificed per Spell cast
-            spell = main and "Spell" in set((build.ctx.gems.get(main) or {}).get("skillTypes") or [])
+            spell = main and "Spell" in set(skill_types_of(build.ctx, main))  # (SEARCH40: skill_types)
             casts = number(stats.get("Speed")) if spell else 0.0
             recovery.sacrifice_income(income, texts, casts, number(stats.get("EnergyShield")),
                                       f"{casts:.2f} casts/s of {main}" if spell else "the main skill isn't a Spell (0)")
@@ -8777,7 +8777,7 @@ class Assumptions:
         # (a "when hit" benefit: the benefit pace, the hit's size as scored; MECHC20: the worst case reads the lowest real
         # boss's landed hits, boss_hits.gain_hits, A29-1's rule for gains)
         landed = boss_hits.gain_hits(hit)[0]
-        types = set((build.ctx.gems.get(main) or {}).get("skillTypes") or []) if main else set()
+        types = set(skill_types_of(build.ctx, main)) if main else set()  # (SEARCH40: skill_types)
         casts = number(hit.get("Speed")) if "Spell" in types else 0.0
         how = (f"{main}'s casts; other Spells' casts not counted (LOW)" if casts > 0
                else "the main skill isn't a Spell (other Spells' casts not counted: LOW)")
@@ -8904,7 +8904,7 @@ class Assumptions:
         def typed_uses(types: set[str]) -> tuple[float, list[str]]:
             found = {g["index"]: n["name"] for g in groups for n in g.get("gems") or []
                      if n.get("enabled", True) and not n.get("support")
-                     and types & set((build.ctx.gems.get(n["name"]) or {}).get("skillTypes") or [])}
+                     and types & set(skill_types_of(build.ctx, n["name"]))}  # (SEARCH40: skill_types)
             total, parts = 0.0, []
             if main in found.values():
                 total, parts = speed, [f"the main skill {main}, {speed:.2f}/s"]
@@ -10664,7 +10664,7 @@ class Assumptions:
         per_use = getattr(build, "main_hits_per_use", None)
         hits = models.hits_per_second(stats) * share * (number(per_use) if per_use is not None else 1.0)
         crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
-        area = "Area" in ((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
+        area = "Area" in (skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
         read = build.call("stats", fields=["AverageHit", "MainHandAverageHit"])
         hit = number(read.get("AverageHit")) or number(read.get("MainHandAverageHit"))
         group = build.main_group()
@@ -10997,7 +10997,7 @@ class Assumptions:
         up = min(1.0, number(spent) * seconds * scale) if most >= 1 else 0.0
         config = build.call("getConfig")["input"]
         held = number(config.get("overridePowerCharges")) if config.get("usePowerCharges") else 0.0
-        types = set((build.ctx.gems.get(main.name) or {}).get("skillTypes") or [])
+        types = set(skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
         typed = bool(types & PINNACLE_TYPES)
         mods = []
         if typed and held > 0:  # (PoB's held-count buff, all Damage of a typed skill, taken back)
@@ -11298,7 +11298,7 @@ class Assumptions:
         per_use = getattr(build, "main_hits_per_use", None)
         hits = models.hits_per_second(stats) * share * (number(per_use) if per_use is not None else 1.0)
         crit = min(max(number(stats.get("CritChance")), 0.0), 100.0) / 100
-        area = "Area" in ((build.ctx.gems.get(main.name) or {}).get("skillTypes") or ())
+        area = "Area" in (skill_types_of(build.ctx, main.name))  # (SEARCH40: skill_types)
         read = build.call("stats", fields=["AverageHit", "MainHandAverageHit"])
         hit = number(read.get("AverageHit")) or number(read.get("MainHandAverageHit"))
         group = build.main_group()

@@ -98,3 +98,26 @@ def test_one_life_left_or_no_field_is_no_limit():
     assert reservation_short({"Life": 3000, "LifeUnreserved": 1}) == []
     assert reservation_short({"Life": 3000}) == []  # (a stand-in or a what-if without the field)
     assert limits({"Life": 3000, "LifeUnreserved": 2000, "Mana": 100, "ManaUnreserved": 10}) == []
+
+
+def test_a_bear_builds_skills_have_their_types():
+    """(Fix 3; GEM39) Maul and Molten Crash: PoB marks them fromItem, so Context.gems leaves them out; their types come
+    from any_gems now, so a reader keyed on Bear / Slam / Area sees them (before: [])."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload, skill_types_of
+
+    ctx = Context(make_payload(BuildRequest(main_skill="Spark")))
+    assert "Maul" not in ctx.gems and "Molten Crash" not in ctx.gems
+    assert {"Bear", "Attack", "Area", "Melee"} <= set(ctx.skill_types("Maul"))
+    assert {"Bear", "Slam", "ConsumesRage"} <= set(ctx.skill_types("Molten Crash"))
+    assert "Spell" in ctx.skill_types("Spark") and ctx.skill_types(None) == [] and ctx.skill_types("No Such Skill") == []
+    stand_in = SimpleNamespace(gems={"Spark": {"skillTypes": ["Spell"]}})  # (a test's stand-in context: gems only)
+    assert skill_types_of(stand_in, "Spark") == ["Spell"] and skill_types_of(stand_in, "Maul") == []
+
+
+def test_no_assumption_reads_a_skills_types_from_the_socketable_gems_alone():
+    import re
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[1] / "builder" / "search" / "assumptions.py").read_text(encoding="utf-8")
+    assert not re.search(r'build\.ctx\.gems\.get\((?:[^()]|\([^()]*\))*\)(?: or \{\}\))?\.get\("skillTypes"', text)

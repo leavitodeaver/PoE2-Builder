@@ -338,6 +338,19 @@ def gem_of(ctx, name: str | None, skill_id: str | None = None) -> dict:
     by_name = getattr(ctx, "all_gems", None) or {}
     return (skill_id and by_id.get(skill_id)) or (name and by_name.get(name)) or {}
 
+
+def skill_types_of(ctx, name: str | None) -> list[str]:
+    """(SEARCH40, the manager's 24 Nov 17:01 fix 3) A skill's types by name: the socketable gems (ctx.gems) first, then
+    every gem PoB knows (ctx.any_gems: also skills a form, item or passive grants). Types aren't a socketing question:
+    before, readers of ctx.gems' skillTypes got [] for Maul and Molten Crash (PoB marks them fromItem, so Context.gems
+    leaves them out; GEM39), and anything keyed on a Bear skill's types missed them. For any context-like object (a
+    test's stand-in may carry gems only)."""
+    if not name:
+        return []
+    gem = (getattr(ctx, "gems", None) or {}).get(name) or (getattr(ctx, "any_gems", None) or {}).get(name) or {}
+    return list(gem.get("skillTypes") or [])
+
+
 class Context:
     def __init__(self, payload: dict) -> None:
         self.payload = payload
@@ -454,6 +467,10 @@ class Context:
         """The gem of a skill: by its granted effect id when the caller has it (a group's gem, an active skill: the
         bridge's skillId), else by name (all_gems); {} when neither finds one."""
         return gem_of(self, name, skill_id)
+
+    def skill_types(self, name: str | None) -> list[str]:
+        """A skill's types: ctx.gems, then ctx.any_gems (skill_types_of; SEARCH40)."""
+        return skill_types_of(self, name)
 
     @cached_property
     def granted_by(self) -> dict[str, list[tuple[str, str, str | None]]]:
