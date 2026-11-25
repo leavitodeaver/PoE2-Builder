@@ -5797,6 +5797,15 @@ class Assumptions:
                 support_stats["_main_share"] = main_time_share(build, main)
             support_mods, support_notes, preview_added = preview_supports.support_model(build, main, support_stats)
             hand_mods, hand_notes = hand_mods + support_mods, hand_notes + support_notes
+            from builder.preview import skills as preview_skills  # (PREVIEW4: Earthrend, Blade of Night, Shade dashes)
+
+            skill_stats = {**build.call("stats", fields=list(dict.fromkeys([*models.MODEL_FIELDS, *preview_skills.FIELDS]))),
+                           "_boss": getattr(build.ctx.request, "boss", None)}
+            if getattr(build, "objective", None) is not None:
+                skill_stats["_main_share"] = main_time_share(build, main)
+            skill_mods, skill_notes, skill_added = preview_skills.skill_model(build, main, skill_stats)
+            hand_mods, hand_notes = hand_mods + skill_mods, hand_notes + skill_notes
+            preview_added += skill_added
         if agony_rate > 0:  # (a press: the button cap counts it, as Bastion of Light's taps: models.ITEM_PRESSES)
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
@@ -5809,7 +5818,7 @@ class Assumptions:
                                    "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil,
                                    "Ignited Ground's Ignite": burn, "Djinn Commands": djinn,
                                    "Meteors (side group)": side_meteors,
-                                   "1.0 preview supports*": preview_added,
+                                   "1.0 preview supports and skills*": preview_added,
                                    # (GEM21: Gas Arrow's cloud Poison beside its Arrow / Explosion set, gas_arrow_model)
                                    "Gas Arrow's cloud Poison": sum(number(m.get("value")) / 100 for m in hand_mods
                                                                    if m.get("name") == "AddedGasArrowCloud")})

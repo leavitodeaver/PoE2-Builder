@@ -488,7 +488,7 @@ ALLOWED = {
     "Sandstorm": ({"Sand Scour", "Perforate"}, {"Viper Strike", "Worldcutter", "Boneshatter"}),
     "Volatile Shades": ({"Shroud", "Shadow Assault"}, {"Viper Strike", "Ethereal Knives", "Boneshatter"}),
     "Abundant Remnants I": ({"Frost Bomb"}, {"Viper Strike", "Shroud", "Boneshatter"}),
-    "Galvanising Blades": (set(), {"Charged Slash", "Viper Strike", "Sand Scour", "Boneshatter", "Perforate"}),
+    "Galvanising Blades": ({"Earthrend"}, {"Charged Slash", "Viper Strike", "Sand Scour", "Boneshatter", "Perforate"}),
 }
 
 
@@ -565,3 +565,58 @@ def test_the_knights_nodes_are_held_ready_with_their_source(engine):
     texts = [t for n in nodes for t in n.get("pob_text") or []]
     parsed = engine.call("parseLines", lines=texts)["results"]
     assert all(r["supported"] for r in parsed), [r["line"] for r in parsed if not r["supported"]]
+
+
+def test_the_shade_dash_cadence():
+    from builder.preview.skills import shade_dashes
+
+    assert shade_dashes(3.0) == (1.0, 3) and shade_dashes(0.3)[1] == 1 and shade_dashes(0.0) == (0.0, 0)
+
+
+def test_earthrend_blade_of_night_shadow_assault_and_galvanising(engine):
+    from types import SimpleNamespace
+
+    from builder.preview.skills import FIELDS, skill_model
+    from builder.preview.supports import FIELDS as SUPPORT_FIELDS, support_model
+    from builder.search import models
+
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    gems = {g["name"]: g for g in preview.gems()}
+
+    class Build:
+        ctx = SimpleNamespace(gems=gems, request=BuildRequest(preview_1_0=True))
+        objective = None
+        call = staticmethod(engine.call)
+
+    fields = list(dict.fromkeys([*models.MODEL_FIELDS, *FIELDS, *SUPPORT_FIELDS, "TotalDPS"]))
+    # Earthrend on a sword: its eruption a second hit a use; Galvanising Blades from its own Blades
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[], raw=SWORD)
+    engine.call("addSkillGroup", text="Earthrend 13/0 1\nGalvanising Blades 1/0 1", main=True)
+    stats = engine.call("stats", fields=fields)
+    assert stats["TotalDPS"] > 0
+    mods, notes, added = skill_model(Build(), SimpleNamespace(name="Earthrend"), stats)
+    assert mods[0]["value"] == pytest.approx(100) and added == 0 and preview.ASTERISK in notes[0]["label"]
+    mods, notes, _ = support_model(Build(), SimpleNamespace(name="Earthrend"), stats)
+    galv = next(n for n in notes if n["label"].startswith("Galvanising"))
+    assert galv["value"] == pytest.approx(3 * min(5, stats["Speed"] * 8)) and galv["value"] > 0
+    # Blade of Night on a dagger: Engulf explodes at the build's own Immobilises (never a flat rate)
+    engine.call("equip", slot="Weapon 1", fields=[], raw=DAGGER)
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[], raw=DAGGER)
+    engine.call("addSkillGroup", text="Blade of Night 13/0 1", main=True)
+    one = engine.call("stats", fields=fields)
+    _, notes, added = skill_model(Build(), SimpleNamespace(name="Blade of Night"), one)
+    rate, _ = models.immobilise_rate(one, {"freeze", "electrocute", "pin", "stun"})
+    hit = one.get("AverageHit") or one["MainHand.AverageHit"]
+    assert added == pytest.approx(rate * hit * 94 / 144) and "Immobilise" in notes[0]["basis"]
+    engine.call("equip", slot="Weapon 2", fields=[], raw=DAGGER)
+    two = engine.call("stats", fields=["Speed"])
+    assert two["Speed"] > one["Speed"]  # (30% more attack speed while dual wielding)
+    # Shadow Assault: a Final Strike every third use sends the Shades through the boss
+    engine.call("addSkillGroup", text="Shadow Assault 13/0 1", main=True)
+    sa = engine.call("stats", fields=fields)
+    _, notes, added = skill_model(Build(), SimpleNamespace(name="Shadow Assault"), sa)
+    assert added > 0 and "Final Strike" in notes[0]["basis"]

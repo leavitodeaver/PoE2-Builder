@@ -31,12 +31,13 @@ OVERCHANNEL_MORE = 15.0
 SWORDS = {"Impaling Blade II": (343.0, True), "Rending Blade": (143.0, False)}  # (Attack Damage %, Impales)
 SWORD_COOLDOWN = 5.0
 VOLATILE = "Volatile Shades"
+GALVANISING, GALVANISING_MORE, GALVANISING_MAX = "Galvanising Blades", 3.0, 5.0
+BLADE_SECONDS, BLADE_LIMIT = 8.0, 10.0  # (Earthrend's Buried Blades)
 VOLATILE_PCT = 125.0
 SHADE_MAKERS = {"Shroud": 94.0}  # (the Shade makers whose Shades are modelled, by their own Attack Damage %)
 NOTE_ONLY = {
     "Sandstorm": "it boosts only Sand Disks, which count 0 until 1.0 publishes when a Stance part fires (readings.py's "
                  "stance rows); its 'less Physical' number isn't shown: 0",
-    "Galvanising Blades": "no modelled skill creates Buried Blades yet (Earthrend isn't in the preview rows): 0",
     "Abundant Remnants I": "its 25% chance of an additional Remnant is counted by the build's Remnant models from its "
                            "text (the bridge's sourceLines gives each enabled gem's description; assumptions."
                            "remnant_multiplier reads 'N% chance to create an additional Remnant'), on every Remnant the "
@@ -191,6 +192,34 @@ def support_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[
                                 f"against {makers[0]}'s {SHADE_MAKERS[makers[0]]:g}%: {hit:,.0f} a blast, within its 1.6 m of "
                                 f"the boss (LOW). Row: 0 if an expiring Shade doesn't explode{ASTERISK}"),
                       "play": f"Use {makers[0]} next to the boss so its Shade's blast reaches it{ASTERISK}"})
+    # Galvanising Blades: Earthrend's Buried Blades near you, 3% more melee weapon damage each, up to 5
+    for group in groups:
+        names = supports(group)
+        if GALVANISING not in names:
+            continue
+        label = f"Galvanising Blades{ASTERISK}"
+        if "Earthrend" not in names:
+            notes.append({"label": label, "value": 0, "confidence": "LOW",
+                          "basis": "its skill isn't Earthrend, the one preview skill modelled as making Buried Blades: 0"
+                                   + ASTERISK})
+            continue
+        if group is main_group:
+            rate, how = uses, f"{main.name}'s own uses"
+        else:
+            row = next(iter(build.call("useRates", indices=[group["index"]])["rates"]), None)
+            rate, how, _ = (conditions.skill_use_rate(row, models.press_choices(build)) if row
+                            else (0.0, "no rate read", True))
+        blades = min(BLADE_LIMIT, rate * BLADE_SECONDS, GALVANISING_MAX)
+        melee = "Melee" in main_types and "Attack" in main_types
+        more = GALVANISING_MORE * blades if melee else 0.0
+        if more > 0:
+            mods.append(models.line("1% more Damage", more, skill=main.name))
+        notes.append({"label": label, "value": round(more, 2), "confidence": "LOW",
+                      "basis": (f"Earthrend makes a Buried Blade a use ({rate:.2f}/s: {how}), each lasting 8 s (Limit 10): "
+                                f"{blades:.2f} alive, up to 5 counted, each 3% more damage with Melee weapons, all taken "
+                                f"within 2 m of you (LOW)"
+                                + ("" if melee else f"; {main.name} isn't a melee weapon attack: 0") + ASTERISK),
+                      "play": f"Fight standing on your Buried Blades (within 2 m){ASTERISK}"})
     for name, why in NOTE_ONLY.items():
         if any(name in supports(g) for g in groups):
             notes.append({"label": f"{name}{ASTERISK}", "value": 0, "confidence": "LOW", "basis": why + ASTERISK})
