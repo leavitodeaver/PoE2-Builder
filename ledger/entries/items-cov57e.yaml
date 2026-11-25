@@ -1,0 +1,37 @@
+# COV57 turn 6 (25 Nov 2026; COV43's rule): TRAIN 145's readers (59f7aabb..57d363ed, origin/main 57d363ed; MECHC61's list),
+# each checked against the code that names it. Links only: each adds nothing to PoB. One entry per stat: GEM42's 4af017d6
+# (TRAIN 146) drops ghost_dance_max_stacks from model-gem41-ghost-dance-repeat, so MECHC61's reader owns it here.
+# Checked, no new mark: Armour Break III's Endurance chance (items-cov57b); Harmonic Remnants II's chance on Wildwood's Gifts'
+# Blooms (flasks.bloom_remnants; the stat's support row is items-cov57d's). LEFT OPEN: Pyromantic Pact's "Maximum Mana is
+# replaced by twice as much Maximum Infernal Flame": models.flame_pause_share uses 2 x maximum Mana, but only for the play
+# guide's managed-bar row (FLAME_MANAGED False, not the headline), and nothing reads the line itself, so it reaches no
+# score (MECHC61 called it read; my reading differs: for the manager). Killing Palm's Power Charges by culled rarity: a lone
+# boss gains none (adds' rarity in the presets UNVERIFIED, MECH-D's).
+
+- id: model-read-cov57e-enraged-warcry-rage-bypass
+  title: "Enraged Warcry I / II: supported Warcries spend 20 / 15 Rage to bypass their Cooldown (conditions.ENRAGED_WARCRY_RAGE, MECHC61)"
+  kind: model
+  model: rage
+  stats: ["warcry_bypass_cooldown_spending_X_rage_instead_of_endurance_charge"]
+  skill: [Enraged Warcry I, Enraged Warcry II]
+  confidence: MEDIUM-LOW
+  notes: >-
+    20 / 15 at every level (SupportEnragedWarcryPlayer / PlayerTwo) = ENRAGED_WARCRY_RAGE. The supported warcry spends
+    the Rage that would be wasted at the maximum (rage_at_max's surplus): extra uses e = min(surplus / X, its cap), the
+    Rage held falling as a sawtooth, and its Endurance bypass turned off ("instead of"). MEDIUM-LOW is the model's. A link
+    only.
+  sources: ["builder/search/conditions.py (ENRAGED_WARCRY_RAGE, BYPASS_RAGE_SUPPORTS, the bypass / Rage paths)"]
+  status: proposed
+
+- id: model-read-cov57e-ghost-dance-stock
+  title: "Ghost Dance holds at most 3 Shrouds (recovery.GHOST_STOCK, MECHC61)"
+  kind: model
+  model: ghost_dance
+  stats: ["ghost_dance_max_stacks"]
+  skill: [Ghost Dance]
+  confidence: MEDIUM
+  notes: >-
+    3 at every level (GhostDancePlayer) = GHOST_STOCK: ghost_dance_share simulates the boss's landed hits against a
+    Shroud every interval with up to 3 held (the share of time a Shroud was lost recently). A link only.
+  sources: ["builder/search/recovery.py (GHOST_STOCK, ghost_dance_share)"]
+  status: proposed
