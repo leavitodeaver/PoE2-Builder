@@ -7365,9 +7365,10 @@ def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None
     small_hit, large_hit = rows[small][1], rows[large][1]
     active = small_hit * rate * (METEOR_EVERY - 1) / METEOR_EVERY + large_hit * rate / METEOR_EVERY
     buff = METEOR_BUFF.get(main.name, "The Stars Answer")
-    if uptime is not None and uptime <= 0:  # (no Glory source counted: Walking Calamity's own, Rage gained at maximum
-        # Rage, is one glory_plan doesn't count (its comment: an undercount, labelled), so 0 isn't a verified zero
-        # (CLAUDE.md): PoB's number is left as it is, the rate change waits on that uptime, said in the note)
+    if uptime is not None and uptime <= 0:  # (no Glory counted: glory_plan reads the build's sources, Walking
+        # Calamity's own Rage gained at maximum Rage included since MECHC59 (models.GLORY_FROM_RAGE, R58-5, MEDIUM-LOW);
+        # 0 means none of them reaches it in this build, still not a verified zero of the skill (CLAUDE.md): PoB's
+        # number is left as it is, said in the note)
         return [], [{"label": f"{main.name}: the game's meteor rate not applied yet*", "value": "PoB's kept",
                      "confidence": "LOW", "entry": METEOR_ENTRY,
                      "basis": (f"while {buff} is up its meteors would give {active:,.0f} DPS ({rate:.2f} a second, 1 in "
@@ -7405,7 +7406,8 @@ def meteor_rate_model(main: Skill | None, sets: list[dict], uptime: float | None
 # is ember_fusillade_damage_+%_final_per_ember_fired) and TheStarsAnswerPlayer has none (checked: their stat sets and
 # quality rows). Its uptime: uses a second from the build's Glory (models.glory_plan through Assumptions.glory_caps) x
 # the build's Skill Effect Duration; no Glory source counted reads 0, with a note (Walking Calamity's own source, Rage
-# gained at maximum Rage, is MECH-C's: an UNDERCOUNT until it lands). Which hits it covers isn't spelled out: the
+# gained at maximum Rage, is counted by glory_plan since MECHC59: models.GLORY_FROM_RAGE, 1 Glory a Rage point, R58-5,
+# MEDIUM-LOW). Which hits it covers isn't spelled out: the
 # headline is the lower reading, the main skill's own Bear-form hits only, and not the meteors or other skills; the wider
 # reading (the meteors too) is a row. A BASE gain of gain x uptime is exactly the time-weighted hit (linear in the gain).
 # Off outside Bear form: a main skill without the game's Bear type gets nothing.
@@ -7440,7 +7442,7 @@ def walking_calamity_buff_model(main: Skill | None, main_types: set[str], gain: 
                      "their damage gained as Fire" if meteors else
                      f"the headline counts {main.name}'s own hits, +{gain * up:.1f}% gained as Fire on average; the "
                      "meteors and other skills are the wider reading, not counted")
-                  + ("; no Glory source counted, so 0 (its own, Rage gained at maximum Rage, isn't counted yet)"
+                  + ("; no Glory source counted in this build (its own, Rage gained at maximum Rage, included), so 0"
                      if up <= 0 else "")),
         "play": (f"Stay in Bear form while {WALKING_CALAMITY} is up: {gain:g}% of damage gained as Fire. This build: up "
                  f"{up:.0%} of the fight; without it: no gain.")}]
