@@ -995,9 +995,10 @@ def test_rage_held_from_gains_spends_and_its_decay():
     # (MECHC5; before, the maximum 30 from 3 Rage per 10 s); held 2.97, truncated as PoB's Rage multiplier is
     assert rage_held(["Gain 3 Rage on Hit with Attacks, no more than once every 10 seconds"],
                      {**melee, "EvadeChance": 0})[0] == 2
-    # Spenders: Molten Crash at 3 uses/s spends 30/s, more than the 2/s gained
+    # Spenders: Molten Crash at 3 uses/s asks 30/s, more than the 2/s gained; it spends 10 only while 10 are there, so
+    # Rage climbs to 10 and drops (MECHC60: conditions.rage_sawtooth; was 0, "spent as fast as it comes", now the row)
     spent = rage_held(["Gain 1 Rage on Melee Hit"], {**melee, "_rage_spend": {"Molten Crash": 30.0}})
-    assert spent[0] == 0 and "Molten Crash" in spent[1]
+    assert spent[0] == 5 and "Molten Crash" in spent[1] and "row, spent as fast as it comes" in spent[1]
     # A channelled spender as the main skill gains nothing from its own hits; the boss's hits still give Rage
     channel = {**melee, "_main_channel_rage": True, "EvadeChance": 0}
     assert rage_held(["Gain 1 Rage on Melee Hit"], channel)[0] == 0

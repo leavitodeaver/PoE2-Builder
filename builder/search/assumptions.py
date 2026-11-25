@@ -1009,6 +1009,9 @@ REMNANT_CONSUMERS = {"Transmutation Explosion"}
 # Soul Core (an item line, text)). It adds to the global chance for the supported skill's Remnants only:
 # (1 + g + s) / (1 + g) on that source's rate, where g is the text lines' chance (remnant_multiplier applies 1 + g).
 EXTRA_REMNANT_STAT = "chance_%_to_create_additional_remnant"
+# Rageforged I / II's support_rageforged_enraged_damage_+%_final (35 at every level: a constant stat, GrantedEffectStatSets
+# SupportRageforgedPlayer / PlayerTwo, game 26650308) (MECHC60: Assumptions.rageforged)
+RAGEFORGED_MORE = {"Rageforged I": 35.0, "Rageforged II": 35.0}
 # Into the Breach's flame cadence from its own level (breach_flame_spawn_rate_ms: 1400 ms at level 1 down to 1060 at
 # 40, IntoTheBreachPlayer's GrantedEffectStatSetsPerLevel); REMNANT_SOURCES' 1210 is level 20's, the fallback.
 BREACH_RATE_STAT = "breach_flame_spawn_rate_ms"
@@ -7268,6 +7271,9 @@ class Assumptions:
         purple_mods, purple_notes = self.purple_flames(skills)  # (MECH-C: Into the Breach's Purple Flame stacks, MECHC26)
         mods += purple_mods
         notes += purple_notes
+        forged_mods, forged_notes = self.rageforged(main)  # (MECH-C: Rageforged's more damage on the uses it pays, MECHC60)
+        mods += forged_mods
+        notes += forged_notes
         demon_mods, demon_notes = self.demon_form(skills, main)  # (MECH-C: Demon Form's Demonflame and time, MECHC28)
         mods += demon_mods
         notes += demon_notes
@@ -8384,6 +8390,44 @@ class Assumptions:
                        "share was 0", "play": "keep Mana near the top: cast when above 90% (with it: the share above; "
                        "without it: none)", "confidence": "MEDIUM (main skill's costs only; Mana flasks and leech not "
                        "counted)"}]
+
+    def rageforged(self, main: str | None) -> tuple[list[dict], list[dict]]:
+        """(MECHC60; COV52's C list, example build 1's Twister) Rageforged I / II's "more damage" on the main skill at the
+        share of its uses that find the Rage to spend. The game: "If you don't have enough Rage to spend, the damage bonus
+        will not apply" (both gems' descriptions, PoB sup_str.lua 5856 / 5893); Rageforged II's 30% skip still
+        "benefits as though it had". PoB gives support_rageforged_enraged_damage_+%_final (35) whenever its Rage box is
+        at least 10 (MultiplierThreshold Rage 10, sup_str.lua 5874), so on our held Rage it gives all or none: an
+        UNDERCOUNT below 10 (build 1: Rage held under 10, none of it), an OVERCOUNT at 10 or more while gains fall short
+        of the spend. The share of uses paid is conditions' build.rage_paid (what's gained over what the spenders ask,
+        all spenders cut alike; a use that finds 10 pays 10, or skips on 30%, so paid uses / all uses = paid / asked).
+        A MORE line on the main skill moves PoB's reading to 35% x that share. Main group only (a side skill's
+        Rageforged keeps PoB's reading, said)."""
+        build = self.build
+        paid = getattr(build, "rage_paid", None)
+        group = build.main_group() if main and paid and hasattr(build, "main_group") else None
+        if not group:
+            return [], []
+        forged = next((g["name"] for g in group.get("gems") or [] if g.get("support") and g.get("enabled", True)
+                       and g.get("name") in RAGEFORGED_MORE), None)
+        if forged is None:
+            return [], []
+        share = min(1.0, max(0.0, number(paid.get("share"))))
+        held = number((build.call("getConfig").get("input") or {}).get("multiplierRage"))
+        more = RAGEFORGED_MORE[forged]
+        pob = more if held >= conditions_mod.RAGE_SPEND_AT else 0.0
+        factor = (1 + more * share / 100) / (1 + pob / 100)
+        if abs(factor - 1) < 1e-6:
+            return [], []
+        return [models.raw_mod("Damage", "MORE", (factor - 1) * 100, skill=main)], [{
+            "label": f"{forged}: more damage on the uses that find the Rage*",
+            "value": f"{more * share:.1f}% more on {main} (PoB's box: {pob:g}%)",
+            "basis": (f"{more:g}% more on a use that spends {conditions_mod.RAGE_SPEND_AT:g} Rage (or skips the spend), "
+                      f"none on a use that finds less ('If you don't have enough Rage to spend, the damage bonus will not "
+                      f"apply'): {share:.0%} of uses paid ({number(paid.get('paid')):.2f} Rage/s of the "
+                      f"{number(paid.get('asked')):.2f} asked); PoB gives {more:g}% whenever its Rage box ({held:.1f}) is at "
+                      f"least {conditions_mod.RAGE_SPEND_AT:g}, so x{factor:.3f} on {main}"),
+            "play": "keep using the skill: each use that finds 10 Rage is Enraged (without Rage: no bonus)",
+            "confidence": "MEDIUM (the paid share: gains taken as steady, the spenders cut alike)"}]
 
     def purple_flames(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """Into the Breach's Purple Flame stacks (MECHC26; PATCH_CHECK G1-1, the largest OVERCOUNT found: nothing set

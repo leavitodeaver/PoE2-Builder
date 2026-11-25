@@ -119,6 +119,65 @@ def test_infusion_sources_gain_their_supports_and_the_builds_additional_remnants
     assert any("+30% additional Remnants" in u and "supports' 20%" in u for u in used)
 
 
+def test_rage_sawtooth_holds_half_the_spend_not_zero():
+    """(MECHC60, COV52's C list) A per-use spender spends 10 only while 10 are there: Molten Crash at 2 uses/s fed 5 Rage/s
+    climbs 2.5 a use to 10 and drops to 0, 5 on average; a per-second channel (Rampage) isn't a sawtooth (None)."""
+    from builder.search.conditions import rage_sawtooth
+
+    held, how = rage_sawtooth(5.0, {"Molten Crash": 20.0}, 30)
+    assert held == pytest.approx(5.0, abs=0.05) and "10 a use" in how
+    assert rage_sawtooth(5.0, {"Rampage": 5.0}, 30) is None
+    assert rage_sawtooth(0.0, {"Molten Crash": 20.0}, 30) is None
+    # Rageforged II's 30% skip lets Rage climb past 10 more often: above the plain sawtooth, under 10 + a use's rise
+    forged, _ = rage_sawtooth(5.0, {"Rageforged II": 12.2}, 30)
+    assert 5.0 < forged < 10.0 + 5.0 / (12.2 / 7)
+    # gains above the spend: below the maximum between spends, not at it
+    high, _ = rage_sawtooth(12.0, {"Rageforged II": 3.0}, 30)
+    assert 25.0 < high < 30.0
+
+
+def test_rage_held_reads_the_sawtooth_with_per_use_spenders_only():
+    """rage_held: Eternal Rage's 5/s (PoB's RageRegenRecovery) against Rageforged II asking 12.2/s: the sawtooth's average
+    (was 0, 'spent as fast as it comes'); with gains above the spend, the sawtooth below the maximum (was the maximum)."""
+    from builder.search.conditions import rage_held, rage_sawtooth
+
+    base = {"Speed": 2.0, "HitChance": 100, "CritChance": 0, "MaximumRage": 30, "enemySkillTime": 0.7,
+            "EvadeChance": 100, "_main_types": {"Attack", "Projectile"}, "RageRegenRecovery": 5.0}
+    held, basis = rage_held([], {**base, "_rage_spend": {"Rageforged II": 12.2}})
+    assert held == int(rage_sawtooth(5.0, {"Rageforged II": 12.2}, 30)[0]) and held > 5  # (whole Rage, as PoB's)
+    assert "row, spent as fast as it comes" in basis
+    high, basis = rage_held([], {**base, "RageRegenRecovery": 12.0, "_rage_spend": {"Rageforged II": 3.0}})
+    assert 25 <= high < 30 and "row, the maximum all fight" in basis
+    channel, _ = rage_held([], {**base, "_rage_spend": {"Rampage": 5.0}})
+    assert channel == 0  # (a per-second spender: none held, as before)
+
+
+def test_rageforged_more_damage_at_the_paid_share():
+    """Assumptions.rageforged: PoB gives Rageforged's 35% only with its Rage box at 10 or more; the game on the uses that
+    find 10 Rage. Box 6.4, 41% paid: +14.4% more (was none); box 30, 41% paid: x(1.144 / 1.35); all paid at 30: nothing."""
+    class Build:
+        def __init__(self, box, share):
+            self.rage_paid = {"share": share, "paid": 5.0, "asked": 5.0 / share if share else 12.2}
+            self.box = box
+
+        def main_group(self):
+            return {"gems": [{"name": "Twister", "support": False}, {"name": "Rageforged II", "support": True}]}
+
+        def call(self, method, **kw):
+            return {"getConfig": {"input": {"multiplierRage": self.box}}}[method]
+
+    def run(box, share):
+        hook = Assumptions.__new__(Assumptions)
+        hook.build = Build(box, share)
+        return hook.rageforged("Twister")
+
+    mods, notes = run(6.4, 0.41)
+    assert mods[0]["value"] == pytest.approx(35 * 0.41, rel=1e-3) and "PoB's box: 0%" in notes[0]["value"]
+    mods, _ = run(30, 0.41)
+    assert mods[0]["value"] == pytest.approx(((1 + 0.35 * 0.41) / 1.35 - 1) * 100, rel=1e-3)
+    assert run(30, 1.0) == ([], [])
+
+
 @pytest.fixture(scope="module")
 def engine():
     from builder.data import GameData

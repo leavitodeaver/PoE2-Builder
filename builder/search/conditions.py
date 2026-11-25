@@ -2833,6 +2833,47 @@ RAGE_SKIP_CHANCE = {"Rageforged II": 0.30}
 RAGE_PER_USE = {"Molten Crash": 10, "Furious Slam": 10, "Fury of the Mountain": 10, "Rageforged I": 10,
                 "Rageforged II": 10 * (1 - RAGE_SKIP_CHANCE["Rageforged II"])}
 RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
+# (MECHC60; COV52's C list, example build 1: Twister with Rageforged II fed by Eternal Rage's 5 Rage/s read 0 Rage held)
+# A per-use spender (RAGE_PER_USE: Rageforged, Molten Crash, the bear slams, Fury of the Mountain) spends its 10 Rage on a
+# use only while 10 are there ("consume 10 Rage to Enrage" / "optionally consume", the stats' X_rage amounts), so Rage
+# isn't "spent as fast as it comes": it climbs to 10 between uses and drops by 10 at the next use (a sawtooth), and
+# with gains above the spend it sits below the maximum between spends, not at it. rage_sawtooth averages that level from
+# the build's own gain a second and its spenders' uses (each spender's Rage a second / its Rage a use), Rageforged II's
+# 30% skip rolled on each spend, the uses evenly spaced, the gains steady (MEDIUM: discrete gains like a Warcry's are
+# taken as spread out). Only when every spender is a per-use one: a channel's Rage a second (Rampage, Flame Breath)
+# spends continuously, so none held stays there.
+RAGE_SPEND_AT = 10.0
+
+
+def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000) -> tuple[float, str] | None:
+    """(MECHC60) (average Rage held, how) under per-use spenders (RAGE_SPEND_AT's note), or None where it doesn't apply
+    (no gain, no spender, a per-second spender, no maximum). A seeded simulation of `uses` uses (after 300 to settle)."""
+    import random
+
+    if gain <= 0 or most <= 0 or not spend or any(n not in RAGE_PER_USE for n in spend):
+        return None
+    rates = {n: number(v) / RAGE_PER_USE[n] for n, v in spend.items() if number(v) > 0 and RAGE_PER_USE[n] > 0}
+    total = sum(rates.values())
+    if total <= 0:
+        return None
+    names, weights = list(rates), list(rates.values())
+    step, rng = 1.0 / total, random.Random(60)
+    rise, level, area, seconds = gain * step, 0.0, 0.0, 0.0
+    for n in range(uses + 300):
+        if level + rise <= most:
+            part, level = step * (2 * level + rise) / 2, level + rise
+        else:
+            reach = max(most - level, 0.0) / gain
+            part, level = reach * (level + most) / 2 + (step - reach) * most, most
+        if n >= 300:
+            area, seconds = area + part, seconds + step
+        who = names[0] if len(names) == 1 else rng.choices(names, weights)[0]
+        if level >= RAGE_SPEND_AT and rng.random() >= RAGE_SKIP_CHANCE.get(who, 0.0):
+            level -= RAGE_SPEND_AT
+    mean = min(area / seconds, most)
+    return mean, (f"the spenders take {RAGE_SPEND_AT:g} a use only while {RAGE_SPEND_AT:g} are there: Rage climbs "
+                  f"{rise:.2f} between uses ({total:.2f} uses/s) and drops by {RAGE_SPEND_AT:g} at a spend, "
+                  f"{mean:.1f} held on average (MEDIUM: uses evenly spaced, gains steady)")
 # (MECHC58; the manager's R55-8 ruling, 23 Nov 14:28: "Rampage has no cooldown and a free window at the start of each
 # channel ... Short recast channels are a play strategy") channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms: no
 # Rage is spent for the first 2.5 s of a Rampage (+50 ms per quality %) and 4 s of a Flame Breath (PoB act_str.lua's
@@ -3230,9 +3271,16 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
             "" if net > 0 else f" (asking {asked:.2f}/s, more than comes: {real:.2f}/s)"))
         # (MECHC48, the manager's 23:25 for MECHB49's Molten Crash reading: the paid share as plain numbers, not text)
         stats["_rage_paid"] = {"share": min(1.0, real / asked), "asked": asked, "paid": real}
+    # (MECHC60: RAGE_SPEND_AT's note) per-use spenders: the sawtooth's average, where the loss never runs
+    saw = rage_sawtooth(gain, spend, most) if not refund else None
+    keeps = any(RAGE_NO_LOSS.search(t) for t in lines) or regenerating or events * pause >= 1
     if net <= 0 or most <= 0:
         held = 0.0
-        basis += " (spent as fast as it comes: none held)" if gain > 0 else " (no gain a boss fight feeds)"
+        if saw is not None and saw[0] > 0 and keeps:
+            held = saw[0]
+            basis += f" ({saw[1]}; row, spent as fast as it comes: none held)"
+        else:
+            basis += " (spent as fast as it comes: none held)" if gain > 0 else " (no gain a boss fight feeds)"
     elif any(RAGE_NO_LOSS.search(t) for t in lines):
         held = most  # (MECHC4: Blood of the Warrior; its line reaches here only while the flask's slot counts, sourceLines)
         basis += ", no inherent loss of Rage (a line of the build): the maximum"
@@ -3265,6 +3313,9 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
                    if burn > 0 else "")
         basis += (f", one gain every {gap:.1f} s of {level:.0f} Rage held {pause:.2g} s, then lost {decay:.2g}/s while no "
                   f"boss hit ({land:.2f}/s landing){burning} paused it ({rate:.2g}/s on average): {held:.1f} on average")
+    if net > 0 and most > 0 and keeps and saw is not None and saw[0] < held:  # (MECHC60: an OVERCOUNT before)
+        basis += f"; below it between spends: {saw[1]} (row, the maximum all fight: {held:g})"
+        held = saw[0]
     stats["_rage_at_max"] = rage_at_max(held, most, net, events, lines)  # (MECHC59: models.GLORY_FROM_RAGE)
     if held > 0 and (lost := number(stats.get("_main_rage_lost_on_crit"))) > 0:
         crits = models.crits_per_second(stats) * _main_share(stats) * models.per_use_factor(stats)  # (MECHC45; MECHC52)
