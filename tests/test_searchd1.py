@@ -101,6 +101,38 @@ def test_the_seed_is_the_floor():
     assert run.at_least_seed(worse, None) is worse  # (no origin: no floor)
 
 
+def test_a_replaced_seed_says_why():
+    """(SEARCHD2; the manager, 24 Nov 20:06, after POE2T8212: a 15,086-DPS build delivered over a 501,578-DPS pasted
+    build that missed more requirements) When the search's build is delivered instead of the seed, a note says how far
+    each is short, which requirements, and both DPS; none when the seed is kept or for a focus run."""
+    run = _floor_run()
+    seed = {"dps": 501578.0, "clear": 0.0, "deficits": [
+        {"label": "Fire Resistance", "amount": 0.5, "hard": False},
+        {"label": "Str requirement", "amount": 0.3, "hard": True},
+        {"label": "Survive pinnacle hits", "amount": 0.4, "hard": None}]}
+    lower = {"dps": 15086.0, "clear": 0.0, "deficits": [{"label": "Fire Resistance", "amount": 0.7, "hard": False}]}
+    assert run.at_least_seed(lower, dict(seed))["dps"] == 15086.0
+    note = run.notes[-1]
+    assert note.startswith("The build you gave was 3.5 short of the requirements; this one is 0.7 short, at 15,086 DPS "
+                           "instead of 501,578.")
+    assert "even at lower DPS" in note
+    assert ("Short in the build you gave: Fire Resistance (50% short); Str requirement (a game limit); Survive pinnacle "
+            "hits (the default survive floor, 40% short).") in note
+    assert note.endswith("Short in this one: Fire Resistance (70% short).")
+    # Same shortfall, more DPS: no "even at lower DPS"; nothing short says "none"
+    run.notes = []
+    run.at_least_seed({"dps": 600000.0, "clear": 0.0, "deficits": []}, {"dps": 501578.0, "clear": 0.0, "deficits": []})
+    assert "misses the requirements no more" in run.notes[-1] and "Short in this one: none." in run.notes[-1]
+    # The seed kept: only the floor's own note; a focus run: no note (it has its before / after)
+    run.notes = []
+    run.at_least_seed({"dps": 90.0, "clear": 0.0, "deficits": []}, {"dps": 100.0, "clear": 0.0, "deficits": []})
+    assert len(run.notes) == 1 and run.notes[0].startswith("The search found nothing better")
+    run.notes = []
+    run.request = SimpleNamespace(objective="boss", focus=SimpleNamespace(kind="tree"))
+    run.at_least_seed(lower, dict(seed))
+    assert run.notes == []
+
+
 def test_the_continue_route_builds_the_request_from_the_saved_result(tmp_path, monkeypatch):
     """POST /api/runs/continue: the saved result's request, its code as the seed, the minutes chosen, the origin, and a
     focus when one part is asked for; a result without a code can't be continued."""

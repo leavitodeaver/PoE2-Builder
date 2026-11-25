@@ -684,6 +684,11 @@ class Run:
                               "Optimize one part, may still improve it.")
             seed_final["floor_kept"] = True
             return seed_final
+        if not isinstance(final, WorkerError) and getattr(self.request, "focus", None) is None:
+            # (SEARCHD2; the manager, 24 Nov 20:06, after POE2T8212 delivered a 15,086-DPS build over a 501,578-DPS seed
+            # that missed more requirements: the result says plainly why another build than the one given comes back. A
+            # focus run shows its own before / after instead.)
+            self.notes.append(replaced_seed_note(seed_final, final))
         return final
 
     def execute_focus(self) -> dict:
@@ -1029,6 +1034,41 @@ def attempt_floor(run: Run) -> bool:
     """(SEARCHD1) Every run with a readable seed code (a pasted build, Continue) finalizes its seed beside the best: the
     floor it never falls below."""
     return SEED_FLOOR and bool(run.payload["request"].get("seed_code"))
+
+
+def short_text(deficits: list[dict]) -> str:
+    """(SEARCHD2) The requirements a build misses, in plain words: each by its label, a request floor with how far short
+    (a share of the floor), a game limit and the default survive floor (soft, ranked after the rest) said as such."""
+    parts = []
+    for d in deficits:
+        if d.get("hard"):
+            parts.append(f"{d['label']} (a game limit)")
+        elif d.get("hard") is None:
+            parts.append(f"{d['label']} (the default survive floor, {number(d.get('amount')):.0%} short)")
+        else:
+            parts.append(f"{d['label']} ({number(d.get('amount')):.0%} short)")
+    return "; ".join(parts) if parts else "none"
+
+
+def replaced_seed_note(seed: dict, final: dict) -> str:
+    """(SEARCHD2) Why the search's build was delivered instead of the pasted one: builds rank by how far they are short of
+    the request's requirements first (game limits count ten times a floor; the soft survive floor not at all), then the
+    request's goal (objective.rank_key), so a build that misses less wins even at lower DPS."""
+    seed_short, final_short = shortfall(seed["deficits"]), shortfall(final["deficits"])
+    seed_dps, final_dps = number(seed["dps"]), number(final["dps"])
+    head = (f"The build you gave was {seed_short:.3g} short of the requirements; this one is {final_short:.3g} short, "
+            f"at {final_dps:,.0f} DPS instead of {seed_dps:,.0f}.")
+    if round(final_short, 6) < round(seed_short, 6):
+        why = ("It is delivered instead because builds rank by how far they miss the requirements first (a game limit "
+               "counts ten times a request floor) and on the request's goal (DPS, for a boss run) only after that")
+        if final_dps < seed_dps:
+            why += ", even at lower DPS"
+        why += "."
+    else:
+        why = ("It is delivered instead because it misses the requirements no more and ranks higher on the default survive "
+               "floor and the request's goal together.")
+    return (f"{head} {why} Short in the build you gave: {short_text(seed['deficits'])}. Short in this one: "
+            f"{short_text(final['deficits'])}.")
 
 
 def tree_nodes(code: str | None) -> set[int]:
