@@ -49,9 +49,15 @@ def test_cov56_gem_stats_under_box_only_conditions_are_open():
     if not (data_dir() / "coverage.json").exists():
         pytest.skip("no coverage.json")
     records = [r for r in coverage.audit()["records"] if r["category"] == "gem-stat" and r["line"] in boxed]
-    # (COV57: Pursuit's are read by MECH106's pursuit_model since TRAIN 142; the rest, Momentum's, stay open)
-    assert records and all(r["status"] == ("model" if "advancing_assault" in r["line"] else "none") for r in records)
-    assert any(r["status"] == "none" for r in records)
+    # (COV57, TRAIN 144: Pursuit's are read by MECH106's pursuit_model since TRAIN 142, model links. GEM42, TRAIN 143's
+    # first run: Momentum's 40% is read by GEM40's momentum_model too (model-gem40-momentum-walk-a-use: the build's own
+    # walk during a use), so the pin went stale, not the entries. A box-only stat stays open unless a model entry claims
+    # it.)
+    from builder.ledger import entries
+    modelled = {stat for e in entries() if e.raw.get("kind") == "model" for stat in e.raw.get("stats") or []}
+    assert records and all(r["status"] == "none" or r["line"] in modelled for r in records)
+    assert all(r["status"] == "none" for r in records if r["line"] not in modelled)
+    assert all(r["status"] == "model" for r in records if "advancing_assault" in r["line"])
 
 
 def test_cov56_box_flag_doesnt_make_a_line_live():
@@ -80,5 +86,11 @@ def test_cov56_build_blind_spots_follow_the_audit():
     if not (data_dir() / "coverage.json").exists():
         pytest.skip("no coverage.json")
     gems = coverage._build_index(str(data_dir()))["gems"]
-    # (COV57: Malice's stat is read since TRAIN 142; Momentum's box-only stat is still a blind spot)
-    assert any(s == "support_momnetum_damage_+%_final_with_momentum" for s, _ in gems.get("Momentum", []))
+    # (COV57: Malice's stat is read since TRAIN 142; GEM42: Momentum's left the blind spots once GEM40's momentum_model
+    # read it. Any box-only gem stat no model entry claims is still a blind spot.)
+    assert not any(s == "critical_chance_against_aura_apply_brittle_every_x_ms" for s, _ in gems.get("Malice", []))
+    assert not any(s == "support_momnetum_damage_+%_final_with_momentum" for s, _ in gems.get("Momentum", []))
+    from builder.ledger import entries
+    modelled = {stat for e in entries() if e.raw.get("kind") == "model" for stat in e.raw.get("stats") or []}
+    listed = {s for spots in gems.values() for s, _ in spots}
+    assert not (listed & modelled & set(coverage.gem_stat_box_conditions()))

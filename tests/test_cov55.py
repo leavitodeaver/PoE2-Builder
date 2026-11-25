@@ -34,7 +34,12 @@ def test_cov55_stats_are_read_and_scoped_to_their_skills():
         assert coverage.stat_covered(covered, stat, skill) == ("model", entry_id), stat
     # (COV57: Hollow Focus's bell_hit_limit and Tempest Bell's ramp are read since TRAIN 140 (MECHB61): test_cov57)
     for stat, skill in (("bell_shockwave_cooldown_ms", "Hollow Focus"),
-                        ("cooldown_recovery_modifiers_also_apply_to_repeat_interval", "Ghost Dance"),
-                        ("cooldown_recovery_modifiers_also_apply_to_repeat_interval", "Time of Need"),
                         ("base_number_of_tempest_bells_allowed", "Tempest Bell")):
         assert coverage.stat_covered(covered, stat, skill) is None, stat
+    # (GEM42: COV55 left Ghost Dance's / Time of Need's open as "not checked for a reader here" (items-cov55.yaml's
+    # header), not as a row-only reading; GEM41 checked them: recovery.ghost_dance_income and time_of_need_income divide
+    # the repeat interval by the skill's Cooldown Recovery Rate into the Energy Shield / Life a second)
+    for stat, skill, entry_id in (
+            ("cooldown_recovery_modifiers_also_apply_to_repeat_interval", "Ghost Dance", "model-gem41-ghost-dance-repeat"),
+            ("cooldown_recovery_modifiers_also_apply_to_repeat_interval", "Time of Need", "model-gem41-time-of-need-repeat")):
+        assert coverage.stat_covered(covered, stat, skill) == ("model", entry_id), stat

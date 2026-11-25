@@ -105,79 +105,12 @@
 # GEM37's audit-hygiene list (scratch/gem37/open_but_read.txt; rerun as scratch/gem41/open_read.py on 24 Nov): open
 # gem-stat rows whose stat id our code reads. Each closed only after reading its reader (comment-only mentions and
 # substring matches left open).
-- id: model-gem41-tempest-bell-ramp
-  title: "Tempest Bell's quality ramp: more damage per time its Bell was hit (read by Assumptions.tempest_bell_shockwaves, MECHB61)"
-  kind: model
-  model: tempest_bell_shockwaves
-  stats: ["tempest_bell_damage_+%_final_per_time_hit"]
-  skill: [Tempest Bell]
-  confidence: MEDIUM
-  notes: >-
-    models.BELL_RAMP_STAT; Assumptions.tempest_bell_shockwaves passes the skill's level stat as the ramp (MECHB61).
-  sources: ["builder/search/assumptions.py (tempest_bell_shockwaves)", "builder/search/models.py (BELL_RAMP_STAT)"]
-  test_in_game: "Not needed."
-  status: proposed
-
-- id: model-gem41-charge-kept-chances
-  title: "A consumer's own chance not to remove the Charges it consumes (Perpetual Charge; Hollow Form's Power Charge quality): read by the charge model (MECHC58)"
-  kind: model
-  model: charges_kept
-  stats: ["charge_skip_consume_chance_%", "base_power_charge_skip_consume_chance_%"]
-  skill: [Perpetual Charge, Hollow Form]
-  confidence: MEDIUM
-  notes: >-
-    conditions.OWN_KEPT_STATS (MECHC58): Conditions.evidence reads each consumer's level and support stats
-    (activeSkills supportStats=OWN_KEPT_STATS) and adds them to the global chance, at most 100%.
-  sources: ["builder/search/conditions.py (OWN_KEPT_STATS and its reader in Conditions.evidence)"]
-  test_in_game: "Not needed."
-  status: proposed
-
-- id: model-gem41-charge-regulation-interval
-  title: "Charge Regulation consumes one of each Charge every 10 s (+quality): read by the charge model (MECHC58)"
-  kind: model
-  model: charge_regulation
-  stats: ["consume_frenzy_power_and_endurance_charge_every_x_ms"]
-  skill: [Charge Regulation]
-  confidence: MEDIUM
-  notes: >-
-    conditions.REGULATION_EVERY_STAT, read at the skill's level in Conditions.evidence (MECHC58; RESEARCH57 R57-1).
-  sources: ["builder/search/conditions.py (REGULATION_EVERY_STAT)"]
-  test_in_game: "Not needed."
-  status: proposed
-
-- id: model-gem41-maim-support
-  title: "The Maim support's Maim on Hit: the boss's Maimed share from the main skill's supports (MECH105)"
-  kind: model
-  model: support_maim
-  stats: ["maim_on_hit_%"]
-  skill: [Maim]
-  confidence: MEDIUM
-  notes: >-
-    conditions.MAIM_STAT, read by Conditions._support_maim from the main skill's supportStats (MECH105; RESEARCH57 R57-8).
-  sources: ["builder/search/conditions.py (MAIM_STAT, _support_maim)"]
-  test_in_game: "Not needed."
-  status: proposed
-
-- id: model-gem41-siphon-elements-remnants
-  title: "Siphon Elements' Fire / Lightning Infusion Remnant chances on Igniting / Shocking a bare target: read by assumptions.siphon_freezes (MECHC58)"
-  kind: model
-  model: siphon_freezes
-  stats: ["infusion_remnants_%_chance_to_spawn_fire_infusion_on_igniting_an_enemy",
-          "infusion_remnants_%_chance_to_spawn_lightning_infusion_on_shocking_an_enemy"]
-  skill: [Siphon Elements]
-  confidence: MEDIUM
-  notes: >-
-    assumptions.SIPHON_NON_AILED: each chance x the main skill's Ignite / Shock applications that find the boss bare.
-  sources: ["builder/search/assumptions.py (SIPHON_NON_AILED, siphon_freezes)"]
-  test_in_game: "Not needed."
-  status: proposed
-
 - id: model-gem41-endurance-on-stun-and-break
-  title: "Enduring Impact's Endurance Charges on Heavily Stunning a Unique, Armour Break II / III's chance on a Full Break: rated from the build's own Heavy Stuns and Full Breaks (MECHC53)"
+  title: "Enduring Impact's Endurance Charges on Heavily Stunning a Unique: rated from the build's own Heavy Stuns (MECHC53; Armour Break II / III's chance is COV57b's entry)"
   kind: model
   model: endurance_support_rate
-  stats: ["gain_x_endurance_charges_on_heavy_stunning_unique_enemy", "chance_to_gain_endurance_charge_on_armour_break_%"]
-  skill: [Enduring Impact I, Enduring Impact II, Armour Break II, Armour Break III]
+  stats: ["gain_x_endurance_charges_on_heavy_stunning_unique_enemy"]
+  skill: [Enduring Impact I, Enduring Impact II]
   confidence: MEDIUM
   notes: >-
     conditions.endurance_support_rate (MECHC53; stats["_endurance_supports"] set
@@ -185,19 +118,6 @@
     (models.heavy_stun_rate) x the count, the boss's Full Breaks a second x the chance; 0 when the support is on another
     skill (an undercount there, said).
   sources: ["builder/search/conditions.py (_endurance_supports)"]
-  test_in_game: "Not needed."
-  status: proposed
-
-- id: model-gem41-rampage-channel
-  title: "Rampage's shapeshift minimum channel time: its shortest channel (Momentum's share; the channel readers)"
-  kind: model
-  model: momentum_model
-  stats: ["shapeshift_minimum_channel_time_ms_+"]
-  skill: [Rampage]
-  confidence: MEDIUM
-  notes: >-
-    models.MOMENTUM_CHANNEL_STATS (GEM40) and conditions.CHANNEL_MIN_STATS add it to base_minimum_channel_time_ms for the shortest channel.
-  sources: ["builder/search/models.py (MOMENTUM_CHANNEL_STATS)"]
   test_in_game: "Not needed."
   status: proposed
 
@@ -251,32 +171,6 @@
   notes: >-
     recovery.time_of_need_income divides base_cooldown_modifiable_repeat_interval_ms by the skill's Cooldown Recovery Rate (the bridge's cooldownRecovery).
   sources: ["builder/search/recovery.py (time_of_need_income)"]
-  test_in_game: "Not needed."
-  status: proposed
-
-- id: model-gem41-bells
-  title: "Hollow Focus's Bell hit limit and shockwave cooldown (GEM30's repeat_interval_model; Tempest Bell's: model-read-cov55-tempest-bell-constants)"
-  kind: model
-  model: repeat_interval
-  stats: ["bell_hit_limit", "bell_shockwave_cooldown_ms"]
-  skill: [Hollow Focus]
-  confidence: MEDIUM
-  notes: >-
-    models.BELL_LIMIT_STAT and BELL_WAVE_EVERY (300 ms) are read by repeat_interval_model for Hollow Focus's bells.
-  sources: ["builder/search/assumptions.py (tempest_bell_shockwaves)"]
-  test_in_game: "Not needed."
-  status: proposed
-
-- id: model-gem41-verisium-count
-  title: "Powered by Verisium's Infusions a cast, at its Ward-paid casts (assumptions.verisium_infusions, MECHC58)"
-  kind: model
-  model: verisium_infusions
-  stats: ["verisium_infusion_skill_number_of_verisium_infusion_to_grant"]
-  skill: [Powered by Verisium]
-  confidence: MEDIUM
-  notes: >-
-    assumptions.VERISIUM_COUNT_STAT read at the skill's level by verisium_infusions.
-  sources: ["builder/search/assumptions.py (verisium_infusions)"]
   test_in_game: "Not needed."
   status: proposed
 
