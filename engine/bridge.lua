@@ -2823,6 +2823,12 @@ local function installDerived()
 				local flags = main and (main.skillFlags or (main.activeEffect and main.activeEffect.statSet or { }).skillFlags) or { }
 				local unarmed = flags.unarmed or not (env.player.itemList and env.player.itemList["Weapon 1"])
 				env.player.output.LedgerUnarmedMelee = (flags.attack and flags.melee and unarmed) and 1 or 0
+				-- (PREVIEW5: the main skill's damage effectiveness at its gem level, the same expression CalcOffence's base
+				-- hit damage uses (activeEffect.grantedEffectLevel.baseMultiplier, else skillData.baseMultiplier, else 1);
+				-- the 1.0 giant sword's yardstick for a current-game Strike, builder/preview/supports.py; read only there)
+				local level = main and main.activeEffect and main.activeEffect.grantedEffectLevel
+				env.player.output.LedgerBaseMultiplier = main and ((level and level.baseMultiplier)
+					or (main.skillData and main.skillData.baseMultiplier) or 1) or nil
 			end
 			setPointsOver(env)
 			setCostShort(env)

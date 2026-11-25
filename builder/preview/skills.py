@@ -12,6 +12,9 @@
   scored against Shadow Assault's 78% (LOW: the Shade's dash taken at its full 177%, no 50% less: the Ambush rule's
   "50% less" is for Shades repeating your Ambush, not their own dash, UNVERIFIED).
 No flat rates: each from the main skill's own uses (PoB's Speed at its main share) and the build's own Immobilises.
+The ratios here (94 / 144, 177 / 78, 66 / 66) are two parts of one gem shown at the same level, so they hold at any gem
+level if both parts scale alike (LOW); the bridge's LedgerBaseMultiplier (PREVIEW5) would change nothing here and is used
+only where the second part is another gem's (supports.py's giant sword).
 """
 
 from __future__ import annotations

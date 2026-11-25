@@ -56,8 +56,9 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
 3. Supports. DONE (PREVIEW4, supports.py; each offered exactly where its "Supports ..." text allows, tested both ways
    on PoB's own support check): Overchannel (Channel; 15% more on a channel held 1.5 s+ by its own payoff, or its
    Empower on the next non-channelled skill at the side channel's own rate), Impaling Blade II / Rending Blade (Strikes
-   you use yourself; a sword a 5 s cooldown on hitting, scored against a preview main skill's own damage %; a 0.5.5
-   main skill's isn't published by the bridge: 0, an UNDERCOUNT; one family here, UNVERIFIED), Volatile Shades
+   you use yourself; a sword a 5 s cooldown on hitting, scored against the main Strike's own damage effectiveness at its
+   gem level, which the bridge publishes (LedgerBaseMultiplier, CalcOffence's baseMultiplier; PREVIEW5), so 0.5.5 Strikes
+   get it too; one family here, UNVERIFIED), Volatile Shades
    (skills that make Shades: Shroud's Shades exploding at 125% at its own use rate; Shadow Assault's not modelled),
    Sandstorm (Sand Disks: Sand Scour, Perforate; 0 until Stances), Galvanising Blades (Buried Blades: no carrier yet,
    offered nowhere), Abundant Remnants I (GeneratesRemnants; counted by the Remnant models from its description's "25% chance to

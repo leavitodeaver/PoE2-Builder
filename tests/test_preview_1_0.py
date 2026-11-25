@@ -550,6 +550,39 @@ def test_the_giant_sword_and_the_shade_blasts(engine):
     _, notes, more = support_model(Build(), SimpleNamespace(name="Viper Strike"), stats)
     blast = next(n for n in notes if n["label"].startswith("Volatile Shades on Shroud"))
     assert more > added and "Row: 0" in blast["basis"], blast
+    # (PREVIEW5) the bridge's published damage effectiveness at the gem level: a preview row's own % at its shown level
+    assert stats["LedgerBaseMultiplier"] == pytest.approx(1.64)
+
+
+def test_the_giant_sword_on_a_current_game_strike(engine):
+    """(PREVIEW5) A 0.5.5 Strike (Boneshatter) gets the giant sword too, scored against its own damage effectiveness at
+    its gem level, which the bridge publishes (CalcOffence's baseMultiplier; PoB's act_str.lua Boneshatter level 13:
+    2.22); before, a non-preview main skill read 0 (an UNDERCOUNT)."""
+    from types import SimpleNamespace
+
+    from builder.data import GameData
+    from builder.preview.supports import FIELDS, support_model
+
+    preview.install(engine, BuildRequest(preview_1_0=True))
+    gems = {g["name"]: g for g in preview.gems()}
+    gems["Boneshatter"] = next(g for g in GameData().gems if g["name"] == "Boneshatter")  # (a 0.5.5 gem: the game's types)
+
+    class Build:
+        ctx = SimpleNamespace(gems=gems, request=BuildRequest(preview_1_0=True))
+        objective = None
+        call = staticmethod(engine.call)
+
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("equip", slot="Weapon 1", fields=[], raw="Rarity: Normal\nWooden Club\n")
+    engine.call("addSkillGroup", text="Boneshatter 13/0 1\nRending Blade 1/0 1", main=True)
+    stats = engine.call("stats", fields=FIELDS)
+    assert stats["LedgerBaseMultiplier"] == pytest.approx(2.22)
+    mods, notes, added = support_model(Build(), SimpleNamespace(name="Boneshatter"), stats)
+    sword = next(n for n in notes if "giant sword" in n["label"])
+    hit = (stats.get("AverageHit") or stats["MainHand.AverageHit"]) * 143 / 222
+    assert added == pytest.approx(0.2 * hit, rel=0.01), sword  # (Rending Blade: no Impale; Boneshatter hits > 0.2/s)
+    assert "gem level" in sword["basis"] and preview.ASTERISK in sword["label"]
 
 
 def test_the_knights_nodes_are_held_ready_with_their_source(engine):

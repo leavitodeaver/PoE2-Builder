@@ -44,7 +44,7 @@ NOTE_ONLY = {
                            "build makes: an OVERCOUNT where Remnants also come from a skill it doesn't support (LOW)",
 }
 FIELDS = ["AverageHit", "MainHand.AverageHit", "Speed", "HitChance", "PhysicalHitAverage",
-          "MainHand.PhysicalHitAverage", "LedgerImpaleChance", "LedgerImpaleEffect"]
+          "MainHand.PhysicalHitAverage", "LedgerImpaleChance", "LedgerImpaleEffect", "LedgerBaseMultiplier"]
 
 
 def _row(name: str) -> dict | None:
@@ -141,10 +141,15 @@ def support_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[
             continue
         label = f"{sword}'s giant sword{ASTERISK}"
         rate = min(1 / SWORD_COOLDOWN, hits)
-        own = ((_row(main.name) or {}).get("model") or {}).get("damage_pct")
+        # (PREVIEW5: the yardstick is the main Strike's own damage effectiveness at its gem level, published by the
+        # bridge (LedgerBaseMultiplier, CalcOffence's baseMultiplier), so a 0.5.5 Strike gets the sword too; a preview
+        # row's shown damage_pct only if the bridge gave none)
+        published = _number(stats.get("LedgerBaseMultiplier")) * 100
+        own = published or ((_row(main.name) or {}).get("model") or {}).get("damage_pct")
+        source = "its damage effectiveness at its gem level" if published else "its shown damage %"
         if not own or rate <= 0:
-            why = ("the main skill isn't a 1.0 preview skill, so its damage effectiveness (the sword's yardstick) isn't "
-                   "known here (the bridge doesn't publish it): 0, an UNDERCOUNT" if not own else "no hits: 0")
+            why = ("the main skill's damage effectiveness (the sword's yardstick) wasn't published: 0, an UNDERCOUNT"
+                   if not own else "no hits: 0")
             notes.append({"label": label, "value": 0, "confidence": "LOW", "basis": why + ASTERISK})
             continue
         ratio = pct / own
@@ -157,7 +162,7 @@ def support_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[
         added += dps + impale
         notes.append({"label": label, "value": f"{dps + impale:,.0f} DPS", "confidence": "LOW",
                       "basis": (f"one sword a {SWORD_COOLDOWN:g} s cooldown on hitting ({rate:.3f}/s: {main.name} hits "
-                                f"{hits:.2f}/s), each {pct:g}% Attack Damage against {main.name}'s {own:g}%: x{ratio:.2f} its "
+                                f"{hits:.2f}/s), each {pct:g}% Attack Damage against {main.name}'s {own:g}% ({source}): x{ratio:.2f} its "
                                 f"hit ({hit:,.0f}; LOW: the sword taken to get the same modifiers as {main.name}, the "
                                 f"blade to reach the boss in front of you, the cooldown not sped up)"
                                 + (f"; its Impale Extracted by {main.name}'s next hit, +{impale:,.0f} DPS" if impale else
