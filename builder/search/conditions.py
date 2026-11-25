@@ -6206,6 +6206,25 @@ def _consumer(subject: str) -> str:
             rf"|would gain[^.;]*{subject}|instead of {subject}|{subject}\w* instead")
 
 
+# "Crit recently" (MECH109; CRIT_RECENTLY, an UNDERCOUNT: COV58's calibration, builds 19 and 20, whose authors tick it).
+# Before, its box was on only when the MAIN skill alone gave a 90% chance of a crit in any 4 s (_uptime, all or nothing,
+# its full Speed): build 19's Detonate Dead has no uses on a lone boss though its Bone Cage, Entangle and Thrashing Vines
+# crit every hit, and build 20's Killing Palm (28% at 1.03 hits/s, 73%) missed the cut beside Tempest Bell's 1.81 hits/s at
+# 28%. Now the share of the fight with a critical hit in the past 4 s ("Recently", RECENTLY): the main skill's hits at its
+# share of the fight (AT_MAIN_SHARE) x its CritChance and each other group's side_hit_rows hits and crits, evenly spaced
+# (periodic_absent, MECHB54), the skills independent; weighed into the headline at that share (Search.weigh_uptimes), on
+# from MIN_UPTIME as the other shared boxes. Minions' crits aren't yours (not counted). Skills crit recently: the same.
+def crit_recently_share(stats: dict) -> float:
+    """Share of the fight you've dealt a critical hit in the past 4 s (CRIT_RECENTLY's note)."""
+    main = models.at_main_share(stats)
+    hits = models.hits_per_second(main) if "HitChance" in main else number(main.get("Speed"))
+    absent = periodic_absent(min(max(number(main.get("CritChance")), 0.0), 100.0) / 100.0, hits * RECENTLY)
+    for row in stats.get("_side_rows") or ():
+        if (h := number(row.get("hits"))) > 0 and (k := number(row.get("crits"))) > 0:
+            absent *= periodic_absent(min(k / h, 1.0), h * RECENTLY)
+    return 1.0 - absent
+
+
 def _uptime(stats: dict, chance_field: str) -> bool:
     chance = number(stats.get(chance_field)) / 100.0
     rate = number(stats.get("Speed"))
@@ -9790,11 +9809,11 @@ CONDITIONS: list[Condition] = [
     Condition("conditionLeechingMana", "Leeching Mana", value_fn=leeching_uptime("Mana"), fields=()),
     Condition("conditionLeechingEnergyShield", "Leeching Energy Shield", value_fn=leeching_uptime("EnergyShield"),
               fields=()),
-    Condition("conditionCritRecently", "Crit recently",
-              stat=lambda s: _uptime({"CritRecently": s.get("CritChance"), "Speed": s.get("Speed")}, "CritRecently"),
+    Condition("conditionCritRecently", "Crit recently",  # (MECH109: crit_recently_share, CRIT_RECENTLY's note)
+              stat=lambda s: crit_recently_share(s) >= MIN_UPTIME, uptime_fn=crit_recently_share,
               fields=("CritChance", "Speed")),
     Condition("conditionSkillCritRecently", "Skills crit recently",
-              stat=lambda s: _uptime({"CritRecently": s.get("CritChance"), "Speed": s.get("Speed")}, "CritRecently"),
+              stat=lambda s: crit_recently_share(s) >= MIN_UPTIME, uptime_fn=crit_recently_share,
               fields=("CritChance", "Speed")),
     Condition("conditionNonCritRecently", "Dealt a Non-Critical Hit recently (MECH86: the main skill's hits)",
               value_fn=_non_crit_recently, fields=("CritChance", "Speed", "HitChance")),

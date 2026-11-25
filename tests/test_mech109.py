@@ -109,3 +109,17 @@ def test_other_groups_chills_join_the_chilled_share():
     assert up == pytest.approx(0.8) and "Frost Wall" in how and "Spark" not in how
     assert conditions.chilled_share({"_side_rows": rows}) == pytest.approx(0.8)  # (the main skill Chills nothing)
     assert conditions.side_chill_share({"_side_rows": rows[1:]}) == (0.0, "")
+
+
+def test_crit_recently_counts_every_groups_crits_at_its_share():
+    # (MECH109, CRIT_RECENTLY: before, the main skill alone, all or nothing at 90% in 4 s)
+    main = {"CritChance": 27.6, "Speed": 1.0, "HitChance": 100}
+    alone = conditions.crit_recently_share(main)
+    assert alone == pytest.approx(1 - conditions.periodic_absent(0.276, 4.0))  # (~73%: was off under the 90% cut)
+    rows = [{"name": "Tempest Bell", "hits": 1.8, "crits": 0.5}]
+    both = conditions.crit_recently_share({**main, "_side_rows": rows})
+    assert both == pytest.approx(1 - conditions.periodic_absent(0.276, 4.0)
+                                 * conditions.periodic_absent(0.5 / 1.8, 7.2))
+    # (a main skill with no uses: the side skills alone; none that crits: 0)
+    assert conditions.crit_recently_share({"CritChance": 100, "Speed": 0, "_side_rows": rows}) > 0.9
+    assert conditions.crit_recently_share({"CritChance": 100, "Speed": 0}) == 0.0
