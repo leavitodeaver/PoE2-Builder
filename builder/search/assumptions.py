@@ -5218,6 +5218,10 @@ class Assumptions:
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             slam_mods, slam_notes = models.multi_set_model(main.name, main.stat_set, sets)
             hand_mods, hand_notes = hand_mods + slam_mods, hand_notes + slam_notes
+        if main is not None and group and (main.name, main.stat_set) in models.SET_FLAG_WHY:  # (GEM43: R59-3's melee row)
+            sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+            flag_mods, flag_notes = models.set_flag_model(main.name, main.stat_set, sets)
+            hand_mods, hand_notes = hand_mods + flag_mods, hand_notes + flag_notes
         if main is not None and group and main.name in models.COMBO_SEQUENCES:  # (GEM11: a combo's step sets)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             up, up_how = models.ailment_up_of(build)  # (GEM12: Primal Strikes' spirits need a Shocked boss)

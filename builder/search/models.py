@@ -12388,6 +12388,37 @@ def event_trigger_model(name: str, events: float, cap: float, blast: float, how:
                  f"this build {dps:,.1f} DPS; without it: 0.")}]
 
 
+# (GEM43; RESEARCH59 R59-3, research/shockwave-totem-melee-limit-r59.md, MEDIUM) A stat set given a flag PoB's data lacks
+# (engine/bridge.lua SET_FLAG_READINGS): Shockwave Totem's "Jagged Ground Eruption" (Shockwave Slam's set 2) as Melee, so
+# "Melee Damage" lines reach it (PoB's baseFlags had no melee; the game's set inherits the Slam's attack_is_melee_override,
+# R59-3's reading of the set flag). PoB scores the set with the flag (an UNDERCOUNT fixed for a build with Melee lines);
+# this note gives the number without it (setRates' TotalDPSWithoutAdded), the "not melee" row. No DPS line: the
+# headline is PoB's.
+SET_FLAG_WHY = {("Shockwave Slam", "Jagged Ground Eruption"): (
+    "The game's Eruption set has no stats of its own and inherits the Slam's attack_is_melee_override (RESEARCH59 "
+    "R59-3: the set flag on 122 of 8,284 sets, almost all secondary hits); PoB's copy lacked the melee flag, so Melee "
+    "Damage lines missed it", "MEDIUM")}
+
+
+def set_flag_model(main: str | None, scored: str | None, sets: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(GEM43) The note for a main skill whose scored stat set got a flag from our reading (SET_FLAG_WHY): PoB's DPS with
+    it (the headline) and without it (the row). `sets`: the bridge's setRates for the main group's skill."""
+    why = SET_FLAG_WHY.get((main or "", scored or ""))
+    row = next((s for s in sets if s.get("label") == scored and s.get("addedFlags")), None)
+    if why is None or row is None:
+        return [], []
+    with_it, without = number(row.get("TotalDPS")), number(row.get("TotalDPSWithoutAdded"))
+    flags = str(row.get("addedFlags"))
+    ratio = f" (x{with_it / without:.3f} from the reading)" if without > 0 else ""
+    return [], [{
+        "label": f"{main}: its {scored} counted as {flags.replace(',', ' / ').title()}*",
+        "value": f"{with_it:,.1f} DPS{ratio}",
+        "basis": f"{why[0]}. PoB scores the {scored} with the flag: {with_it:,.1f} DPS. Row: not {flags}: "
+                 f"{without:,.1f} DPS.",
+        "confidence": why[1],
+        "play": f"Without the {flags} reading: {without:,.1f} DPS; with it: {with_it:,.1f} DPS."}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,

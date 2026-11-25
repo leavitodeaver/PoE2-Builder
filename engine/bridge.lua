@@ -2383,6 +2383,17 @@ end
 -- in PoB's skill types, but its one stat set has empty baseFlags, so PoB computes no damage for it (probe POE2T4803:
 -- AverageDamage 0). Its set gets baseFlags attack / area / melee from its own skill types (nothing else changed); its
 -- rate comes from the model (models.kalguur_rune_model: the boosted Slams' hits, its rune limit and duration).
+-- (GEM43, RESEARCH59 R59-3, MEDIUM) Shockwave Totem's "Jagged Ground Eruption" set (ShockwaveTotemQuakePlayer set 2) as
+-- Melee. The game's set (GrantedEffectStatSets ShockwaveTotemJaggedQuakePlayer, 26650308) has empty implicit and
+-- constant stats and the flag R59-3 reads as "inherits the set before" (on 122 of 8,284 sets, almost all a skill's
+-- secondary hits: Earthquake's Aftershock, Sunder's / Boneshatter's Shockwave); the set before, the Slam, holds
+-- attack_is_melee_override, and the active skill's types hold Melee. PoB's copy of the set lists
+-- attack_is_melee_override too but gives baseFlags totem / attack / area without melee, and PoB reads that stat nowhere
+-- (SkillStatMap.lua, Modules/*.lua: no hit), so "Melee Damage" lines missed the set PoB scores for the skill (probe
+-- scratch/gem43/probe_eruption.py: "100% increased Melee Damage" doubled the Slam set, 12.2 -> 24.5, and left the
+-- Eruption at 44.2). The flag is added only where PoB lacks it and recorded on the set (bridgeAddedFlags); setRates gives
+-- the set's DPS without it too (TotalDPSWithoutAdded), for models.set_flag_model's "not melee" row. (No new main-chunk
+-- locals: bridge.lua's main function is at Lua's 200-local limit.)
 local ATTACK_SET_FLAGS = { TriggeredFistOfKalguurPlayer = { attack = true, area = true, melee = true } }
 local function installAttackSetFlags()
 	if not (data and data.skills) then
@@ -2393,6 +2404,23 @@ local function installAttackSetFlags()
 			set.baseFlags = set.baseFlags or { }
 			for flag, on in pairs(flags) do
 				set.baseFlags[flag] = on
+			end
+		end
+	end
+	-- (GEM43, R59-3) the per-set readings, above
+	local readings = { ShockwaveTotemQuakePlayer = { ["Jagged Ground Eruption"] = { melee = true } } }
+	for id, bySet in pairs(readings) do
+		for _, set in pairs((data.skills[id] or { }).statSets or { }) do
+			local flags = bySet[set.label or ""]
+			if flags then
+				set.baseFlags = set.baseFlags or { }
+				for flag in pairs(flags) do
+					if not set.baseFlags[flag] then
+						set.baseFlags[flag] = true
+						set.bridgeAddedFlags = set.bridgeAddedFlags or { }
+						set.bridgeAddedFlags[flag] = true
+					end
+				end
 			end
 		end
 	end
@@ -5754,6 +5782,25 @@ function bridge.setRates(args)
 					entry[field] = jsonNumber(output[field])
 				end
 			end
+		end
+		-- (GEM43) a set given a flag PoB's data lacks (installAttackSetFlags' readings): its DPS once more without it, the row
+		local added = statSet.bridgeAddedFlags
+		if added and entry.TotalDPS then
+			local names = { }
+			for flag in pairs(added) do
+				statSet.baseFlags[flag] = nil
+				names[#names + 1] = flag
+			end
+			table.sort(names)
+			local okWithout, envWithout = pcall(calcs.initEnv, build, "CALCULATOR")
+			if okWithout and envWithout and envWithout.player.mainSkill and pcall(calcs.perform, envWithout, true)
+					and type(envWithout.player.output.TotalDPS) == "number" then
+				entry.TotalDPSWithoutAdded = jsonNumber(envWithout.player.output.TotalDPS)
+			end
+			for flag in pairs(added) do
+				statSet.baseFlags[flag] = true
+			end
+			entry.addedFlags = table.concat(names, ",")
 		end
 		sets[#sets + 1] = entry
 	end
