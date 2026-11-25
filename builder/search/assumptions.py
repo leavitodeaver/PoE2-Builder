@@ -11636,11 +11636,50 @@ class Assumptions:
         limit, _, limit_how = models.temporary_minion_limit(
             texts, number(row.get("instanceLimit")) or models.SKYFALL_LIMIT)
         scale, notes = models.skyfall_minion_model(uses, how, limit, number(row.get("duration")) or models.SKYFALL_SECONDS,
-                                                   speed, getattr(self, "undeath_limit", None), limit_how)
+                                                   speed, getattr(self, "undeath_limit", None), limit_how,
+                                                   self.skyfall_infused(uses, texts) if uses > 0 else (0.0, ""))
         objective = getattr(build, "objective", None)
         if objective is not None:  # (its own Full DPS entry x the Comet-Spawn standing, as minion_counts)
             objective.entry_scales[models.SKYFALL_MINION] = objective.entry_scales.get(models.SKYFALL_MINION, 1.0) * scale
         return [], notes
+
+    def skyfall_infused(self, uses: float, texts: list[str]) -> tuple[float, str]:
+        """(MECHB64; models.skyfall_minion_model's note) (the share of Skyfall's casts that consume a Verisium Infusion,
+        how): the build's Verisium Infusions a second (infusion_supply's "Any": Powered by Verisium's Ward-paid uses,
+        "Every N seconds, gain a Verisium Infusion" lines) over Skyfall's `uses` and every other Infusion consumer's (any
+        element: other_infusion_users, and the main skill when it consumes one), each use finding one with the same
+        chance (infusion_found: the Verisium cap, the largest single Elemental cap; its 20 s timer). MEDIUM-LOW: which
+        consumer a Verisium Infusion goes to first is UNVERIFIED (an even share the reading)."""
+        build = self.build
+        raw = build.call("activeSkills")["skills"]
+        present = {s["name"]: s for s in raw if not s["disabled"]}
+        supply, used = infusion_supply(present, texts, set(),
+                                       verisium=verisium_infusions(build) if VERISIUM in present else (0.0, ""))
+        have = supply["Any"]
+        if have <= 0:
+            return 0.0, "the build makes no Verisium Infusion"
+        others, how = 0.0, []
+        for element in ("Fire", "Cold", "Lightning"):
+            n, n_how = self.other_infusion_users(element)
+            if n > 0:
+                others, how = others + n, how + [n_how]
+        main_name, group = self.main_skill(), build.main_group()
+        consume = re.compile(r"\b(?:Fire|Cold|Lightning)-infused\b", re.I)
+        stats = [f"active_skill_consumes_a_{e}_infusion" for e in ("fire", "cold", "lightning")]  # (MECHC53's note)
+        if group and main_name and main_name != models.SKYFALL and (any(
+                consume.search(label) for skill in group.get("skills") or [] if skill.get("name") == main_name
+                for label in skill.get("statSets") or []) or any(
+                number((r.get("levelStats") or {}).get(stat)) > 0
+                for r in build.call("activeSkills", levelStats=[main_name])["skills"]
+                if r.get("name") == main_name and r.get("group") == group["index"] for stat in stats)):
+            speed = number(build.call("stats", fields=["Speed"]).get("Speed"))
+            others, how = others + speed, how + [f"{main_name} {speed:.2f}/s (the main skill)"]
+        cap = infusion_cap(texts, "Fire", True) - infusion_cap(texts, "Fire")
+        share = infusion_found(have, uses + others, 0.0, cap, infusion_seconds(texts, "verisium"))
+        return share, (f"{have:.2f} Verisium Infusions/s from {', '.join(used)}, for Skyfall's {uses:.3f} casts/s"
+                       + (f" and the other Infusion consumers' {others:.2f}/s ({'; '.join(how)}), an even share "
+                          "(UNVERIFIED which takes it first)" if others > 0 else "")
+                       + f": {share:.0%} of casts find one (MEDIUM-LOW)")
 
     def warcry_presses(self, found: list[models.Skill], main: models.Skill | None,
                        kaom: bool = False) -> tuple[list[dict], list[dict]]:

@@ -25622,8 +25622,11 @@ def minion_count_scale(count: float, hit_dps: float, combined_dps: float) -> flo
 # base_skill_effect_duration, MEDIUM-HIGH that it times them: no other timed effect, "Temporary" minions), at most its
 # Limit 12 (base_number_of_verisium_octopus_minions_allowed; the bridge's instanceLimit when it reads it). Alive =
 # min(limit, a cast's minions x casts a second x duration), Archon of Undeath's doubled limit mixed in where it binds
-# (undeath_limit_mix). No Ward spent: no cast, 0 minions (said). The Infused share isn't read (3 a cast, the lower
-# reading; 6 a row). The slam PoB lacks (GAExpedition2OctopusSlam: 95% damage, 2 s cooldown; R58-7) takes one of the
+# (undeath_limit_mix). No Ward spent: no cast, 0 minions (said). (MECHB64, MECHB63's next (c)) The Infused share: "Consumes
+# a Verisium Infusion, if possible, to increase the number of Minions summoned" (ActiveSkills skyfall), 6 a cast then;
+# the share of casts that find one is Assumptions.skyfall_infused's (the build's Verisium supply, MECH-C's infusion_supply
+# "Any", shared evenly with every other Infusion consumer, as Verisium is "used in place of any Elemental Infusion":
+# MEDIUM-LOW), so 3 + 3 x share a cast; every cast Infused (6) the row. The slam PoB lacks (GAExpedition2OctopusSlam: 95% damage, 2 s cooldown; R58-7) takes one of the
 # minion's attacks each cooldown: of its A attacks a second, min(1, 1 / (2 A)) are slams at x0.95 (its 60% Physical as
 # Cold not applied: the boss's armour against its Cold resistance, UNVERIFIED either way; its 15% more at the centre a
 # row). All of them taken to reach the boss (as minion_counts, MEDIUM). The count scales the Comet-Spawn's own Full DPS
@@ -25640,13 +25643,16 @@ SKYFALL_MINION = "Verisium Comet-Spawn"  # (its Full DPS entry's name: engine/br
 
 
 def skyfall_minion_model(uses: float, uses_how: str, limit: float, seconds: float, speed: float,
-                         undeath: tuple[float, float] | None = None, limit_how: str = "") -> tuple[float, list[dict]]:
+                         undeath: tuple[float, float] | None = None, limit_how: str = "",
+                         infused: tuple[float, str] = (0.0, "")) -> tuple[float, list[dict]]:
     """(the Comet-Spawn entry's scale, notes) for Skyfall's Comet-Spawn (see above): `uses` Skyfall's casts a second (its Glory), `limit` /
     `seconds` its Limit and duration, `speed` one minion's attacks a second (PoB's), `undeath` Archon of Undeath's mix."""
     uses, limit = max(number(uses), 0.0), max(number(limit), 0.0) or SKYFALL_LIMIT
     seconds = max(number(seconds), 0.0) or SKYFALL_SECONDS
+    share, infused_how = min(max(number(infused[0]), 0.0), 1.0), infused[1]
+    per_cast = SKYFALL_PER_CAST + (SKYFALL_PER_INFUSED_CAST - SKYFALL_PER_CAST) * share
 
-    def count_at(lim: float, per: float = SKYFALL_PER_CAST) -> float:
+    def count_at(lim: float, per: float = per_cast) -> float:
         return min(lim, per * uses * seconds)
     count, mix_how = undeath_limit_mix(count_at, limit, undeath)
     if not mix_how:
@@ -25656,7 +25662,10 @@ def skyfall_minion_model(uses: float, uses_how: str, limit: float, seconds: floa
     factor = 1.0 - slams * (1.0 - SKYFALL_SLAM_MORE)
     centre = 1.0 - slams + slams * SKYFALL_SLAM_MORE * SKYFALL_SLAM_CENTRE
     scale = count * factor
-    how = (f"{uses:.3f} casts a second ({uses_how}) x {SKYFALL_PER_CAST} Comet-Spawn a cast x {seconds:.3g} s each, at most "
+    per_how = (f"{per_cast:.2f} Comet-Spawn a cast ({share:.0%} of casts Verisium-Infused, 6 each: {infused_how})"
+               if share > 0 else f"{SKYFALL_PER_CAST} Comet-Spawn a cast"
+               + (f" (no Verisium Infusion reaches it: {infused_how})" if infused_how else ""))
+    how = (f"{uses:.3f} casts a second ({uses_how}) x {per_how} x {seconds:.3g} s each, at most "
            f"{limit:g}{' (' + limit_how + ')' if limit_how else ''}{'; ' + mix_how if mix_how else ''} = {count:.2f} alive"
            if uses > 0 else
            f"no cast: {uses_how or 'its Glory comes from Runic Ward spent, and the build spends none'}: 0 Comet-Spawn "

@@ -1,7 +1,26 @@
 """MECHB64 (MECH-B): RESEARCH60 R60-1, Bonestorm's spike explosions with Pierce / Chain / Fork on the skill."""
+import faulthandler
+
 import pytest
 
 from builder.search import models
+
+
+@pytest.fixture(scope="module")
+def engine():
+    from builder.data import GameData
+
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump; run `uv run python -m builder.data dump`")
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()  # LuaJIT's Lua errors are Windows exceptions PoB's pcall catches
+    yield PobEngine()
+    if enabled:
+        faulthandler.enable()
 
 
 def test_pierce_chain_or_fork_on_bonestorm_moves_its_explosion_off_the_struck_boss():
@@ -42,3 +61,42 @@ def test_energy_past_the_maximum_lost_is_a_row():
     assert models.energy_overflow_row(10.0, 30.0, 10.0) == ""  # (a whole 3 hits a round: nothing lost either way)
     assert models.energy_overflow_row(0.0, 30.0, 0.0) == ""
 
+
+def test_skyfall_makes_six_comet_spawn_on_its_verisium_infused_share():
+    """MECHB63's next (c): 3 a cast, 6 when the cast consumes a Verisium Infusion: 3 + 3 x the share of casts finding one
+    (Assumptions.skyfall_infused); no share, 3 a cast as before."""
+    plain, _ = models.skyfall_minion_model(0.05, "Glory", 12.0, 20.0, 0.0)
+    half, notes = models.skyfall_minion_model(0.05, "Glory", 12.0, 20.0, 0.0, None, "", (0.5, "x"))
+    assert plain == pytest.approx(3 * 0.05 * 20) and half == pytest.approx(4.5 * 0.05 * 20)
+    assert "50% of casts Verisium-Infused" in notes[0]["basis"]
+    capped, _ = models.skyfall_minion_model(1.0, "Glory", 12.0, 20.0, 0.0, None, "", (1.0, "x"))
+    assert capped == pytest.approx(12.0)  # (the Limit binds: the share moves nothing)
+
+
+def test_skyfall_shares_the_builds_verisium_infusions_with_the_other_consumers(engine):
+    """Assumptions.skyfall_infused on real PoB: Powered by Verisium's Ward-paid uses make the Verisium Infusions (its
+    count a cast from the gem), shared evenly with the main Fireball's casts (it consumes Fire Infusions)."""
+    from builder.request.schema import BuildRequest
+    from builder.search import assumptions
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Fireball"))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0, full=True)
+    search.setup(quests=False)
+    build = search.build
+    build.call("addSkillGroup", text="Skyfall 20/0 1")
+    texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+    a = search.assumptions
+    assert a.skyfall_infused(0.1, texts) == (0.0, "the build makes no Verisium Infusion")
+    build.call("addSkillGroup", text=f"{assumptions.VERISIUM} 20/0 1")
+    build.ward_sustain = {assumptions.VERISIUM: (1.0, 0.5)}  # (0.5 Ward-paid uses a second)
+    count = assumptions.verisium_infusions(build)[0]
+    share, how = a.skyfall_infused(0.1, texts)
+    print(count, share, how)
+    assert count > 0 and 0 < share < 1 and "Fireball" in how and "Skyfall's 0.100 casts/s" in how
+    alone = assumptions.infusion_found(count, 0.1, 0.0, assumptions.infusion_cap(texts, "Fire", True)
+                                       - assumptions.infusion_cap(texts, "Fire"))
+    assert share < alone  # (Fireball's casts take their share)
