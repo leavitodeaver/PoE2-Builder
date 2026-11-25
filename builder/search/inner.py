@@ -78,6 +78,15 @@ PRESS_RATES = (0.0, 0.25, 0.5, 1.0, 2.0)
 PRESS_ROUND = os.environ.get("POE2_SEARCH_PRESS", "1") != "0"
 # (SEARCH25, A36-14) a granted pressed skill tried in Full DPS on the finished build (Search.include_granted)
 GRANTED_PRESS = os.environ.get("POE2_SEARCH_GRANTED_PRESS", "1") != "0"
+# (SEARCH40; MECHB60's 25971950, the manager's 24 Nov 17:01 item 6) Twister consumes the Whirlwinds of the build's own
+# Whirling Slash / Whirlwind Lance presses (models.twister_consume_model; no press, no gain), and nothing gave a Twister build
+# such a group: a player who takes Twister plays to feed it (CLAUDE.md's rate rule), so the finished build tries each legal
+# feeder as a side group (a skill slot and a button within the request's cap), its press rate chosen by the press round
+# (real-scored rates, PRESS_RATES), kept only if the build scores higher; the play guide's press row gives the DPS without /
+# with it. FEEDER_SECONDS: LOW, a time budget. POE2_SEARCH_FEEDER=0 turns it off
+FEEDER_ROUND = os.environ.get("POE2_SEARCH_FEEDER", "1") != "0"
+FEEDER_SECONDS = 60.0
+FEEDER_LABEL = "Feeder (search)"
 FILL_FINALIZE_RATIO = 1.5  # (SEARCH34) the open-socket fill's time, at most this x finalize's own (LOW, a time budget)
 # (SEARCH35; SEARCH34's ranked list, item 5: the search stalls in the Uhtred's Augury set on 2b75b seeds 1 / 4, and the
 # end-of-run fill fixes the supports but the gear and tree were chosen under the worse set) the same fill inside the
@@ -691,6 +700,53 @@ class Search:
                 self._press(name, best)
             self.press_rows[name].update({"without": trials[PRESS_RATES[0]][1], "with": trials[best][1]})
         return build.score > before + EPSILON
+
+    def feeder_round(self, deadline: float) -> bool:
+        """(SEARCH40; FEEDER_ROUND's comment) A Twister build's Whirlwind feeders: each legal one added as a side group,
+        the press round choosing its rate for real, the best kept only if the build scores higher. True if one was kept."""
+        from builder.search.context import gem_group_limit
+        from builder.search.models import WHIRL_SKILLS
+        from builder.search.recovery import TWISTER
+
+        build, gems = self.build, self.gems
+        if not FEEDER_ROUND or not PRESS_ROUND or self.skeleton.main_skill != TWISTER or clock.now() > deadline:
+            return False
+        groups = build.groups()
+        present = {n["name"] for g in groups for n in g.get("gems") or []}
+        if present & set(WHIRL_SKILLS):
+            return False  # (a feeder is already there: the press round chooses its rate)
+        if len([g for g in groups if not g.get("fromItem")]) >= gem_group_limit(build):
+            return False  # (no skill slot left)
+        cap = self.ctx.request.max_buttons
+        feeders = [n for n in sorted(WHIRL_SKILLS) if n in self.ctx.gems and self.ctx.allowed_gem(n)
+                   and self.ctx.gem_price(n) is not None and gems.affordable(n, 0.0, gems.budget_left()) and gems.usable(n)]
+        before, snap = build.score, build.snapshot()  # (the snapshot carries the press choices and rows)
+        best: tuple[float, str] | None = None
+        self.feeder_log = []
+        for name in feeders:
+            if clock.now() > deadline:
+                break
+            build.set_group(gems=gems.persistent_gem(name), label=FEEDER_LABEL)
+            self.resolve()
+            if cap is not None and len(gems.buttons()) > cap:
+                self.feeder_log.append({"skill": name, "kept": False, "why": "over the button cap"})
+            else:
+                self.press_round(deadline)
+                rate = press_choices(build).get(name, 0.0)
+                self.feeder_log.append({"skill": name, "rate": rate, "score": round(build.score - before, 4),
+                                        "dps": round(build.objective.dps(build.stats), 1)})
+                if rate > 0 and build.score > before + EPSILON and (best is None or build.score > best[0]):
+                    best = (build.score, name)
+            build.restore(snap)
+        if best is None:
+            return False
+        build.set_group(gems=gems.persistent_gem(best[1]), label=FEEDER_LABEL)
+        self.resolve()
+        self.press_round(deadline + FEEDER_SECONDS)  # (its rate chosen again on the kept group: the guide's rows)
+        if build.score <= before + EPSILON or press_choices(build).get(best[1], 0.0) <= 0:
+            build.restore(snap)
+            return False
+        return True
 
     def _rescore(self) -> float:
         self.settle()
@@ -2267,6 +2323,8 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     trace.append(["play", round(build.score, 4)])
     search.resolve()
     trace.append(["resolve", round(build.score, 4)])
+    if search.feeder_round(clock.now() + FEEDER_SECONDS):  # (SEARCH40: a Twister build's Whirlwind feeder press)
+        trace.append(["feeder press", round(build.score, 4)])
     search.press_round(float("inf"))  # (the finished build's rates and their play guide rows)
     trace.append(["press rates", round(build.score, 4)])
     if search.include_granted():  # (SEARCH25, A36-14: a granted pressed skill, judged on the finished build only)

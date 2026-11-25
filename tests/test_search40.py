@@ -1,75 +1,11 @@
-"""SEARCH40 (the manager's 24 Nov 17:02 items)."""
+"""SEARCH40 (the manager's 24 Nov 17:02 items): reservations past the pool are game limits (unreserved Life below 1,
+unreserved Mana negative: SPEED2's 2b75c, POE2T7853, delivered a build that reserved all its Life)."""
 from __future__ import annotations
 
-import faulthandler
-import json
-from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 from builder.request.schema import DefenceStyle
 from builder.search.objective import Objective, reservation_short
-
-ORACLE = Path(__file__).resolve().parents[1] / "benchmarks" / "results" / "gate4-20261123-073445.json"
-
-
-@pytest.fixture(scope="module")
-def engine():
-    from builder.data import GameData
-
-    try:
-        GameData()
-    except FileNotFoundError:
-        pytest.skip("no game-data dump; run `uv run python -m builder.data dump`")
-    from builder.pob.engine import PobEngine
-
-    enabled = faulthandler.is_enabled()
-    faulthandler.disable()
-    yield PobEngine()
-    if enabled:
-        faulthandler.enable()
-
-
-def test_the_weapon_set_the_main_skill_doesnt_use_gives_the_models_no_lines(engine):
-    """(Item 1; MECHC59's POE2T7139) A swap weapon's lines reach the models (sourceLines) only while the main skill's
-    group uses that weapon set, as PoB's own calculation reads them (CalcSetup 1255): before, "+8 to Maximum Rage" on
-    "Weapon 1 Swap" reached the Rage model of a build on weapon set 1."""
-    from builder.pob import codes
-
-    row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
-    engine.call("loadXml", xml=codes.decode(row["code"]))
-
-    def swap_lines():
-        return sorted(l["text"] for l in engine.call("sourceLines")["lines"] if l["source"].endswith("Swap"))
-
-    def strength():
-        return float(engine.call("stats", fields=["Str"])["Str"])
-
-    plain = strength()
-    engine.call("equip", slot="Weapon 1 Swap",
-                raw="Rarity: RARE\nProbe Fang\nWithered Wand\n+100 to Strength\n+8 to Maximum Rage")
-    assert swap_lines() == [] and strength() == plain  # (set 1: neither PoB nor the models read the swap wand)
-    # (the mirror: a build whose main skill plays weapon set 2, Ice Shot on the swap bow (test_engine_items' fixture):
-    # the swap weapons' lines are its own, set 1's wand gives none. Probe POE2T7513: PoB won't move the Oracle's main
-    # group to set 2, its skill needs set 1's weapon)
-    code = (Path(__file__).parent / "fixtures" / "codes" / "set2_ice_shot_with_mana.txt").read_text(encoding="utf-8")
-    engine.call("loadXml", xml=codes.decode(code.strip()))
-    set2 = next(g for g in engine.call("groups")["groups"] if (g["set1"], g["set2"]) == (False, True)
-                and any(n["name"] == "Ice Shot" for n in g["gems"]))
-    engine.call("setGroup", index=set2["index"], main=True)  # (the fixture's main group uses both sets: PoB plays set 1)
-    groups = engine.call("groups")
-    main = next(g for g in groups["groups"] if g["index"] == groups["mainSocketGroup"])
-    assert main["index"] == set2["index"] and (main["set1"], main["set2"]) == (False, True)
-    plain2 = strength()
-    engine.call("equip", slot="Weapon 1 Swap", raw="Rarity: RARE\nProbe Bow\nCrude Bow\n+100 to Strength")
-    sources = {l["source"] for l in engine.call("sourceLines")["lines"]}
-    assert strength() == plain2 + 100  # (PoB reads the set-2 bow)
-    assert "item:Weapon 1 Swap" in sources and not sources & {"item:Weapon 1", "item:Weapon 2"}, sorted(sources)
-    plain2 = strength()
-    engine.call("equip", slot="Weapon 1", raw="Rarity: RARE\nProbe Fang\nWithered Wand\n+100 to Strength\n+8 to Maximum Rage")
-    assert strength() == plain2  # (PoB doesn't read set 1's wand)
-    assert not {l["source"] for l in engine.call("sourceLines")["lines"]} & {"item:Weapon 1", "item:Weapon 2"}
 
 
 def limits(stats):
@@ -181,6 +117,66 @@ def test_close_calls_are_off_by_default_and_time_guarded(monkeypatch):
                                       done=set()) == [(9.6, {})]
 
 
+def feeder_search(gain: dict[str, float], main="Twister", cap=None, groups_used=3):
+    """A stand-in Search for feeder_round: adding feeder X and pressing it moves the score by gain[X]."""
+    import copy
+
+    from builder.search.inner import FEEDER_LABEL
+
+    groups = [{"index": i + 1, "gems": [{"name": f"S{i}"}], "fromItem": False, "label": ""} for i in range(groups_used)]
+    objective = SimpleNamespace(press_choices={}, dps=lambda s: s.get("dps", 0.0))
+    build = SimpleNamespace(score=10.0, stats={"LedgerSkillSlots": 9, "dps": 1.0}, objective=objective)
+    build.groups = lambda: groups
+    build.snapshot = lambda: copy.deepcopy({"groups": groups, "score": build.score, "press": objective.press_choices})
+
+    def restore(snap):
+        groups[:] = snap["groups"]
+        build.score, objective.press_choices = snap["score"], dict(snap["press"])
+    build.restore = restore
+
+    def set_group(gems, label):
+        assert label == FEEDER_LABEL
+        groups.append({"index": len(groups) + 1, "gems": gems, "fromItem": False, "label": label})
+    build.set_group = set_group
+
+    def press_round(deadline):
+        name = groups[-1]["gems"][0]["name"]
+        if gain.get(name, 0.0) > 0:
+            objective.press_choices = {**objective.press_choices, name: 1.0}
+            build.score = 10.0 + gain[name]
+        return True
+
+    ctx = SimpleNamespace(gems={"Whirling Slash": {}, "Whirlwind Lance": {}}, allowed_gem=lambda n: True,
+                          gem_price=lambda n: (0.0, "found"), request=SimpleNamespace(max_buttons=cap))
+    gems = SimpleNamespace(affordable=lambda n, f, l: True, budget_left=lambda: 0.0, usable=lambda n: n in gain,
+                           persistent_gem=lambda n: [{"name": n, "level": 20, "quality": 20}],
+                           buttons=lambda: [g["gems"][0]["name"] for g in groups])
+    s = SimpleNamespace(build=build, gems=gems, ctx=ctx, skeleton=SimpleNamespace(main_skill=main), press_rows={},
+                        resolve=lambda: None, press_round=press_round, _rescore=lambda: build.score)
+    return s, groups
+
+
+def test_a_twister_build_keeps_the_feeder_that_scores_higher():
+    """(Item 6; MECHB60) Whirlwind Lance feeds a Spear Twister (Whirling Slash isn't usable with a spear: usable False)."""
+    from builder.search.inner import Search
+
+    s, groups = feeder_search({"Whirlwind Lance": 0.5})
+    assert Search.feeder_round(s, float("inf"))
+    assert groups[-1]["gems"][0]["name"] == "Whirlwind Lance" and s.build.objective.press_choices == {"Whirlwind Lance": 1.0}
+    assert [r["skill"] for r in s.feeder_log] == ["Whirlwind Lance"]
+
+
+def test_no_feeder_when_it_doesnt_score_higher_or_doesnt_fit():
+    from builder.search.inner import Search
+
+    for kwargs in ({"gain": {"Whirlwind Lance": -0.1}}, {"gain": {"Whirlwind Lance": 0.5}, "main": "Spark"},
+                   {"gain": {"Whirlwind Lance": 0.5}, "cap": 3}, {"gain": {"Whirlwind Lance": 0.5}, "groups_used": 9}):
+        s, groups = feeder_search(**kwargs)
+        n = len(groups)
+        assert not Search.feeder_round(s, float("inf")) and len(groups) == n and s.build.score == 10.0
+
+
+
 def test_the_side_fill_is_off_by_default_and_joins_finalizes_fill_when_on(monkeypatch):
     """(Item 3, the manager's 24 Nov 17:01 ruling) Side groups get fill_open's real trials only with the switch on."""
     from builder.search import gems
@@ -200,3 +196,70 @@ def test_a_side_groups_trials_go_to_a_what_if_signal_then_to_model_valued_suppor
     assert Gems._side_ranked(g, options, scored, 3) == ["Signal", "Model B", "Model A"]
     g.build.model_gem = None  # (no search set it: what-if, then PoB's order)
     assert Gems._side_ranked(g, options, scored, 2) == ["Signal", "Plain"]
+
+
+import faulthandler  # noqa: E402
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import pytest  # noqa: E402
+
+ORACLE = Path(__file__).resolve().parents[1] / "benchmarks" / "results" / "gate4-20261123-073445.json"
+
+
+@pytest.fixture(scope="module")
+def engine():
+    from builder.data import GameData
+
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump; run `uv run python -m builder.data dump`")
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()
+    yield PobEngine()
+    if enabled:
+        faulthandler.enable()
+
+
+def test_the_weapon_set_the_main_skill_doesnt_use_gives_the_models_no_lines(engine):
+    """(Item 1; MECHC59's POE2T7139) A swap weapon's lines reach the models (sourceLines) only while the main skill's
+    group uses that weapon set, as PoB's own calculation reads them (CalcSetup 1255): before, "+8 to Maximum Rage" on
+    "Weapon 1 Swap" reached the Rage model of a build on weapon set 1."""
+    from builder.pob import codes
+
+    row = json.loads(ORACLE.read_text(encoding="utf-8"))["rows"][0]
+    engine.call("loadXml", xml=codes.decode(row["code"]))
+
+    def swap_lines():
+        return sorted(l["text"] for l in engine.call("sourceLines")["lines"] if l["source"].endswith("Swap"))
+
+    def strength():
+        return float(engine.call("stats", fields=["Str"])["Str"])
+
+    plain = strength()
+    engine.call("equip", slot="Weapon 1 Swap",
+                raw="Rarity: RARE\nProbe Fang\nWithered Wand\n+100 to Strength\n+8 to Maximum Rage")
+    assert swap_lines() == [] and strength() == plain  # (set 1: neither PoB nor the models read the swap wand)
+    # (the mirror: a build whose main skill plays weapon set 2, Ice Shot on the swap bow (test_engine_items' fixture):
+    # the swap weapons' lines are its own, set 1's wand gives none. Probe POE2T7513: PoB won't move the Oracle's main
+    # group to set 2, its skill needs set 1's weapon)
+    code = (Path(__file__).parent / "fixtures" / "codes" / "set2_ice_shot_with_mana.txt").read_text(encoding="utf-8")
+    engine.call("loadXml", xml=codes.decode(code.strip()))
+    set2 = next(g for g in engine.call("groups")["groups"] if (g["set1"], g["set2"]) == (False, True)
+                and any(n["name"] == "Ice Shot" for n in g["gems"]))
+    engine.call("setGroup", index=set2["index"], main=True)  # (the fixture's main group uses both sets: PoB plays set 1)
+    groups = engine.call("groups")
+    main = next(g for g in groups["groups"] if g["index"] == groups["mainSocketGroup"])
+    assert main["index"] == set2["index"] and (main["set1"], main["set2"]) == (False, True)
+    plain2 = strength()
+    engine.call("equip", slot="Weapon 1 Swap", raw="Rarity: RARE\nProbe Bow\nCrude Bow\n+100 to Strength")
+    sources = {l["source"] for l in engine.call("sourceLines")["lines"]}
+    assert strength() == plain2 + 100  # (PoB reads the set-2 bow)
+    assert "item:Weapon 1 Swap" in sources and not sources & {"item:Weapon 1", "item:Weapon 2"}, sorted(sources)
+    plain2 = strength()
+    engine.call("equip", slot="Weapon 1", raw="Rarity: RARE\nProbe Fang\nWithered Wand\n+100 to Strength\n+8 to Maximum Rage")
+    assert strength() == plain2  # (PoB doesn't read set 1's wand)
+    assert not {l["source"] for l in engine.call("sourceLines")["lines"]} & {"item:Weapon 1", "item:Weapon 2"}
