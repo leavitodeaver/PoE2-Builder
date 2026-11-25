@@ -83,3 +83,19 @@ def test_the_maim_support_at_slow_side_hits_is_its_share():
     rows = [{"index": 2, "name": "Snipe", "hits": 0.1, "how": "x"}]
     up, _ = conds(skills, "Rain of Arrows")._support_maim(dict(MAIN), {"Attack"}, [], rows)
     assert up == pytest.approx(0.4)
+
+
+def test_exposure_supports_on_other_groups_count_at_their_rows():
+    # (MECH109, EXPOSURE_SIDE: b03's Lightning Exposure on Voltaic Grenade; before, the main skill's supports only)
+    rows = [{"index": 9, "name": "Voltaic Grenade", "hits": 0.13, "shock": 0.25, "ignite": 0.0, "crits": 0.01,
+             "types": ["Lightning"], "how": "x"},
+            {"index": 10, "name": "Rain of Arrows", "hits": 2.0, "crits": 0.5, "types": ["Physical"], "how": "x"}]
+    stats = {"_side_rows": rows, "_exposure_side": [
+        ("Voltaic Grenade", 9, {"inflict_exposure_for_x_ms_on_shock": 8000}),
+        ("Rain of Arrows", 10, {"inflict_exposure_for_x_ms_on_cold_crit": 8000}),  # (no Cold hit damage: 0)
+        ("Ancestral Spirits", 2, {"inflict_exposure_for_x_ms_on_ignite": 8000})]}  # (no row: 0)
+    got = conditions._exposure_support_sources(stats)
+    assert [round(up, 4) for up, _ in got] == [round(0.13 * 0.25 * 8, 4), 0.0, 0.0]
+    assert "Voltaic Grenade beside the main skill" in got[0][1]
+    rows[1]["types"] = ["Cold"]
+    assert conditions._exposure_support_sources(stats)[1][0] == pytest.approx(1.0)  # (0.5 crits/s x 8 s, capped)

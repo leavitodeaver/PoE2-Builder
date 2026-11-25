@@ -5950,6 +5950,12 @@ EXPOSURE_WORD = re.compile(r"\bExposure\b")
 # (stat -> what fires it) the Exposure supports' stats on the main skill (game files: GrantedEffectStatSets
 # SupportFireExposurePlayer / SupportLightningExposurePlayer / SupportColdExposurePlayer), and the Warcry support's
 # all_exposure_on_hit_for_duration_ms ("Supported Skills apply Exposure on Hit for {0} seconds")
+# (MECH109; EXPOSURE_SIDE, an UNDERCOUNT: COV58's calibration, builds 03 and 21, whose authors tick Exposure) An Exposure
+# support on another group's skill (b03's Lightning Exposure on Voltaic Grenade, b21's Cold Exposure on Rain of Arrows)
+# was read nowhere: only the main skill's supports were. Now each other skill's support stats count at that skill's
+# side_hit_rows row: its hits, x its Shock / Ignite chance a hit for the Shock / Ignite ones, its crits where it deals
+# Cold hit damage for the Cold one; a skill with no row (a minion's, as b03's Fire Exposure on Ancestral Spirits): 0,
+# said. Each its own 8 s, combined as independent with the main skill's sources.
 EXPOSURE_SUPPORT_STATS = {
     "inflict_exposure_for_x_ms_on_ignite": "ignite",
     "inflict_exposure_for_x_ms_on_shock": "shock",
@@ -6030,7 +6036,8 @@ def _exposure_source(text: str, element: str, stats: dict, raised: bool = False)
 
 def _exposure_support_sources(stats: dict) -> list[tuple[float, str]]:
     """(uptime, how) for each Exposure support on the main skill (stats["_exposure_supports"]: stat -> value in ms),
-    for all three elements: each lasts its own stat's duration."""
+    and (MECH109, EXPOSURE_SIDE's note) on the other groups' skills (stats["_exposure_side"]), for all three elements:
+    each lasts its own stat's duration."""
     out = []
     for stat, ms in sorted((stats.get("_exposure_supports") or {}).items()):
         if stat not in EXPOSURE_SUPPORT_STATS or number(ms) <= 0:
@@ -6039,7 +6046,34 @@ def _exposure_support_sources(stats: dict) -> list[tuple[float, str]]:
         events, how = _exposure_events(EXPOSURE_SUPPORT_STATS[stat], stats)
         up = min(1.0, events * seconds)
         out.append((up, f"{stat} (a support on the main skill): {events:.2f} {how}/s, {seconds:g} s: {up:.0%} up"))
+    for name, group, found in stats.get("_exposure_side") or ():
+        row = next((r for r in stats.get("_side_rows") or () if r.get("index") == group and r.get("name") == name), None)
+        for stat, ms in sorted(found.items()):
+            if stat not in EXPOSURE_SUPPORT_STATS or number(ms) <= 0:
+                continue
+            seconds = number(ms) / 1000
+            events, how = _side_exposure_events(EXPOSURE_SUPPORT_STATS[stat], row)
+            up = min(1.0, events * seconds)
+            out.append((up, f"{stat} (a support on {name} beside the main skill): {events:.2f} {how}/s, {seconds:g} s: "
+                            f"{up:.0%} up"))
     return out
+
+
+def _side_exposure_events(kind: str, row: dict | None) -> tuple[float, str]:
+    """(MECH109) (events per second, what they are) for an Exposure support on another group's skill, from its
+    side_hit_rows row (None: no hits read for it, 0)."""
+    if not row:
+        return 0.0, "its hits (none read for it: a minion's or an unread skill's, 0)"
+    hits = number(row.get("hits"))
+    if kind == "shock":
+        return hits * number(row.get("shock")), f"Shocks ({row.get('how')})"
+    if kind == "ignite":
+        return hits * number(row.get("ignite")), f"Ignites ({row.get('how')})"
+    if kind == "cold crit":
+        if "Cold" not in (row.get("types") or ()):
+            return 0.0, "crits with Cold Damage (it deals no Cold hit damage)"
+        return number(row.get("crits")), f"crits with Cold Damage ({row.get('how')})"
+    return hits, f"hits ({row.get('how')})"
 
 
 def exposure_source_flags(texts: list[str], main_types: set[str]) -> list[dict]:
@@ -12222,6 +12256,13 @@ class Conditions:
             stats["_exposure_supports"] = {stat: value for part in ("levelStats", "supportStats")
                                            for stat, value in (main.get(part) or {}).items()
                                            if stat in EXPOSURE_SUPPORT_STATS and value}
+            # (MECH109, EXPOSURE_SIDE's note) the Exposure supports on the other groups' skills
+            main_index = self.build.call("groups").get("mainSocketGroup")
+            stats["_exposure_side"] = [
+                (s["name"], s.get("group"), found) for s in raw["skills"]
+                if not s.get("disabled") and not (s["name"] == self.main_skill and s.get("group") in (main_index, None))
+                and (found := {stat: value for stat, value in (s.get("supportStats") or {}).items()
+                               if stat in EXPOSURE_SUPPORT_STATS and value})]
         found: dict[str, tuple[object, str]] = {}
         uptimes: dict[str, float] = {}  # var -> share of the fight, for the effects the build keeps up at a rate
         stats["_found_so_far"] = (found, uptimes)  # (MECH90: _blinded_maimed_bleeding reads the boxes found before it)
