@@ -4672,7 +4672,28 @@ def chilled_share(stats: dict) -> float:
     lull = min(1.0, max(0.0, number(stats.get(CHILL_CONSUMES))) * models.CONSUME_IMMUNE)
     standing = 1.0 - (1.0 - ground) * (1.0 - aura)
     consumed = consume_chill_share(stats)[0]  # (MECH108: Biting Frost II's Chill on each Freeze it consumes)
-    return 1.0 - (1.0 - chill_share(stats)) * (1.0 - standing * (1.0 - lull)) * (1.0 - consumed)
+    side = side_chill_share(stats)[0]  # (MECH109: the other groups' Chills, SIDE_CHILL's note)
+    return 1.0 - ((1.0 - chill_share(stats)) * (1.0 - standing * (1.0 - lull)) * (1.0 - consumed)
+                  * (1.0 - side * (1.0 - lull)))
+
+
+# The other groups' Chills (MECH109; SIDE_CHILL, an UNDERCOUNT for "against Chilled" lines on a main skill that doesn't
+# Chill: chilled_share read the main skill's hits, grounds, Heart of Ice and Biting Frost II only, while the other groups'
+# Ignites (MECH75) and Shocks (MECH102) were already counted). Each other group's hits a second and its chance a hit Chills
+# the boss, both from its side_hit_rows row (PoB's ChillChanceOnHit for that skill, with the game's 30% floor against the
+# boss's Ailment Threshold: _chill_per_hit, MECHC56's "chill"), each Chill CHILL_SECONDS (8 s on non-players, KeywordPopups
+# Chill; that skill's own Chill duration modifiers aren't in its row: the lower reading where it has some, MEDIUM), the
+# share from periodic_absent (evenly spaced hits, MECHB54); the groups taken as independent of each other and of the main
+# skill's Chill. A main Icestorm's consumes take it off as the ground's (the 1 s immunity, MECH106).
+def side_chill_share(stats: dict) -> tuple[float, str]:
+    """(share of the fight the other groups' hits keep the boss Chilled, how); (0.0, "") with none that Chills."""
+    rows = [r for r in stats.get("_side_rows") or () if number(r.get("chill")) > 0 and number(r.get("hits")) > 0]
+    if not rows:
+        return 0.0, ""
+    absent = math.prod(periodic_absent(number(r["chill"]), number(r["hits"]) * CHILL_SECONDS) for r in rows)
+    parts = [f"{r.get('name')}: {number(r['hits']):.2f} hits/s x {number(r['chill']):.0%} Chill a hit" for r in rows]
+    return 1.0 - absent, (f"the other groups' Chills ({'; '.join(parts)}; {CHILL_SECONDS:g} s each): "
+                          f"{1.0 - absent:.0%} of the fight")
 
 
 # Biting Frost II's Chill after it consumes a Freeze (MECH108; GEM42's routed item, an UNDERCOUNT for "vs Chilled" lines on a
@@ -12286,6 +12307,8 @@ class Conditions:
                     if condition.var == "conditionEnemyChilled" and (chilled := consume_chill_share(stats))[1]:
                         without = dict(stats, **{FREEZE_CONSUME_CHILL: False})  # (MECH108: the row without it)
                         reason += f"; with {chilled[1]}; without it {chilled_share(without):.0%}"
+                    if condition.var == "conditionEnemyChilled" and (beside := side_chill_share(stats))[1]:
+                        reason += f"; with {beside[1]}"  # (MECH109: SIDE_CHILL's note)
             if condition.value_fn is not None:
                 value, basis, *share = condition.value_fn([line["text"] for line in lines], stats)
                 if value > 0 or basis:  # (a basis with 0: the build has sources, none of which a boss fight feeds)

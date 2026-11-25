@@ -99,3 +99,13 @@ def test_exposure_supports_on_other_groups_count_at_their_rows():
     assert "Voltaic Grenade beside the main skill" in got[0][1]
     rows[1]["types"] = ["Cold"]
     assert conditions._exposure_support_sources(stats)[1][0] == pytest.approx(1.0)  # (0.5 crits/s x 8 s, capped)
+
+
+def test_other_groups_chills_join_the_chilled_share():
+    # (MECH109, SIDE_CHILL: before, chilled_share read the main skill's hits, grounds and auras only)
+    rows = [{"index": 7, "name": "Frost Wall", "hits": 0.1, "chill": 1.0},  # (0.1 hits/s x 8 s: 80%, evenly spaced)
+            {"index": 8, "name": "Spark", "hits": 3.0, "chill": 0.0}]
+    up, how = conditions.side_chill_share({"_side_rows": rows})
+    assert up == pytest.approx(0.8) and "Frost Wall" in how and "Spark" not in how
+    assert conditions.chilled_share({"_side_rows": rows}) == pytest.approx(0.8)  # (the main skill Chills nothing)
+    assert conditions.side_chill_share({"_side_rows": rows[1:]}) == (0.0, "")
