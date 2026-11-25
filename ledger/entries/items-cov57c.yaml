@@ -1,0 +1,37 @@
+# COV57 turn 3 (24 Nov 2026; COV43's rule): TRAIN 142's readers (099a5465..35cf1b97, origin/main 35cf1b97), each checked
+# against the code that names it. Links only: each adds nothing to PoB. Both were box-only rows (COV56: PoB reads them only
+# behind a Configuration box nothing ticks); MECH106's models now count them. Not open rows, so nothing to mark:
+# MECHC59's charge_skip_consume_chance_% on Charge Regulation's tick (its carriers' rows are items-cov57's) and
+# skill_cannot_gain_rage_during_use (not in the open ranking). cands.py's regex hit on Mountain's Teaching is the generic
+# "when Hit" Rage reader, not a reader of that notable: left open.
+
+- id: model-read-cov57c-malice-critical-weakness
+  title: "Malice's Critical Weakness interval read by models.critical_weakness_stacks (MECH106)"
+  kind: model
+  model: critical_weakness
+  stats: ["critical_chance_against_aura_apply_brittle_every_x_ms"]
+  skill: [Malice]
+  confidence: MEDIUM
+  notes: >-
+    Assumptions.malice_rate reads the stat from levelStats (700 ms at level 1 .. 510 ms at 20) and the group's duration
+    (PoB's, else 4 s); critical_weakness_stacks holds duration / interval stacks (cap 20) while the boss is in your
+    Presence, 0 beyond it (each application a new stack, R35-8, MEDIUM; one refreshed stack a row). A link only.
+  sources: ["builder/search/models.py (MALICE, MALICE_STAT, critical_weakness_stacks)",
+            "builder/search/assumptions.py (malice_rate)"]
+  status: proposed
+
+- id: model-read-cov57c-pursuit-melee-more
+  title: "Pursuit I-III's more Melee Damage after a Projectile Attack Hit, read by models.pursuit_model (MECH106)"
+  kind: model
+  model: pursuit
+  stats: ["support_advancing_assault_melee_damage_+%_final_if_projectile_attack_damage_hit_in_past_8_seconds",
+          "support_advancing_assault_melee_damage_+%_final_if_projectile_attack_damage_hit_in_past_2_seconds"]
+  skill: [Pursuit I, Pursuit II, Pursuit III]
+  confidence: MEDIUM
+  notes: >-
+    The supported skills' supportStats (models.PURSUIT_STATS, windows 8 s / 2 s) x the share of the fight with a
+    Projectile Attack Hit in that window, from the build's own Projectile Attacks (1 - e^(-hits x window)), as "N% more
+    Melee Damage" on that skill. PoB's box stays unticked (COV35's item-line model scales the item lines instead). A link
+    only.
+  sources: ["builder/search/models.py (PURSUIT_STATS, pursuit_model)", "builder/search/assumptions.py (the pursued call)"]
+  status: proposed

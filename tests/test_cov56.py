@@ -32,7 +32,8 @@ def test_cov56_malice_critical_weakness_is_not_read_by_pob():
         pytest.skip("no coverage.json")
     records = [r for r in coverage.audit()["records"]
                if r["category"] == "gem-stat" and r["line"] == "critical_chance_against_aura_apply_brittle_every_x_ms"]
-    assert records and all(r["status"] == "none" and "Configuration box" in r["reason"] for r in records)
+    # (COV57: MECH106's model reads it since TRAIN 142, so it is a model link now, still not "read by PoB")
+    assert records and all(r["status"] == "model" for r in records)
 
 
 def test_cov56_gem_stats_under_box_only_conditions_are_open():
@@ -48,7 +49,9 @@ def test_cov56_gem_stats_under_box_only_conditions_are_open():
     if not (data_dir() / "coverage.json").exists():
         pytest.skip("no coverage.json")
     records = [r for r in coverage.audit()["records"] if r["category"] == "gem-stat" and r["line"] in boxed]
-    assert records and all(r["status"] == "none" for r in records)
+    # (COV57: Pursuit's are read by MECH106's pursuit_model since TRAIN 142; the rest, Momentum's, stay open)
+    assert records and all(r["status"] == ("model" if "advancing_assault" in r["line"] else "none") for r in records)
+    assert any(r["status"] == "none" for r in records)
 
 
 def test_cov56_box_flag_doesnt_make_a_line_live():
@@ -77,5 +80,5 @@ def test_cov56_build_blind_spots_follow_the_audit():
     if not (data_dir() / "coverage.json").exists():
         pytest.skip("no coverage.json")
     gems = coverage._build_index(str(data_dir()))["gems"]
-    assert any(s == "critical_chance_against_aura_apply_brittle_every_x_ms" for s, _ in gems.get("Malice", []))
+    # (COV57: Malice's stat is read since TRAIN 142; Momentum's box-only stat is still a blind spot)
     assert any(s == "support_momnetum_damage_+%_final_with_momentum" for s, _ in gems.get("Momentum", []))
