@@ -21593,9 +21593,9 @@ CASCADE_NOVA_STEPS = 72  # (the axis and distance grid for the share)
 # the lines "Nova Spells Cast at the targeted location instead of around you" (nova_spells_cast_at_target_location) and
 # "Discharge and Voltaxic Burst are Cast at the targeted location instead of around you" (for those two), and Ice Nova
 # with a Frostbolt in the build ("Casting Ice Nova targeting near a Frostbolt Projectile will cause it to originate from
-# the Frostbolt instead of you": the play casts it at a Frostbolt on the boss, MEDIUM-LOW). Where a TRIGGERED Nova with
-# one lands (Cast on Critical's: the crit's target or the cursor) is UNVERIFIED (RESEARCH61 R61-6): the boss in the
-# headline, the about-you share a row.
+# the Frostbolt instead of you": the play casts it at a Frostbolt on the boss, MEDIUM-LOW). A TRIGGERED Nova with one
+# lands on the trigger's target (RESEARCH61 R61-6 (a), MEDIUM: KeywordPopups Trigger "usually targets the cause of the
+# trigger"; no exception stat): the boss in the headline, the about-you share a row.
 NOVA_AT_TARGET_STAT = "nova_skills_cast_at_target_location"
 NOVA_AT_TARGET_LINE = re.compile(r"^Nova Spells Cast at the targeted location instead of around you$", re.I)
 NOVA_AT_TARGET_NAMED = re.compile(r"^Discharge and Voltaxic Burst are Cast at the targeted location instead of around "
@@ -21734,7 +21734,8 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
     if nova and at_target:  # (the user, 14:05: Astral Projection; the targeted rule below, a triggered one's row here)
         share = sum(nova_side_share(radius, 0.0, boss_radius, side_scale, k * radius) for k in range(1, int(per_side) + 1))
         about_row = (f"; it's a Nova landing at the target ({at_target})"
-                     + (f"; where a triggered one lands is UNVERIFIED (RESEARCH61 R61-6): around you, its side areas "
+                     + (f"; a triggered one lands on the trigger's target (RESEARCH61 R61-6 (a), MEDIUM: KeywordPopups "
+                        f"Trigger 'usually targets the cause of the trigger'); around you, its side areas "
                         f"x{1 + 2 * share:.2f} (the row)" if main.triggered else ""))
         nova = False
     if nova:
