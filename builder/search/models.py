@@ -5228,8 +5228,8 @@ def shotgun_fragment_count_share(skill: Skill, stats: dict, main: Skill | None =
 # lower reading, builder hits at random times (Poisson at the same rate, the stock lost after a gap over D or at a use),
 # is the note's "at random timing" row (combo_at_random_timing: E[min(cap, N)], N the hits in the chain ending at the
 # use; matches GEM41's Monte Carlo). The same check as usage.combo_decayed (RESEARCH25 combo-gain-decay.md: "decay is a
-# check, not a rate"). Not read: combo_falloff_speed_+% ("lose Combo N% slower": Disciplined Training, Flow; UNVERIFIED
-# what it slows, as usage.py says; it would only lengthen the D the chain check uses). The Invoker's lines: COMBO_FACTS.
+# check, not a rate"). combo_falloff_speed_+% ("lose Combo N% slower": Disciplined Training, Flow) lengthens D since
+# GEM42 (R59-8, COMBO_SLOWER below; usage.combo_decayed doesn't read it yet). The Invoker's lines: COMBO_FACTS.
 VRUUN_MAX_COMBO = 10.0  # (skill_maximum_number_of_combo_stacks; the share reads the gem's own value where given)
 VRUUN_DECAY_SECONDS = 6.0  # (base_combo_stacks_decay_delay_ms 6000: the fallback when the support's own isn't read)
 COMBO_DECAY_STAT = "base_combo_stacks_decay_delay_ms"  # (GEM42: summed over the skill's supports by the bridge)
@@ -22807,6 +22807,26 @@ CURSE_AREAS = 2  # maximum_curse_zones_allowed (on Doedre's Undoing; Cursed Grou
 # means little running), so with the Limit of 4 an area makes min(4, 4 / T) a second: T = 1.2 s the headline (3.33, x0.83
 # on the flat 4), 1.1 s a row (3.64); two areas kept on the boss a row (twice that).
 TOAD_SECONDS, TOAD_SECONDS_ROW = 1.2, 1.1
+# (GEM43, routed by the manager 25 Nov 08:40; touches MECH-B's toad_model / annihilation_model, structure kept; an
+# UNDERCOUNT) The game's text for maximum_curse_zones_allowed is "[Limit] {0} areas of [Curse|Cursed] Ground"
+# (gem_stat_descriptions.csd, 26650308), and the three supports carrying it (Cursed Ground, Doedre's Undoing, Hayoxi's
+# Fulmination) give the curse the Limit skill type (PoB sup_int.lua 2739 / 3093 / 5397), so Overabundance can support it.
+# So the build's Limit sources (Assumptions.stat_limit: Overabundance's base_limit_+ / double Limit, LIMIT_LINES' "Skills
+# have +N to Limit" and, for an elemental curse, "+N to Limit for Elemental Skills") are read into the area count
+# (Assumptions.curse_area_limits: {curse: (areas, how)}), MEDIUM-LOW: that those lines reach a Limit the support gives
+# is read from the [Limit] tag, not stated. The support's own 2 stays a row. MECHB29's "no item, passive, rune or jewel
+# line grants any of them" was checked by the stat ids, not by the [Limit] keyword. Doom Blast's rate doesn't depend on
+# the count (past the Limit one area goes per cast), so doom_blast_model is unchanged.
+CURSE_AREAS_WHY = ("the build's Limit sources read into Cursed Ground's '[Limit] 2 areas' (MEDIUM-LOW: from the [Limit] "
+                   "tag, GEM43)")
+
+
+def curse_areas(areas: dict[str, tuple[float, str]] | None, curse: str | None) -> tuple[float, str]:
+    """(GEM43) A curse's Cursed Ground area Limit with the build's Limit sources, and how; the support's 2 without."""
+    got = (areas or {}).get(curse or "")
+    if got is None or got[0] <= CURSE_AREAS:
+        return float(CURSE_AREAS), ""
+    return float(got[0]), got[1]
 
 
 def toads_per_second(seconds: float = TOAD_SECONDS) -> float:
@@ -22814,9 +22834,11 @@ def toads_per_second(seconds: float = TOAD_SECONDS) -> float:
     return min(1 / TOAD_SPAWN_SECONDS, TOADS_PER_AREA / seconds)
 
 
-def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict], list[dict], set[int], float]:
+def toad_model(skills: list[Skill], curses: list[CurseUse],
+               areas: dict[str, tuple[float, str]] | None = None) -> tuple[list[dict], list[dict], set[int], float]:
     """Dark Consequences' rate from the share of the fight its curse's area is up (see above): (lines, notes, groups to
-    count in Full DPS, Witchtoads dying per second)."""
+    count in Full DPS, Witchtoads dying per second). `areas`: the curses' area Limits with the build's Limit lines
+    (GEM43, curse_areas; its rows only)."""
     toads = [s for s in skills if s.name == DARK_CONSEQUENCES and s.group is not None]
     if not toads:
         return [], [], set(), 0.0
@@ -22830,6 +22852,7 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
         share = curse.share if curse is not None else 0.0
         how = f"{curse.name} {curse.how}" if curse is not None else "no curse in its group is applied (0)"
         per_second = share * toads_per_second()
+        limit, limit_how = curse_areas(areas, curse.name if curse is not None else None)  # (GEM43: the rows' areas)
         mods += trigger_rate(DARK_CONSEQUENCES, per_second * TOAD_SPAWN_SECONDS)  # (PoB: 4 hits a second per unit rate)
         if share > 0:
             groups.add(toad.group)
@@ -22842,11 +22865,12 @@ def toad_model(skills: list[Skill], curses: list[CurseUse]) -> tuple[list[dict],
                                 f"(RESEARCH44 R44-13: it rises 0.833 s, its leap hits at 0.265 s), so the Limit of "
                                 f"{TOADS_PER_AREA} live toads holds an area to {toads_per_second():.2f} a second (PoB alone: "
                                 f"4 a second whether or not an area is up). Rows: {TOAD_SECONDS_ROW:g} s a toad, "
-                                f"{share * toads_per_second(TOAD_SECONDS_ROW):.2f} a second; {CURSE_AREAS} areas kept on the "
-                                f"boss, {CURSE_AREAS * per_second:.2f} (a second cast each duration; UNVERIFIED whether both "
-                                "areas' toads reach it)"),
-                      "play": (f"Keep the cursed area under the boss: recast the curse as it runs out. Casting it twice "
-                               f"each duration keeps {CURSE_AREAS} areas up: up to {CURSE_AREAS}x the toads (not counted)."),
+                                f"{share * toads_per_second(TOAD_SECONDS_ROW):.2f} a second; {limit:g} areas kept on the "
+                                f"boss, {limit * per_second:.2f} (another cast each duration for each; UNVERIFIED whether "
+                                "every area's toads reach it)" + (f"; {limit:g} areas: {limit_how}" if limit_how else "")),
+                      "play": (f"Keep the cursed area under the boss: recast the curse as it runs out. Casting it "
+                               f"{limit:g} times each duration keeps {limit:g} areas up: up to {limit:g}x the toads (not "
+                               "counted)."),
                       "confidence": "MEDIUM-LOW"})
     return mods, notes, groups, died
 
@@ -22988,10 +23012,10 @@ HAYOXI_COOLDOWN = 2.0  # the support's Cooldown 2000 ms on the curse
 ANNIHILATION_HITS = 6  # annihilation_hit_intervals
 
 
-def annihilation_model(skills: list[Skill], curses: list[CurseUse],
-                       main: Skill | None) -> tuple[list[dict], list[dict], set[int]]:
+def annihilation_model(skills: list[Skill], curses: list[CurseUse], main: Skill | None,
+                       areas: dict[str, tuple[float, str]] | None = None) -> tuple[list[dict], list[dict], set[int]]:
     """Hayoxi's Fulmination's Annihilation from its curse's Cursed Ground areas (see above): (lines, notes, groups to
-    count in Full DPS)."""
+    count in Full DPS). `areas`: the curses' area Limits with the build's Limit lines (GEM43, curse_areas)."""
     blasts = [s for s in skills if s.name == ANNIHILATION and s.group is not None]
     mods: list[dict] = []
     notes: list[dict] = []
@@ -23008,10 +23032,12 @@ def annihilation_model(skills: list[Skill], curses: list[CurseUse],
                    "UNVERIFIED (a meta can't trigger it: the support excludes Triggered skills); left as PoB has it")
         else:
             cooldown = (cast.cooldown or HAYOXI_COOLDOWN) / (cast.cooldown_recovery or 1.0)
-            every = max(HAYOXI_DELAY / CURSE_AREAS, cooldown)
+            limit, limit_how = curse_areas(areas, cast.name)  # (GEM43: the build's Limit lines, MEDIUM-LOW)
+            every = max(HAYOXI_DELAY / limit, cooldown)
             rate, without = 1 / every, 1 / curse.duration
+            plain = 1 / max(HAYOXI_DELAY / CURSE_AREAS, cooldown)  # (GEM43: at the support's own 2 areas, the row)
             short = curse.duration < HAYOXI_DELAY - 1e-9
-            confidence = "MEDIUM"
+            confidence = "MEDIUM-LOW" if limit_how else "MEDIUM"
             if short:  # (the manager's ruling 15 Nov 22:15, R26-62: an area lasts the curse's duration: none erupts)
                 replaced = rate
                 rate, without = 0.0, 0.0
@@ -23019,21 +23045,25 @@ def annihilation_model(skills: list[Skill], curses: list[CurseUse],
                        "persist, and an area lasts the curse's duration (MEDIUM: official forum 3900027, Hayoxi's "
                        "trigger needs enough Curse Duration 'or the effect might simply not work'; no game text gives "
                        "the area a duration of its own), so none erupts (0); 'until replaced' row (LOW: if areas lasted "
-                       f"until replaced at the Limit of {CURSE_AREAS}, cast every {every:.3g} s): {replaced:.3f} "
+                       f"until replaced at the Limit of {limit:g}, cast every {every:.3g} s): {replaced:.3f} "
                        "eruptions/s")
                 play = (f"Raise {curse.name}'s Curse Duration to {HAYOXI_DELAY:g} s or more (it has "
                         f"{curse.duration:.3g} s): below that no Cursed Ground area lasts long enough to erupt. "
-                        f"Without it: 0 Annihilations/s; with it (cast every {every:.3g} s, {CURSE_AREAS} areas): "
+                        f"Without it: 0 Annihilations/s; with it (cast every {every:.3g} s, {limit:g} areas): "
                         f"{replaced:.3f}/s")
             else:
-                how = (f"{curse.name} cast every {every:.3g} s ({HAYOXI_DELAY:g} s / {CURSE_AREAS} areas, its "
+                how = (f"{curse.name} cast every {every:.3g} s ({HAYOXI_DELAY:g} s / {limit:g} areas, its "
                        f"{cooldown:.3g} s cooldown allowing), so each area persists {HAYOXI_DELAY:g} s, erupts and is "
                        f"replaced by the next cast: {rate:.3f} eruptions/s (a play strategy*; recast only each "
                        f"{curse.duration:.3g} s duration: {without:.3f}/s); areas last the curse's duration (MEDIUM: "
-                       "official forum 3900027), at least 7 s here")
-                play = (f"Cast {curse.name} under the boss every {every:.3g} s, keeping {CURSE_AREAS} areas: each "
+                       "official forum 3900027), at least 7 s here"
+                       + (f"; {limit:g} areas: {limit_how}; row: the support's {CURSE_AREAS} areas, {plain:.3f}/s"
+                          if limit_how else ""))
+                play = (f"Cast {curse.name} under the boss every {every:.3g} s, keeping {limit:g} areas: each "
                         f"erupts after {HAYOXI_DELAY:g} s. Without it (recast each {curse.duration:.3g} s): "
-                        f"{without:.3f} Annihilations/s; with it: {rate:.3f}/s")
+                        f"{without:.3f} Annihilations/s; with it: {rate:.3f}/s"
+                        + (f" (at the support's {CURSE_AREAS} areas, without the Limit lines: {plain:.3f}/s)"
+                           if limit_how else ""))
             extra = max(0.0, rate - without)
             took = cast.cast_time or 0.7
             if main is not None and cast is not main and extra > 0:

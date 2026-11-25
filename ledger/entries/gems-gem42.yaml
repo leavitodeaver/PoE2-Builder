@@ -17,7 +17,9 @@
     land within it of the last (then one Combo per builder group a use: models.combo_chain_cap). The decay as a check,
     not a rate (RESEARCH25 combo-gain-decay.md), as usage.combo_decayed. The lower reading, Strikes at random times
     (models.combo_at_random_timing, the expected capped Combo; matches a Monte Carlo), is a note row. Labelled: the
-    whole stock lost at once (MEDIUM, as usage.py); combo_falloff_speed_+% not read (UNVERIFIED what it slows).
+    whole stock lost at once (MEDIUM, as usage.py). "Skills lose Combo N% slower" (combo_falloff_speed_+%) read since
+    86918025 (RESEARCH59 R59-8, MEDIUM-LOW): it lengthens D to D / (1 + speed / 100) (models.COMBO_SLOWER, COMBO_FACTS'
+    "falloff"), the row D x (1 - speed / 100); usage.combo_decayed (gems-gem14's check) doesn't read it yet.
   sources: ["data/game-26650308/tables/KeywordPopups.json (Combo)", "data/game-26650308/tables/GrantedEffectStatSets.json",
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_dex.lua 1320-1650", "builder/search/models.py (vruun_combo_share)",
             "scratch/manager/research/combo-gain-decay.md (RESEARCH25)"]

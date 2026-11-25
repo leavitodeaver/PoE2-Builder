@@ -28,7 +28,8 @@
   notes: >-
     models.TOADS_PER_AREA 4 (toad_model, MECHB28): explosions capped at 4 / (a toad's seconds from spawn to explosion);
     no source gives that time, so 4 a second is kept, labelled LOW in the model. maximum_curse_zones_allowed stays open
-    for Doedre's Undoing and Cursed Ground: the toad model counts one area (a second area: an undercount, labelled there).
+    for Doedre's Undoing and Cursed Ground: the toad model counts one area (more areas: an undercount, labelled there;
+    since GEM43 the row's area count is the build's Limit, models.curse_areas: a row only, so open).
   sources: ["builder/search/models.py (TOADS_PER_AREA, toad_model)"]
   test_in_game: "Not needed here: the toad model's tests cover it."
   status: proposed
@@ -45,7 +46,11 @@
     models.HAYOXI_DELAY 7, ANNIHILATION_HITS 6: two areas under the boss (the support's Limit 2), a new one cast every
     3.5 s, each erupting at 7 s: 2 eruptions per 7 s, 6 hits each on the boss over the 2 s blast (its staying in the
     1.7 m column all 2 s: LOW, labelled in the model). How long an area lasts is UNVERIFIED there (both readings in its
-    note).
+    note). Since GEM43 the Limit is the build's: the stat's text is "[Limit] {0} areas of [Curse|Cursed] Ground"
+    (gem_stat_descriptions.csd 26650308) and the support gives the curse the Limit type, so Assumptions.curse_area_limits
+    adds Overabundance's base_limit_+ / double Limit and the "+N to Limit" lines (stat_limit, LIMIT_LINES; MEDIUM-LOW),
+    an area every 7 s / Limit (the curse's cooldown allowing), the support's 2 areas a row (probe
+    scratch/gem43/probe_curse.log: a belt "Skills have +1 to Limit" 1.714 -> 2.571 Annihilation hits/s).
   sources: ["builder/search/models.py (HAYOXI_DELAY, HAYOXI_COOLDOWN, ANNIHILATION_HITS)"]
   test_in_game: "Not needed here: MECHB29's tests cover it."
   status: proposed
@@ -546,8 +551,10 @@
     usage.COMBO_DECAY / combo_decayed (GEM14; RESEARCH25: decay is a check, not a rate): a builder whose Strikes are
     further apart than the delay, one Strike short of the count, isn't a builder (combo_rate skips it; combo_blocker
     names it). The Combo taken as lost all at once (patch 0.2.0 "lose Combo if you generate no Combo for 4 seconds";
-    MEDIUM). "Skills lose Combo N% slower" isn't read (UNVERIFIED what it slows). Culmination I / II and Vruun's
-    Inevitability (caps, not requirements) stay open.
+    MEDIUM). "Skills lose Combo N% slower" isn't read by this check (usage.combo_decayed, the Combo Finisher / Tempest
+    Bell / Mantra path: an UNDERCOUNT at most, a slower builder kept out); since GEM42 (RESEARCH59 R59-8, MEDIUM-LOW: it
+    lengthens the delay, D / (1 + speed / 100)) models.vruun_combo_share reads it for Culmination I / II and Vruun's
+    Inevitability (gems-gem42.yaml), whose caps are no longer open here.
   sources: ["builder/search/usage.py (COMBO_DECAY, combo_decayed, combo_rate, combo_blocker)",
             "data/game-26476662 GrantedEffectStatSets", "scratch/manager/research/patchnotes 0.2.0, 0.5.0"]
   test_in_game: "Not needed for the delay (game files and patch notes agree)."

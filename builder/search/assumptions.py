@@ -4280,7 +4280,8 @@ class Assumptions:
             hand_mods, hand_notes = hand_mods + curse_mods, hand_notes + curse_notes
         # (MECH-B, MECHB8: Doedre's Undoing's Witchtoads at their curse area's share; "when a Minion Dies" rate for the
         # conditions' readers: build.minion_died, (per second, how))
-        toad_mods, toad_notes, toad_groups, toads = models.toad_model(found, curses)
+        areas = self.curse_area_limits(curses, [e["text"] for e in source_lines])  # (GEM43: Cursed Ground's Limit)
+        toad_mods, toad_notes, toad_groups, toads = models.toad_model(found, curses, areas)
         hand_mods, hand_notes = hand_mods + toad_mods, hand_notes + toad_notes
         hex_mods, hex_notes = models.hexblast_model(found, curses, stats, main)  # (GEM10: L2-2, the curse cycle)
         hand_mods, hand_notes = hand_mods + hex_mods, hand_notes + hex_notes
@@ -4310,7 +4311,8 @@ class Assumptions:
         doom_groups = doom_groups | dusk_groups
         hand_mods, hand_notes = hand_mods + doom_mods, hand_notes + doom_notes
         # (MECHB29: Hayoxi's Fulmination's Annihilation, one per Cursed Ground area that persists 7 s)
-        annihilation_mods, annihilation_notes, annihilation_groups = models.annihilation_model(found, curses, main)
+        annihilation_mods, annihilation_notes, annihilation_groups = models.annihilation_model(found, curses, main,
+                                                                                               areas)
         hand_mods, hand_notes = hand_mods + annihilation_mods, hand_notes + annihilation_notes
         build.minion_died = models.minion_died_rate(found, main, stats, supports, toads, build.trigger_rates)
         # (MECHB9: the build's kills, enemies and own minions Killed (the ruling on A17-4), for on-Kill readers:
@@ -11473,6 +11475,16 @@ class Assumptions:
             limit *= 2
         limit += sum(number(support.get(k)) for k, needs in LIMIT_SUPPORT_STATS.items() if not needs or set(needs) & types)
         return limit + limit_line_adds(texts, types)
+
+    def curse_area_limits(self, curses: list, texts: list[str]) -> dict[str, tuple[float, str]]:
+        """(GEM43, models.curse_areas) Each Cursed Ground curse's area Limit: the support's maximum_curse_zones_allowed
+        2 with the build's Limit sources (stat_limit), and how."""
+        out: dict[str, tuple[float, str]] = {}
+        for curse in curses:
+            if getattr(curse, "zone", "") and curse.name not in out:
+                limit = self.stat_limit(curse.name, "maximum_curse_zones_allowed", float(models.CURSE_AREAS), texts)
+                out[curse.name] = (limit, models.CURSE_AREAS_WHY)
+        return out
 
     def fissure_limit(self, name: str, texts: list[str]) -> float | None:
         """(GEM41) A Fissure skill's Fissure Limit with the build's Limit sources (stat_limit), for
