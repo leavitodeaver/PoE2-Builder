@@ -2906,9 +2906,13 @@ RAGE_COST_KEY = " (Rage cost)"
 # (sup_str.lua: Speed INC, HaveMaximumRage negated), ModParser's "while at maximum rage". The sawtooth's average, a
 # whole Rage below the maximum (94 of 95 on example build 8 with Furious Wellspring's costs), switched Rage III's speed
 # on for the whole fight, though the build sits at its maximum most of the time between spends (POE2T7170: Speed
-# 0.4205 -> 0.4286, DPS +1.2% while Rage fell). So where a line of the build names "at maximum Rage" and the sawtooth
-# has the build at its maximum at least half the time, the held Rage is the maximum (the more common state; the row
-# gives the average and the share below it; MEDIUM: PoB has no partial uptime for the condition).
+# 0.4205 -> 0.4286, DPS +1.2% while Rage fell). So where a line of the build names "at maximum Rage", the sawtooth's
+# share of the time at the maximum, s, is weighed like the other part-time boxes (the manager, 25 Nov 13:27: a share,
+# not a cut; Search.weigh_uptimes): the box holds the maximum, and its "off" value is the sawtooth's average while below
+# the maximum (whole Rage, at most the maximum - 1), so the headline is PoB at the maximum for s and below it for 1 - s:
+# "at maximum Rage" lines count s, "not at maximum Rage" lines (Rage III's speed) 1 - s, and Rage's damage the blend.
+# Under SWITCH_ON at the maximum the below value alone (a box first seen under it is dropped by resolve, which would
+# read no Rage at all); from FULL_UPTIME the maximum alone. (MECHC63's first cut, >= 50% -> the maximum, replaced.)
 RAGE_AT_MAX_LINE = re.compile(r"(?i)\bat maximum rage\b")
 
 
@@ -2924,7 +2928,7 @@ def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000,
     (no gain, no spender, a per-second spender, no maximum). A seeded simulation of `uses` uses (after 300 to settle).
     (MECHC63) `each`: {key: Rage a use} for upfront Rage costs (RAGE_COST_LINE's note), paid only while that much is
     there; a spender spending nothing (a recast channel's 0/s) is left out. `out`, if given, gets "at_max": the share
-    of the time at the maximum (RAGE_AT_MAX_LINE's note)."""
+    of the time at the maximum, and "below": the average level while below it (RAGE_AT_MAX_LINE's note)."""
     import random
 
     each = each or {}
@@ -2957,6 +2961,7 @@ def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000,
     mean = min(area / seconds, most)
     if out is not None:
         out["at_max"] = topped / seconds
+        out["below"] = (area - most * topped) / (seconds - topped) if seconds - topped > 0 else most
     took = (f"{RAGE_SPEND_AT:g}" if not each else " / ".join(
         sorted({f"{number(each[n]) if n in each else RAGE_SPEND_AT:g}" for n in names})))
     return mean, (f"the spenders take {took} a use only while that much is there: Rage climbs "
@@ -3398,6 +3403,7 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         stats["_rage_paid"] = {"share": min(1.0, real / asked), "asked": asked, "paid": real}
     # (MECHC60: RAGE_SPEND_AT's note) per-use spenders: the sawtooth's average, where the loss never runs
     saw_out: dict = {}
+    weigh = None  # (MECHC63: (share at the maximum, the box below it), RAGE_AT_MAX_LINE's note)
     saw = rage_sawtooth(gain, spend, most, each=stats.get("_rage_cost_each"), out=saw_out) if not refund else None
     keeps = any(RAGE_NO_LOSS.search(t) for t in lines) or regenerating or events * pause >= 1
     if net <= 0 or most <= 0:
@@ -3441,10 +3447,18 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
                   f"boss hit ({land:.2f}/s landing){burning} paused it ({rate:.2g}/s on average): {held:.1f} on average")
     if net > 0 and most > 0 and keeps and saw is not None and saw[0] < held:  # (MECHC60: an OVERCOUNT before)
         topped = number(saw_out.get("at_max"))
-        if held >= most and topped >= 0.5 and any(RAGE_AT_MAX_LINE.search(t) for t in lines):  # (MECHC63)
-            basis += (f"; at the maximum {topped:.0%} of the time between spends ({saw[1]}): the build's \"at maximum "
-                      f"Rage\" lines read the more common state, the maximum (MEDIUM, RAGE_AT_MAX_LINE; row: "
-                      f"{saw[0]:.1f} held, below the maximum all fight)")
+        if held >= most and topped >= SWITCH_ON and any(RAGE_AT_MAX_LINE.search(t) for t in lines):  # (MECHC63)
+            below = float(max(0, min(int(number(saw_out.get("below"))), int(most) - 1)))
+            if topped < FULL_UPTIME:
+                weigh = (topped, below)
+            basis += (f"; at the maximum {topped:.0%} of the time between spends ({saw[1]}), {below:.0f} on average "
+                      f"below it: the build's \"at maximum Rage\" lines weighed at that share (RAGE_AT_MAX_LINE, "
+                      f"MEDIUM: PoB at {most:g} for {topped:.0%} of the fight, at {below:.0f} for the rest)")
+        elif held >= most and topped > 0 and any(RAGE_AT_MAX_LINE.search(t) for t in lines):
+            below = float(max(0, min(int(number(saw_out.get("below"))), int(most) - 1)))
+            basis += (f"; at the maximum only {topped:.0%} of the time between spends ({saw[1]}): under "
+                      f"{SWITCH_ON:.0%}, the {below:.0f} below it alone (RAGE_AT_MAX_LINE)")
+            held = below
         else:
             basis += f"; below it between spends: {saw[1]} (row, the maximum all fight: {held:g})"
             held = saw[0]
@@ -3496,7 +3510,10 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         basis += (f"; Walking Calamity's buff regenerates {CALAMITY_REGEN:g} Rage/s while up ({number(calamity[0]):.0%} of "
                   f"the fight: {calamity[1]}): {before:.1f} -> {held:.1f} on average (LOW)")
     held = float(int(held))
-    return held, f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
+    text = f"{basis} = {held:.0f} held, at most {most:g}: " + "; ".join(how[:3])
+    if weigh is not None and held >= most:  # (MECHC63: weighed by Search.weigh_uptimes, RAGE_AT_MAX_LINE's note)
+        return held, text, weigh[0], weigh[1]
+    return held, text
 
 
 # Onslaught's uptime (MECH27, 9 Nov 2026; before, any line that gains Onslaught turned it on, on-kill ones, Companions'

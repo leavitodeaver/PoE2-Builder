@@ -80,19 +80,30 @@ def number(value) -> float:
         return 0.0
 
 
-def test_rage_held_reads_the_maximum_for_at_maximum_lines_when_it_is_the_common_state():
-    """(RAGE_AT_MAX_LINE) Small costs against a fast refill: the build sits at its maximum most of the time, so with a
-    line naming "at maximum Rage" (Rage III) the held Rage is the maximum (PoB's condition on), the average a row;
-    without such a line, the average as before."""
+def test_rage_held_weighs_at_maximum_lines_by_the_share_at_the_maximum():
+    """(RAGE_AT_MAX_LINE; the manager 13:27: a share, not a cut) Small costs against a fast refill: with a line naming
+    "at maximum Rage" (Rage III) the box holds the maximum, weighed at the share of the time there, with the sawtooth's
+    below-maximum average as its off value (Search.weigh_uptimes); without such a line, the average as before; under
+    SWITCH_ON at the maximum, the below value alone."""
     base = {"MaximumRage": 95, "RageRegenRecovery": 3.8, "_rage_spend": {COST: 1.5}, "_rage_cost_each": {COST: 3.0}}
     out: dict = {}
     mean, _ = c.rage_sawtooth(3.8, {COST: 1.5}, 95, each={COST: 3.0}, out=out)
-    assert 94 < mean < 95 and out["at_max"] > 0.5
-    plain, _ = c.rage_held([], dict(base))
-    assert plain < 95
+    assert 94 < mean < 95 and 0.5 < out["at_max"] < 1 and 91 < out["below"] < 95
+    # (the average over the whole time is the two parts' blend)
+    assert mean == pytest.approx(out["at_max"] * 95 + (1 - out["at_max"]) * out["below"], rel=1e-6)
+    plain = c.rage_held([], dict(base))
+    assert len(plain) == 2 and plain[0] < 95
     rage3 = "Supported Skills have signficantly higher Attack speed while you or supported minion are not at maximum Rage."
-    held, basis = c.rage_held([rage3], dict(base))
-    assert held == 95 and "the more common state, the maximum" in basis
+    held, basis, share, off = c.rage_held([rage3], dict(base))
+    assert held == 95 and share == pytest.approx(out["at_max"]) and off == int(out["below"]) and off < 95
+    assert "weighed at that share" in basis
+    # (big costs, a slow refill: rarely at the maximum, under SWITCH_ON: the below value alone)
+    poor = {**base, "RageRegenRecovery": 1.6, "_rage_spend": {COST: 1.5}}
+    low: dict = {}
+    c.rage_sawtooth(1.6, {COST: 1.5}, 95, each={COST: 3.0}, out=low)
+    got = c.rage_held([rage3], dict(poor))
+    if 0 < low["at_max"] < c.SWITCH_ON:
+        assert len(got) == 2 and got[0] < 95 and "alone" in got[1]
 
 
 def test_powered_by_verisium_quality_lengthens_its_own_infusions_in_the_pool():
