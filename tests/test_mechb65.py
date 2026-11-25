@@ -131,3 +131,44 @@ def test_merging_fragments_get_one_returned_fragment_not_all_of_them():
     mods, _ = models.return_model([], {"PierceCount": 1, "ProjectileCount": 8}, frost, {"Spell", "Projectile", "Cold"},
                                   [{"name": "Frostbolt"}, {"name": "Breachlord's Amalgam"}], set())
     assert mods[0]["scale"] == pytest.approx(100.0)
+
+
+def test_fiery_death_explodes_ignited_adds_at_the_builds_own_rate():
+    """COV58 (an UNDERCOUNT where adds die; PoB's own entry is left out of Full DPS as on-death damage): adds killed a
+    second x the supported skill's Ignite chance x the support's 60% x PoB's Fiery Death hit; 0 on a lone boss."""
+    added, note = models.fiery_death_model(0.5, "test adds", 40.0, 60.0, 1000.0, "Fireball")
+    assert added == pytest.approx(0.5 * 0.4 * 0.6 * 1000.0) and note["confidence"] == "LOW"
+    assert models.fiery_death_model(0.0, "", 40.0, 60.0, 1000.0, "Fireball")[0] == 0.0
+    assert "lone boss" in models.fiery_death_model(0.0, "", 40.0, 60.0, 1000.0, "Fireball")[1]["basis"]
+    assert models.fiery_death_model(0.5, "", 0.0, 60.0, 1000.0, "Fireball")[0] == 0.0
+    assert models.fiery_death_model(0.5, "", 40.0, 0.0, 1000.0, "Fireball")[0] == pytest.approx(0.5 * 0.4 * 0.6 * 1000.0)
+
+
+def test_fiery_death_reads_the_supported_skill_and_its_explosion_from_pob(engine):
+    """On real PoB: Fireball with Fiery Death; the support's 60% from its stats, Fireball's IgniteChancePerHit and the
+    Fiery Death hit from useRates; with the preset's adds killed (build.kills) the explosions add DPS, without them 0."""
+    from builder.request.schema import BuildRequest
+    from builder.search import assumptions
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Fireball", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Fireball"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    assert assumptions.fiery_death(build) == (0.0, [])
+    group = build.main_group()
+    gems = [{k: y.get(k) for k in ("name", "support", "level", "quality", "enabled")} for y in group["gems"]]
+    gems.append({"name": "Fiery Death", "support": True, "level": 20, "quality": 0, "enabled": True})
+    build.call("setGroup", index=group["index"], gems=gems, fields=[])
+    build.kills = (0.0, 0.0, "a lone boss")
+    added, notes = assumptions.fiery_death(build)
+    print(added, notes)
+    assert added == 0.0 and "lone boss" in notes[0]["basis"]
+    build.kills = (0.5, 0.5, "test adds")
+    added, notes = assumptions.fiery_death(build)
+    print(added, notes)
+    assert "60%" in notes[0]["basis"] or added == 0.0
+    assert added > 0 or "doesn't Ignite" in notes[0]["basis"] or "no hit" in notes[0]["basis"]

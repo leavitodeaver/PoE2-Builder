@@ -2224,6 +2224,38 @@ def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
     added, note = models.infernal_legion_model(minions, resist, number(stats.get("IgniteDPS")))
     return added, [note]
 
+def fiery_death(build: Build) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Fiery Death (models.fiery_death_model, MECHB65): for each enabled group with the support,
+    the adds killed a second (build.kills, kill_rate), the supported skill's IgniteChancePerHit and PoB's Fiery Death
+    hit (useRates rows of that group); the best group counts."""
+    picks, off = [], None
+    for group in build.groups():
+        if not group["enabled"] or not any(g["name"] == models.FIERY_DEATH and g.get("support") and g.get("enabled", True)
+                                           for g in group["gems"]):
+            continue
+        names = [s["name"] for s in group["skills"]]
+        if models.FIERY_DEATH not in names:
+            continue
+        off = pob_disabled(build) if off is None else off
+        source = next((n for n in names if n != models.FIERY_DEATH and (group["index"], n) not in off), None)
+        if source is not None:
+            picks.append((group["index"], names.index(source) + 1, names.index(models.FIERY_DEATH) + 1, source))
+    if not picks:
+        return 0.0, []
+    kills = getattr(build, "kills", None) or (0.0, 0.0, "")
+    best = (0.0, None)
+    for index, src, fiery, source in picks:
+        rows = build.call("useRates", indices=[index, index], actives=[src, fiery])["rates"]
+        by = {r.get("active"): r for r in rows}
+        got = next((x for x in build.call("activeSkills", supportStats=[models.FIERY_DEATH_CHANCE_STAT])["skills"]
+                    if x["name"] == source and x.get("group") == index), {})
+        chance = number((got.get("supportStats") or {}).get(models.FIERY_DEATH_CHANCE_STAT))
+        added, note = models.fiery_death_model(number(kills[0]), kills[2], number((by.get(src) or {}).get(
+            "IgniteChancePerHit")), chance, number((by.get(fiery) or {}).get("AverageHit")), source)
+        if best[1] is None or added > best[0]:
+            best = (added, note)
+    return best[0], [best[1]]
+
 # What each Warcry Empowers, by its own game text (MECH65, AUDIT29 A29-4; ActiveSkills 26476662 descriptions):
 # KeywordPopups Warcry says Warcries "Empower your subsequent Melee Attacks", but the skills' own texts differ: Arctic
 # Howl "Empowers your attacks" (and Slams), but only "If an enemy is Frozen or a Frozen enemy is Hit"; Seismic Cry
@@ -5910,6 +5942,9 @@ class Assumptions:
         legion, legion_notes = infernal_legion(build, stats)  # (MECHB30, H1-7: PoB rates no boss Ignite from it)
         hand_mods += [models.added_input("InfernalLegion", legion)] if legion > 0 else []
         hand_notes += legion_notes
+        fiery, fiery_notes = fiery_death(build)  # (MECHB65: PoB's own entry is left out of Full DPS as on-death damage)
+        hand_mods += [models.added_input("FieryDeath", fiery)] if fiery > 0 else []
+        hand_notes += fiery_notes
         oil, oil_notes = (models.oil_ignite_model(  # (MECH82, G4-4: lit Oil Ground's Ignite; PoB scores it 0)
             build.oil_ignite, number(build.call("getConfig")["input"].get("enemyFireResist")),
             number(stats.get("IgniteDPS"))) if getattr(build, "oil_ignite", None) else (0.0, []))

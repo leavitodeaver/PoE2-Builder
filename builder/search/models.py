@@ -23788,6 +23788,50 @@ def tawhoa_model(skills: list[Skill], rows: dict[str, dict], deaths: dict[str, f
     return mods, [note], {vengeance.group}
 
 
+# Fiery Death (MECHB65; COV58 rows 23 / 38, an UNDERCOUNT where adds die). The support (SupportFieryDeathPlayer:
+# chance_to_trigger_fiery_death_on_ignited_enemy_death_% 60) makes "enemies it Ignites ... have a chance to explode on
+# death": its triggered skill (TriggeredFieryDeathPlayer: triggered_by_fiery_death_support_% 100,
+# corpse_explosion_monster_life_% 10, radius 2 m; game files 26650308) goes off when an enemy the supported skill Ignited
+# dies. The boss's own death ends the fight, so only adds feed it: the boss preset's adds killed a second (kill_rate;
+# 0 on a lone boss, every add taken as killed by the build, LOW) x the share the supported skill Ignited (PoB's
+# IgniteChancePerHit for its group, one hit before the add dies: read against the boss's Ailment Threshold, so lower than
+# against an add, the lower reading) x the support's 60%. Each explosion: PoB's Fiery Death hit for its group (AverageHit
+# with the build's modifiers; the 10% of the dying add's Life read as PoB reads it, LOW), every one reaching the boss
+# (LOW: the add dies somewhere near it, the blast 2 m, as Combust's). Added beside PoB's numbers (added_input):
+# objective.ON_DEATH takes PoB's own Fiery Death entry out of Full DPS (it matches the support's description), so this
+# never counts twice.
+FIERY_DEATH = "Fiery Death"
+FIERY_DEATH_CHANCE_STAT = "chance_to_trigger_fiery_death_on_ignited_enemy_death_%"
+FIERY_DEATH_CHANCE = 60.0  # (the game files' and PoB's value; the support's stat when given)
+
+
+def fiery_death_model(adds: float, adds_how: str, ignite_pct: float, chance_pct: float, hit: float,
+                      source: str) -> tuple[float, dict]:
+    """(added DPS, note) for Fiery Death (above). `adds` adds killed a second, `ignite_pct` the supported skill's
+    IgniteChancePerHit, `chance_pct` the support's trigger chance, `hit` PoB's Fiery Death AverageHit, `source` the
+    supported skill."""
+    label = f"{FIERY_DEATH}: Ignited adds exploding on death ({source})*"
+    ignited = min(max(ignite_pct, 0.0), 100.0) / 100
+    chance = min(max(chance_pct or FIERY_DEATH_CHANCE, 0.0), 100.0) / 100
+    rate = max(adds, 0.0) * ignited * chance
+    upper = max(adds, 0.0) * chance * max(hit, 0.0)  # (the row: every add it kills Ignited, a lower threshold than the boss's)
+    if rate <= 0 or hit <= 0:
+        why = ("no enemy dies before the boss (a lone boss): the boss's own death ends the fight" if adds <= 0 else
+               f"{source} doesn't Ignite (PoB's chance 0 against the boss); if every add it kills is Ignited (an add's "
+               f"Ailment Threshold is lower: UNVERIFIED how much), +{upper:,.1f} DPS" if ignited <= 0 else
+               "PoB gives its explosion no hit")
+        return 0.0, {"label": label, "value": 0, "confidence": "LOW",
+                     "basis": f"{why}: 0 (PoB's own Fiery Death entry is left out of Full DPS as on-death damage)"}
+    added = rate * hit
+    return added, {"label": label, "value": round(added, 1), "confidence": "LOW",
+                   "basis": (f"{adds:.3f} adds killed a second ({adds_how}) x {ignited:.0%} Ignited by {source} (PoB's "
+                             f"chance a hit against the boss: the lower reading) x {chance:.0%} = {rate:.3f} explosions "
+                             f"a second x {hit:,.0f} a hit (PoB's Fiery Death hit; the dying add's Life as PoB reads it, "
+                             f"LOW), each reaching the boss (LOW). Row: every add it kills Ignited (an add's Ailment "
+                             f"Threshold is lower than the boss's, UNVERIFIED how much): +{upper:,.1f} DPS"),
+                   "play": f"Ignite the boss's adds with {source}: each one that dies Ignited may explode on the boss."}
+
+
 # Minions the build kills itself are dead part of the fight (MECHB40; PLANS term-persistent-minions item 4, an OVERCOUNT:
 # minion_deaths counted their deaths for Energy / buffs / corpses, but every Reviving minion's damage stayed counted as
 # always alive). A Reviving minion Killed lies dead until it revives (KeywordPopups Reviving; revive_seconds: the game's
