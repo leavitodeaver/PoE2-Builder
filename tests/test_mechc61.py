@@ -270,3 +270,26 @@ def test_infusion_simulation_ends_at_once_on_a_collapsed_use_rate():
     gap = assumptions._infusion_gap(__import__("random").Random(1), 1.0, 1e15, 0, math.inf, 3, 20.0)
     assert gap[0] == 3 and 0 < gap[1] < 20
 
+
+def test_mind_phylacteries_pays_a_charms_extra_uses_with_spare_mana():
+    """(COV57 row 40) "Can instead consume 25% of maximum Mana to trigger Charms with insufficient charges": a charm
+    paced by its charges (one use per 80 s) also fires at its trigger (0.25 boss Fire hits/s), each extra use 25% of
+    2,000 Mana paid from the Mana regeneration the main skill leaves (100/s spare over 1 charm slot: 0.2 uses/s)."""
+    from dataclasses import replace
+
+    from builder.search.flasks import MIND_MANA, Charges, uptime, uses_per_second
+
+    assert MIND_MANA.search("Can instead consume 25% of maximum Mana to trigger Charms with insufficient charges")
+    info = {"kind": "Charm", "chargesUsed": 40, "duration": 2.0}
+    hit = "Some Charm\nUsed when you take Fire damage from a Hit"
+    gain = Charges(boss_hits=0.25, boss_types=("Fire",), charm=0.5, charm_limit=1)
+    plain = uses_per_second(info, gain, hit, None)[0]
+    assert plain == pytest.approx(0.5 / 40)
+    mind = replace(gain, mind_pct=25.0, mana_max=2000.0, mana_regen=150.0, mana_cost=50.0)
+    uses, how = uses_per_second(info, mind, hit, None)
+    assert uses == pytest.approx(plain + 100 / 500) and "Mind Phylacteries" in how
+    rich = replace(mind, mana_regen=5000.0)  # the trigger binds: 0.25/s
+    assert uses_per_second(info, rich, hit, None)[0] == pytest.approx(0.25)
+    assert uptime(info, rich, None, hit) == pytest.approx(0.5)
+    broke = replace(mind, mana_regen=40.0)  # no spare regeneration: charges alone
+    assert uses_per_second(info, broke, hit, None)[0] == pytest.approx(plain)

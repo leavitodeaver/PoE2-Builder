@@ -109,6 +109,8 @@ class Charges:
     # Charges.of reads the build's lines (CHARM_NOT_CONSUME)
     charm_not_consume: float = 0.0
     charms_free: bool = False  # (MECHC25) "Charms use no Charges" (Pragmatism): see CHARMS_FREE
+    mind_pct: float = 0.0  # (MECHC61) Mind Phylacteries' % of maximum Mana a charm use without charges costs: MIND_MANA
+    mana_max: float = 0.0  # (MECHC61) maximum Mana, read only with MIND_MANA's line
     # (MECHC21, AUDIT31 A31-21) "N% chance when a Charm is used to use another Charm without consuming Charges" (charms13,
     # charms15, Heart of the Well's unveiled mod; PoB parses it with leftover text and never applies it): the summed chance,
     # and each equipped charm's free uses a second from the others' uses ((item text, uses/s, how), charm_free_uses)
@@ -191,6 +193,10 @@ class Charges:
 
             gain = replace(gain, charm_not_consume=charm_not_consume(texts),
                            charms_free=any(CHARMS_FREE.search(t) for t in texts))
+            if mind := max((float(m.group(1)) for t in texts if (m := MIND_MANA.search(t))), default=0.0):
+                # (MECHC61: MIND_MANA's note)
+                gain = replace(gain, mind_pct=mind,
+                               mana_max=float(build.call("stats", fields=["Mana"]).get("Mana") or 0.0))
             another = sum(float(m.group(1)) for t in texts for m in CHARM_ANOTHER.finditer(t))
             equipped = getattr(build, "equipped", None) or {}
             raws = [o.raw for slot in CHARM_SLOTS[:gain.charm_limit] if (o := equipped.get(slot)) is not None]
@@ -664,6 +670,44 @@ CHARM_GAIN_MORE = re.compile(r"^(\d+(?:\.\d+)?)% (more|less) Charm Charges gaine
 CHARMS_FREE = re.compile(r"^\s*charms use no charges\s*$", re.I | re.M)
 
 
+# (MECHC61; COV57's offence ranking row 40, gate build 2b75c: an UNDERCOUNT of charm uses) Mind Phylacteries, the Huntress
+# Ritualist notable (PassiveSkills AscendancyHuntress3Notable4, stat drain_%_max_mana_to_activate_expended_charms: "Can
+# instead consume 25% of maximum Mana to trigger Charms with insufficient charges"; checked: every Stats id holding charm
+# with mana, and that stat's carriers over every table of game 26650308: this notable alone; PoB parses it to nothing,
+# ModCache 6825; patch notes: no hit for it, which isn't proof of no change). Before, its charms were paced by their
+# charges alone. Now a charm also fires at its trigger (trigger_rate, as "Charms use no Charges"; at most once per its
+# effect) where its charges fall short, each such use paying the line's share of maximum Mana, out of the Mana
+# regeneration the main skill's costs leave (PoB's ManaRegenRecovery - ManaPerSecondCost), split evenly over the charm
+# slots (MEDIUM-LOW: the split; the headline leaves the main skill's Mana untouched, so it never starves the skill). No
+# spare regeneration: charges alone, said. A trigger this model doesn't read: no extra uses (no rate, no guess).
+MIND_MANA = re.compile(r"Can instead consume (\d+(?:\.\d+)?)% of maximum Mana to trigger Charms with insufficient charges",
+                       re.I)
+
+
+def mind_extra_uses(info: dict, gain: Charges, raw: str, uses: float) -> tuple[float, str]:
+    """(MECHC61: MIND_MANA's note) (extra uses a second paid with Mana, how) for a charm already used `uses` times a
+    second by its charges."""
+    if gain.mind_pct <= 0 or info.get("kind") != "Charm" or gain.mana_max <= 0:
+        return 0.0, ""
+    event = trigger_rate(raw, gain)
+    if event is None:
+        return 0.0, "Mind Phylacteries: its trigger isn't read, no extra uses"
+    length = duration(info, gain)
+    most = min(event[0], 1 / length) if length > 0 else event[0]
+    extra = most - uses
+    if extra <= 0:
+        return 0.0, ""
+    each = gain.mind_pct / 100 * gain.mana_max
+    spare = max(0.0, gain.mana_regen - gain.mana_cost) / max(1, gain.charm_limit)
+    paid = min(extra, spare / each) if each > 0 else 0.0
+    if paid <= 0:
+        return 0.0, (f"Mind Phylacteries: no Mana regeneration to spare ({gain.mana_regen:.0f}/s regenerated, "
+                     f"{gain.mana_cost:.0f}/s spent by the main skill): charges alone")
+    return paid, (f"Mind Phylacteries: +{paid:.3f} uses/s at its trigger ({event[1]}), each {gain.mind_pct:g}% of "
+                  f"{gain.mana_max:,.0f} maximum Mana, from {spare:.0f} Mana/s of spare regeneration a charm slot "
+                  "(MEDIUM-LOW)")
+
+
 def free_charm_uses(info: dict, gain: Charges, raw: str) -> tuple[float, str] | None:
     """(uses a second, how) of a charm under "Charms use no Charges"; None when the line isn't on the build."""
     if not gain.charms_free or info.get("kind") != "Charm":
@@ -725,6 +769,10 @@ def uptime(info: dict, gain: Charges, pool: str | None = None, trigger: str = ""
     uses = rate / used
     if trigger_only(info, trigger) and (event := trigger_rate(trigger, gain)) is not None:
         uses = min(uses, event[0])  # (a charm is used by its trigger only: charges and the event both needed)
+    if gain.mind_pct > 0:  # (MECHC61: MIND_MANA's note) uses paid with Mana where the charges fall short
+        if (length := duration(info, gain)) > 0:
+            uses = min(uses, 1 / length)
+        uses += mind_extra_uses(info, gain, trigger, uses)[0]
     share = min(1.0, uses * duration(info, gain))
     if info.get("kind") == "Charm" and (free := charm_extra_uses(gain, trigger)[0]) > 0:
         # (MECHC21: another charm's use uses this one free, at random times: it starts an effect only while it's down)
@@ -868,6 +916,8 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
             uses, how = dips[0], how + f", at most once a dip below full {pool} ({dips[1]})"
     if pool not in ("Life", "Mana") and (length := duration(info, gain)) > 0 and uses > 1 / length:
         uses, how = 1 / length, how + f", at most once per its {length:.1f} s effect"
+    if gain.mind_pct > 0 and (mind := mind_extra_uses(info, gain, raw, uses))[1]:  # (MECHC61: MIND_MANA's note)
+        uses, how = uses + mind[0], how + "; " + mind[1]
     if trigger_only(info, raw) and (event := trigger_rate(raw, gain)) is not None and event[0] < uses:
         # (MECHC25, AUDIT34 A34-8: a charm is used by its trigger only, as uptime and charm_charges_used have it; before,
         # Nascent Hope's "Energy Shield Recharge starts on use" and every other "on use" reader counted a Thawing Charm at
