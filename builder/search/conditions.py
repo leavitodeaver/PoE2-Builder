@@ -2884,6 +2884,32 @@ RAGE_SPEND_AT = 10.0
 # Each further group's copy is its own spender now, at its own group's use rate (skill_use_rate), keyed
 # "<gem> (<the group's first active skill>)"; rage_spender gives back the gem's name for its amount and skip chance.
 RAGEFORGED_SIDE = ("Rageforged I", "Rageforged II")
+# (MECHC63; MECHC62's lead 2 on example build 8, an OVERCOUNT of Rage held where costs outrun gains) A skill's UPFRONT Rage
+# cost is Rage spent on each use, beside the "consume N Rage" spenders above. No skill has a base upfront Rage cost
+# (checked: GrantedEffects.CostTypes over game 26650308: only BearRampagePlayer / WyvernFlameBreathPlayer carry a Rage
+# type, their per-minute channel cost (RAGE_PER_SECOND); PoB's Data/Skills: only RagePerMinute entries, 40 of 300 and 40
+# of 360). Upfront Rage costs are ADDED: Furious Wellspring's "Skills have +5 to Rage cost" (natures_sustenance_added_rage_cost
+# on PassiveSkills AscendancyDruid2Notable6, the stat's only carrier; checked: every Stats id holding rage_cost / rage...cost
+# over every stat column of every table of game 26650308: that, Berserk-influence base_rage_cost_efficiency_+% (Mods
+# BerserkInfluenceRageCostEfficiency1/2, lowering it) and Rampage / Flame Breath's channel stats; PoB ModParser 2456-2457
+# parses "skills cost +N rage" and "skills have +N to rage cost" as RageCostBase). So where the build has such a line,
+# each pressed skill (constraints.presses: persistent, meta-triggered and triggered skills pay no use cost here, a
+# lower spend) pays PoB's RageCost (with the build's efficiency) on each use, at its own rate: the main skill at its
+# share of Speed, a recast channel main (CHANNEL_RECAST) once a cycle (minimum + default-stance gap) of its share, other
+# skills at skill_use_rate (cooldown, duration, the search's chosen rate, else 0). Keyed "<skill> (Rage cost)", with
+# its Rage a use in stats["_rage_cost_each"] for rage_sawtooth (a cost is paid only while that much Rage is there:
+# UNVERIFIED whether a skill can be used without the Rage its cost asks, or pays what's there; the sawtooth's reading).
+RAGE_COST_LINE = re.compile(r"(?i)\bto rage cost\b|\bcost [+-]?\d+ rage\b")
+RAGE_COST_KEY = " (Rage cost)"
+# (MECHC63) PoB sets "at maximum Rage" only when the Rage box equals the maximum (CalcPerform 799-801:
+# Condition:HaveMaximumRage), and lines turn on it: Rage III's "higher Attack speed while you ... are not at maximum Rage"
+# (sup_str.lua: Speed INC, HaveMaximumRage negated), ModParser's "while at maximum rage". The sawtooth's average, a
+# whole Rage below the maximum (94 of 95 on example build 8 with Furious Wellspring's costs), switched Rage III's speed
+# on for the whole fight, though the build sits at its maximum most of the time between spends (POE2T7170: Speed
+# 0.4205 -> 0.4286, DPS +1.2% while Rage fell). So where a line of the build names "at maximum Rage" and the sawtooth
+# has the build at its maximum at least half the time, the held Rage is the maximum (the more common state; the row
+# gives the average and the share below it; MEDIUM: PoB has no partial uptime for the condition).
+RAGE_AT_MAX_LINE = re.compile(r"(?i)\bat maximum rage\b")
 
 
 def rage_spender(key: str) -> str:
@@ -2892,35 +2918,49 @@ def rage_spender(key: str) -> str:
     return base if base in RAGEFORGED_SIDE and key != base else key
 
 
-def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000) -> tuple[float, str] | None:
+def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000,
+                  each: dict | None = None, out: dict | None = None) -> tuple[float, str] | None:
     """(MECHC60) (average Rage held, how) under per-use spenders (RAGE_SPEND_AT's note), or None where it doesn't apply
-    (no gain, no spender, a per-second spender, no maximum). A seeded simulation of `uses` uses (after 300 to settle)."""
+    (no gain, no spender, a per-second spender, no maximum). A seeded simulation of `uses` uses (after 300 to settle).
+    (MECHC63) `each`: {key: Rage a use} for upfront Rage costs (RAGE_COST_LINE's note), paid only while that much is
+    there; a spender spending nothing (a recast channel's 0/s) is left out. `out`, if given, gets "at_max": the share
+    of the time at the maximum (RAGE_AT_MAX_LINE's note)."""
     import random
 
-    if gain <= 0 or most <= 0 or not spend or any(rage_spender(n) not in RAGE_PER_USE for n in spend):
+    each = each or {}
+    spend = {n: v for n, v in spend.items() if number(v) > 0}
+
+    def amount(n: str) -> float:
+        return number(each[n]) if n in each else RAGE_PER_USE[rage_spender(n)]
+
+    if gain <= 0 or most <= 0 or not spend or any(n not in each and rage_spender(n) not in RAGE_PER_USE for n in spend):
         return None
-    rates = {n: number(v) / RAGE_PER_USE[rage_spender(n)] for n, v in spend.items()
-             if number(v) > 0 and RAGE_PER_USE[rage_spender(n)] > 0}
+    rates = {n: number(v) / amount(n) for n, v in spend.items() if amount(n) > 0}
     total = sum(rates.values())
     if total <= 0:
         return None
     names, weights = list(rates), list(rates.values())
     step, rng = 1.0 / total, random.Random(60)
-    rise, level, area, seconds = gain * step, 0.0, 0.0, 0.0
+    rise, level, area, seconds, topped = gain * step, 0.0, 0.0, 0.0, 0.0
     for n in range(uses + 300):
         if level + rise <= most:
-            part, level = step * (2 * level + rise) / 2, level + rise
+            part, level, top = step * (2 * level + rise) / 2, level + rise, 0.0
         else:
             reach = max(most - level, 0.0) / gain
-            part, level = reach * (level + most) / 2 + (step - reach) * most, most
+            part, level, top = reach * (level + most) / 2 + (step - reach) * most, most, step - reach
         if n >= 300:
-            area, seconds = area + part, seconds + step
+            area, seconds, topped = area + part, seconds + step, topped + top
         who = names[0] if len(names) == 1 else rng.choices(names, weights)[0]
-        if level >= RAGE_SPEND_AT and rng.random() >= RAGE_SKIP_CHANCE.get(rage_spender(who), 0.0):
-            level -= RAGE_SPEND_AT
+        cost = number(each[who]) if who in each else RAGE_SPEND_AT
+        if level >= cost and rng.random() >= RAGE_SKIP_CHANCE.get(rage_spender(who), 0.0):
+            level -= cost
     mean = min(area / seconds, most)
-    return mean, (f"the spenders take {RAGE_SPEND_AT:g} a use only while {RAGE_SPEND_AT:g} are there: Rage climbs "
-                  f"{rise:.2f} between uses ({total:.2f} uses/s) and drops by {RAGE_SPEND_AT:g} at a spend, "
+    if out is not None:
+        out["at_max"] = topped / seconds
+    took = (f"{RAGE_SPEND_AT:g}" if not each else " / ".join(
+        sorted({f"{number(each[n]) if n in each else RAGE_SPEND_AT:g}" for n in names})))
+    return mean, (f"the spenders take {took} a use only while that much is there: Rage climbs "
+                  f"{rise:.2f} between uses ({total:.2f} uses/s) and drops by {took} at a spend, "
                   f"{mean:.1f} held on average (MEDIUM: uses evenly spaced, gains steady)")
 # (MECHC58; the manager's R55-8 ruling, 23 Nov 14:28: "Rampage has no cooldown and a free window at the start of each
 # channel ... Short recast channels are a play strategy") channelled_skill_suppress_ongoing_rage_cost_for_first_X_ms: no
@@ -3357,7 +3397,8 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         # (MECHC48, the manager's 23:25 for MECHB49's Molten Crash reading: the paid share as plain numbers, not text)
         stats["_rage_paid"] = {"share": min(1.0, real / asked), "asked": asked, "paid": real}
     # (MECHC60: RAGE_SPEND_AT's note) per-use spenders: the sawtooth's average, where the loss never runs
-    saw = rage_sawtooth(gain, spend, most) if not refund else None
+    saw_out: dict = {}
+    saw = rage_sawtooth(gain, spend, most, each=stats.get("_rage_cost_each"), out=saw_out) if not refund else None
     keeps = any(RAGE_NO_LOSS.search(t) for t in lines) or regenerating or events * pause >= 1
     if net <= 0 or most <= 0:
         held = 0.0
@@ -3399,8 +3440,14 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         basis += (f", one gain every {gap:.1f} s of {level:.0f} Rage held {pause:.2g} s, then lost {decay:.2g}/s while no "
                   f"boss hit ({land:.2f}/s landing){burning} paused it ({rate:.2g}/s on average): {held:.1f} on average")
     if net > 0 and most > 0 and keeps and saw is not None and saw[0] < held:  # (MECHC60: an OVERCOUNT before)
-        basis += f"; below it between spends: {saw[1]} (row, the maximum all fight: {held:g})"
-        held = saw[0]
+        topped = number(saw_out.get("at_max"))
+        if held >= most and topped >= 0.5 and any(RAGE_AT_MAX_LINE.search(t) for t in lines):  # (MECHC63)
+            basis += (f"; at the maximum {topped:.0%} of the time between spends ({saw[1]}): the build's \"at maximum "
+                      f"Rage\" lines read the more common state, the maximum (MEDIUM, RAGE_AT_MAX_LINE; row: "
+                      f"{saw[0]:.1f} held, below the maximum all fight)")
+        else:
+            basis += f"; below it between spends: {saw[1]} (row, the maximum all fight: {held:g})"
+            held = saw[0]
     stats["_rage_at_max"] = rage_at_max(held, most, net, events, lines)  # (MECHC59: models.GLORY_FROM_RAGE)
     if (warcries := (stats.get("_bypass") or {}).get("Rage")) and held > 0:  # (MECHC61: ENRAGED_WARCRY_RAGE's note)
         held, basis = rage_bypass(stats, warcries, held, gain, basis)
@@ -10129,6 +10176,47 @@ class Conditions:
                 out[f"{name} ({first})"] = RAGE_PER_USE[name] * skill_use_rate(row, choices)[0]
         return out
 
+    def _rage_costs(self, stats: dict) -> tuple[dict[str, float], dict[str, float]]:
+        """(MECHC63: RAGE_COST_LINE's note) ({"<skill> (Rage cost)": Rage a second}, {the same key: Rage a use}) for the
+        build's pressed skills with an upfront Rage cost (PoB's RageCost from the bridge's useRates), each at its rate."""
+        from builder.request.constraints import presses
+
+        gems = getattr(self.build.ctx, "all_gems", None) or self.build.ctx.gems
+        indices, actives, names = [], [], []
+        for g in self.build.call("groups")["groups"]:
+            if g.get("enabled") is False:
+                continue
+            for n, skill in enumerate(g.get("skills") or [], 1):
+                name = skill.get("name")
+                gem = gems.get(name) if name else None
+                if gem and name not in names and skill.get("enabled", True) and presses(gem):
+                    indices.append(g["index"]); actives.append(n); names.append(name)
+        if not indices:
+            return {}, {}
+        rows = self.build.call("useRates", indices=indices, actives=actives)["rates"]
+        choices = models.press_choices(self.build)
+        share = _main_share(stats)
+        spend: dict[str, float] = {}
+        each: dict[str, float] = {}
+        for i, a, name in zip(indices, actives, names):
+            row = next((r for r in rows if r.get("index") == i and r.get("active") == a), None) or {}
+            cost = number(row.get("rageCost"))
+            if cost <= 0:
+                continue
+            if name == self.main_skill:
+                cycle = number(stats.get("_channel_min")) + number(stats.get("_channel_gap"))
+                if name in CHANNEL_RECAST and cycle > 0:
+                    uses = share / cycle  # (once a channel; a held channel recasts less: a higher spend here)
+                elif name in RAGE_PER_SECOND:
+                    uses = share * skill_use_rate(row, choices)[0]  # (Flame Breath: its cooldown)
+                else:
+                    uses = number(stats.get("Speed")) * share
+            else:
+                uses = skill_use_rate(row, choices)[0]
+            if uses > 0:
+                spend[name + RAGE_COST_KEY], each[name + RAGE_COST_KEY] = cost * uses, cost
+        return spend, each
+
     def _bypass_skills(self, gem_types: dict) -> dict[str, list]:
         """(MECHC40, K2-9) {kind: [(name, the most uses/s it can add above its cooldown, how)]} for the build's skills
         whose cooldown a charge bypasses (bypass_kind). The cooldown rate is read without this model's own Cooldown
@@ -11698,6 +11786,11 @@ class Conditions:
             if self.main_skill in CHANNEL_RECAST:  # (MECHC59: CHANNEL_RECAST's note)
                 stats["_channel_min"] = sum(number(own.get(k)) for k in CHANNEL_MIN_STATS) / 1000
                 stats["_channel_gap"] = number(own.get(CHANNEL_GAP_STAT)) / 1000
+        stats["_rage_cost_each"] = {}
+        if any(RAGE_COST_LINE.search(t) for t in texts):  # (MECHC63: RAGE_COST_LINE's note)
+            costs, each = self._rage_costs(stats)
+            rage_spend.update(costs)
+            stats["_rage_cost_each"] = each
         if "Combat Frenzy" in gem_types:  # (MECHC57: its cooldown at its level and quality, COMBAT_FRENZY_LINE's note)
             frenzy = next((r.get("levelStats") or {} for r in self.build.call(
                 "activeSkills", levelStats=["Combat Frenzy"])["skills"] if r.get("name") == "Combat Frenzy"), {})
