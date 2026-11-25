@@ -1,0 +1,34 @@
+# COV57 turn 2 (24 Nov 2026; COV43's rule): TRAIN 141's readers (ffa001de..099a5465, origin/main 099a5465), each checked
+# against the code that names it. Links only: each adds nothing to PoB. cands.py found one literal
+# (shapeshift_minimum_channel_time_ms_+); the Armour Break row is read through conditions.ENDURANCE_SUPPORTS' constants.
+# Walking Calamity's Glory (MECHC59, R58-5) has no game stat, so it has no row to mark.
+
+- id: model-read-cov57b-armour-break-endurance
+  title: "Armour Break II / III's chance to gain an Endurance Charge on a Full Break, main and side skills (conditions.ENDURANCE_SUPPORTS)"
+  kind: model
+  model: charges
+  stats: ["chance_to_gain_endurance_charge_on_armour_break_%"]
+  skill: [Armour Break II, Armour Break III]
+  confidence: MEDIUM
+  notes: >-
+    15 / 20 at every level (SupportArmourBreakPlayerTwo / Three, game 26650308) = ENDURANCE_SUPPORTS 0.15 / 0.20
+    (MECHC53). Since MECHC59 (TRAIN 141) _break_endurance credits each Full Break of the boss to the skill completing it
+    (its share of the Armour broken a second): the main skill's copy and a side group's (stats["_endurance_side_breaks"])
+    both gain chance x their Full Breaks, into the Endurance resolver. Before 141 a side copy read 0, so the row stayed
+    open. A link only.
+  sources: ["builder/search/conditions.py (ENDURANCE_SUPPORTS, endurance_support_rate, _break_endurance)"]
+  status: proposed
+
+- id: model-read-cov57b-rampage-minimum-channel
+  title: "Rampage's bear-form minimum channel (+650 ms) read by the Rage recast play (conditions.CHANNEL_MIN_STATS)"
+  kind: model
+  model: rage
+  stats: ["shapeshift_minimum_channel_time_ms_+"]
+  skill: [Rampage]
+  confidence: MEDIUM
+  notes: >-
+    650 at every level (BearRampagePlayer). MECHC59: read from levelStats with base_minimum_channel_time_ms into
+    stats["_channel_min"]; when a held Rampage nets no Rage, the headline takes the recast play (each channel its minimum,
+    spending own x max(0, minimum - free) / (minimum + gap)). A link only.
+  sources: ["builder/search/conditions.py (CHANNEL_MIN_STATS, CHANNEL_RECAST, the _channel_min reader)"]
+  status: proposed
