@@ -13482,7 +13482,8 @@ HAZARD_LAYOUTS = {  # name: (per metre of radius, fixed count, max active, cone 
     "Spearfield": (1 / 0.2, 0.0, 70.0, SPEARFIELD_CONE_DEGREES, None, 0.0),
     "Conductive Runes": (0.0, 10.0, 20.0, 80.0, 8.5, 0.5),
 }
-MODEL_FIELDS.extend(f for f in ("AreaOfEffectRadius", "AreaOfEffectMod") if f not in MODEL_FIELDS)
+MODEL_FIELDS.extend(f for f in ("AreaOfEffectRadius", "AreaOfEffectMod", "AreaOfEffectRadiusSecondary")
+                    if f not in MODEL_FIELDS)  # (MECHB65: a Nova's ring, spell_cascade_model)
 
 
 def hazards_on_boss(main: Skill | None, stats: dict, radius: float | None = None,
@@ -21553,11 +21554,43 @@ def with_hits_per_use(mod: dict, hits: float, time: float | None = None) -> dict
 # (1 + 2 x per side hits a cast), else only the centre. The lower row: areas edge to edge (centres R + R x sqrt(0.8) apart):
 # no side area reaches a boss smaller than that, 1 hit. Main skill only (its PoB radius is the one read).
 CASCADE_PLAY = "Target the boss's centre with the Spell Cascade spell so its side areas overlap it too"
+# (MECHB65, the manager's build 4 walk, an OVERCOUNT: x3 before on Bone Cage) A NOVA spell (PoB SkillType Nova: its area
+# is centred on you, Bone Cage "Raise a ring of bone spikes around you. The spikes are destroyed when enemies touch them,
+# damaging and Pinning those enemies", ActiveSkills bone_cage) has no target under the boss: its Cascades land on either
+# side of YOU "along a random axis" (Spell Cascade's text), and the boss stands beside you where the main ring reaches it.
+# So each side area reaches the boss only for the axes that pass near it. Counted: the boss's centre anywhere the main
+# area touches it (distance D uniform over that band, MEDIUM-LOW), the axis uniform over the turn; a side area centred
+# one main radius R from you (the spacing above) reaches the boss when its own area overlaps the boss's hit radius r.
+# The area: a ring from PoB's secondary radius to its radius (Bone Cage: active_skill_base_secondary_area_of_effect_radius
+# 10 inside active_skill_base_area_of_effect_radius 18; the secondary radius read as the ring's inner edge, UNVERIFIED),
+# each side area both radii x sqrt(0.8); a Nova with no secondary radius a full disc. Rows: a full disc (the upper), the
+# ring as its outer line alone (the lower). The main area's own hit: PoB's (at a boss distance past its reach the main
+# ring misses too: the distance is conditions' / inner.choose_distance's, routed).
+CASCADE_NOVA_STEPS = 72  # (the axis and distance grid for the share)
 
 
-def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, boss_how: str
+def nova_side_share(radius: float, inner: float, boss_radius: float, side_scale: float, spacing: float) -> float:
+    """The chance a Nova's side area (centred `spacing` from you on a random axis; its radii the main area's x
+    `side_scale`) overlaps a boss of hit radius `boss_radius` standing where the main area [inner, radius] touches it."""
+    r = max(boss_radius, 0.0)
+    lo, hi = max(0.0, inner - r), radius + r
+    s_in, s_out = inner * side_scale, radius * side_scale
+    hits = total = 0
+    for i in range(CASCADE_NOVA_STEPS):
+        d = lo + (hi - lo) * (i + 0.5) / CASCADE_NOVA_STEPS
+        for j in range(CASCADE_NOVA_STEPS):
+            theta = math.pi * (j + 0.5) / CASCADE_NOVA_STEPS  # (0-180 degrees; the other half mirrors it)
+            far = math.sqrt(max(0.0, d * d + spacing * spacing - 2 * d * spacing * math.cos(theta)))
+            total += 1
+            if far - r <= s_out and far + r >= s_in:
+                hits += 1
+    return hits / total if total else 0.0
+
+
+def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, boss_how: str, nova: bool = False
                         ) -> tuple[list[dict], list[dict]]:
-    """Spell Cascade's side areas as extra hits on a boss at the target (see above)."""
+    """Spell Cascade's side areas as extra hits on a boss at the target (see above); `nova`: the main skill's area is
+    centred on you (PoB SkillType Nova: the side areas on a random axis through you, MECHB65)."""
     if main is None:
         return [], []
     per_side = number(main.support_stats.get(CASCADES_PER_SIDE))
@@ -21565,7 +21598,32 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
     if per_side <= 0 or radius <= 0:
         return [], []
     scale, part_notes = support_part_scale(main, "cascade")
-    side = radius * math.sqrt(number(scale.get("Area of Effect")) or 0.8)
+    side_scale = math.sqrt(number(scale.get("Area of Effect")) or 0.8)
+    side = radius * side_scale
+    if nova:
+        inner = number(stats.get("AreaOfEffectRadiusSecondary")) / 10
+        inner = inner if 0 < inner < radius else 0.0
+        shares = [sum(nova_side_share(radius, inn, boss_radius, side_scale, k * radius) for k in range(1, int(per_side) + 1))
+                  for inn in (inner, 0.0)]
+        line_share = sum(nova_side_share(radius, radius, boss_radius, side_scale, k * radius)
+                         for k in range(1, int(per_side) + 1))
+        hits, disc, thin = (1 + 2 * x for x in (shares[0], shares[1], line_share))
+        shape = (f"a ring {inner:.2f}-{radius:.2f} m (PoB's secondary radius as its inner edge, UNVERIFIED)" if inner
+                 else f"a disc of {radius:.2f} m")
+        note = {"label": f"{main.name}: Spell Cascade's side areas on the boss*", "value": f"x{hits:.2f}",
+                "basis": (f"{main.name} is a Nova (its area centred on you), so its Cascades land on either side of you "
+                          f"along a random axis, not around the boss: {shape}, side areas x{side_scale:.3f} the size "
+                          f"centred {radius:.2f} m out; with the boss ({boss_how}) anywhere the main area touches it and "
+                          f"the axis at random, a side area reaches it {shares[0] / max(per_side, 1):.0%} of the time: "
+                          f"x{hits:.2f} hits a cast (MEDIUM-LOW; an OVERCOUNT before: every side area taken to hit, "
+                          f"x{1 + 2 * per_side:g}). Rows: a full disc x{disc:.2f}; the ring as a line at its outer edge "
+                          f"x{thin:.2f}"),
+                "play": (f"Stand so {main.name}'s ring reaches the boss; the side areas land at random about you: "
+                         f"x{hits:.2f} on average"),
+                "confidence": "MEDIUM-LOW"}
+        if hits <= 1 + 1e-9:
+            return [], [note]
+        return [with_hits_per_use(raw_mod("DPS", "MORE", 100 * (hits - 1), main.name), hits)], [note] + part_notes
     reach = radius - side
     hits = 1 + 2 * per_side if reach <= boss_radius else 1.0
     note = {"label": f"{main.name}: Spell Cascade's side areas on the boss*", "value": f"x{hits:g}",

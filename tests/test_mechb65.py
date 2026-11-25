@@ -172,3 +172,20 @@ def test_fiery_death_reads_the_supported_skill_and_its_explosion_from_pob(engine
     print(added, notes)
     assert "60%" in notes[0]["basis"] or added == 0.0
     assert added > 0 or "doesn't Ignite" in notes[0]["basis"] or "no hit" in notes[0]["basis"]
+
+
+def test_a_nova_spells_cascades_land_about_you_and_reach_the_boss_part_of_the_time():
+    """The manager's build 4 walk (an OVERCOUNT: x3 before): a Nova (Bone Cage, centred on you) cascades on a random
+    axis through you, so a side area reaches the boss only part of the time: the ring reading in the headline, a disc
+    and the outer line the rows; a targeted spell keeps the old geometry."""
+    cage = models.Skill("Bone Cage", group=2, spell=True, support_stats={models.CASCADES_PER_SIDE: 1})
+    stats = {"AreaOfEffectRadius": 13.0, "AreaOfEffectRadiusSecondary": 7.2}
+    mods, notes = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss", nova=True)
+    share = models.nova_side_share(1.3, 0.72, 0.3, 0.8 ** 0.5, 1.3)
+    assert 0.3 < share < 0.5 and mods[0]["value"] == pytest.approx(100 * 2 * share, abs=0.01)
+    assert "Nova" in notes[0]["basis"] and "disc" in notes[0]["basis"] and notes[0]["confidence"] == "MEDIUM-LOW"
+    disc = models.nova_side_share(1.3, 0.0, 0.3, 0.8 ** 0.5, 1.3)
+    line = models.nova_side_share(1.3, 1.3, 0.3, 0.8 ** 0.5, 1.3)
+    assert line < share < disc < 1.0
+    mods, _ = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss")  # (targeted: the boss on the target)
+    assert mods[0]["value"] == pytest.approx(200.0)

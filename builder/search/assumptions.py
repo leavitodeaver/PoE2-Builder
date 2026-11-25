@@ -4927,7 +4927,9 @@ class Assumptions:
             hit_cut(build, app_mods, main.name if main else None)
         early_mods, early_notes = models.hazard_early_model(found, stats, forbidden, self.hitters(found))  # (MECH-B)
         hand_mods, hand_notes = hand_mods + early_mods, hand_notes + early_notes
-        cascade_mods, cascade_notes = models.spell_cascade_model(main, stats, *bosses.hit_radius(stats))  # (MECHB36)
+        cascade_mods, cascade_notes = models.spell_cascade_model(  # (MECHB36; MECHB65: a Nova's side areas about you)
+            main, stats, *bosses.hit_radius(stats),
+            nova="Nova" in set(((build.ctx.gems.get(main.name) or {}) if main is not None else {}).get("skillTypes") or []))
         hand_mods, hand_notes = hand_mods + cascade_mods, hand_notes + cascade_notes
         hit_cut(build, cascade_mods, main.name if main else None)  # (MECHB54: its hits a use, models.with_hits_per_use)
         if main is not None and main.spell:  # (MECHB58: Spell Echo's Echoes as hits; Mystic Avalanche's side areas)
