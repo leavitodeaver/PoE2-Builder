@@ -3787,11 +3787,11 @@ class Assumptions:
         full_mana, full_mana_notes = models.full_mana_energy(texts, stats)  # (MECHB31: Idle Hands' Cultivated line)
         if full_mana:
             inputs.items["MetaEnergy"] = inputs.items.get("MetaEnergy", 0.0) + full_mana
+        feeders = self.energy_feeders(found, main)
         energy_mods, energy_notes, energy_groups = models.energy_model(inputs, stats, found, main, supports, qualities,
-                                                                       models.press_choices(build),
-                                                                       self.energy_feeders(found, main),
+                                                                       models.press_choices(build), feeders,
                                                                        getattr(self, "undeath_limit", None))
-        energy_notes = energy_notes + full_mana_notes
+        energy_notes = energy_notes + full_mana_notes + self.mana_cap(main, feeders)
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = models.rates_by_name(energy_mods)  # (MECHB62: summed over a spell's meta groups)
         # (MECH102: a triggered Mark alone in its group, models.mark_use: PoB's trigger rate for its group, the bridge's
@@ -11111,6 +11111,25 @@ class Assumptions:
         one_clip, _, _ = models.emergency_reload_clip(clip, stats, main)
         return cooldown, empower, one_clip, (f"{models.EMERGENCY_RELOAD} on its {cooldown:.1f} s cooldown, "
                                              f"{empower:g}% more at its level")
+
+    def mana_cap(self, main, feeders: dict[int, list[dict]]) -> list[dict]:
+        """(MECHB64, models.mana_cap_row) the row for a main skill (and the skills feeding its meta gem) spending more
+        Mana a second than the build's income: the last committed stats (Build.stats: PoB's with the search's added
+        recovery fields), the income the sustain share's own (objective.SUSTAIN_POOLS["Mana"] + hit_recovery_rates)."""
+        from builder.search import objective
+
+        if main is None:
+            return []
+        stats = getattr(self.build, "stats", None) or {}
+        fields = objective.SUSTAIN_POOLS["Mana"][1]
+        got = {f: number(stats.get(f)) for f in fields if number(stats.get(f)) > 0}
+        back = objective.hit_recovery_rates(stats)["Mana"] if stats else 0.0
+        income = sum(got.values()) + back
+        how = ", ".join(f"{k} {v:,.1f}" for k, v in got.items()) + (f", recoup / on block {back:,.1f}" if back > 0 else "")
+        fed = [f for group in (feeders or {}).values() for f in group if number(f.get("used")) > 0]
+        row = models.mana_cap_row(income, how or "none", main.name, number(stats.get("ManaPerSecondCost")), fed,
+                                  bool(main.triggered))
+        return [row] if row else []
 
     def energy_feeders(self, found: list, main) -> dict[int, list[dict]]:
         """(MECHB59: models.energy_feed's note) {meta group: [{name, uses, speed, why, row, final}]} for a Cast on Critical /

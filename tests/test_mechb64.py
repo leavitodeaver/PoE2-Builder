@@ -100,3 +100,16 @@ def test_skyfall_shares_the_builds_verisium_infusions_with_the_other_consumers(e
     alone = assumptions.infusion_found(count, 0.1, 0.0, assumptions.infusion_cap(texts, "Fire", True)
                                        - assumptions.infusion_cap(texts, "Fire"))
     assert share < alone  # (Fireball's casts take their share)
+
+
+def test_the_mana_cap_row_scales_the_main_skill_and_its_feeders_together():
+    """MECHB64 turn 2 (the manager 07:43; R60-4 open): income over the main skill's and its meta feeders' Mana a second;
+    a row only, and none when the build pays its costs."""
+    feeder = {"name": "Bonestorm", "used": 9.0, "speed": 18.0, "row": {"manaPerSecond": 600.0}}
+    row = models.mana_cap_row(390.0, "ManaRegenRecovery 390.0", "Bone Cage", 1000.0, [feeder], True)
+    assert row["label"] == models.MANA_CAP_LABEL and "x0.300" in row["value"] and "x1 (the headline)" in row["value"]
+    assert "1,300.0 Mana a second" in row["basis"] and "R60-4" in row["basis"] and "50% of the time" in row["basis"]
+    assert models.mana_cap_row(2000.0, "", "Bone Cage", 1000.0, [feeder], True) is None
+    assert models.mana_cap_row(10.0, "", "Bone Cage", 0.0, [], True) is None
+    hand = models.mana_cap_row(100.0, "", "Spark", 400.0, [], False)
+    assert "x0.250" in hand["value"] and "R60-4" not in hand["basis"]

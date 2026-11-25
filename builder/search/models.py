@@ -3757,6 +3757,51 @@ def energy_overflow_row(fed: float, crits: float, rate: float) -> str:
             f"(x{hits / whole:.3f})")
 
 
+# (MECHB64; the manager 07:43, MECHB64's own find, RESEARCH60 R60-4 open) The most Mana a build can pay a second caps
+# how often it uses its Mana-paying skills. PoB scores the main skill at its full rate whatever it costs, and
+# objective.sustain is a FLOOR (its deficit), not a cap on the rate. Here: the build's Mana income from every source the
+# sustain share counts (objective.SUSTAIN_POOLS["Mana"]: PoB's regeneration, leech and on-hit; the flasks; recovery.py's
+# kills, Remnants, charms, events and spending; plus recoup and on-block, objective.hit_recovery_rates: the user's rule,
+# memory recovery-every-source; their functions, not re-derived) over what the main skill and the skills feeding its
+# meta gem spend (PoB's ManaPerSecondCost for the main skill; each feeder's Mana a second used nonstop, useRates'
+# manaPerSecond, x the share of the time it's used): every rate scaled by min(1, income / spend) together (a meta's
+# triggers follow its feeders). A ROW only until R60-4 says whether meta-triggered spells cost Mana (PoB charges them;
+# patches 0.2.1 / 0.4.0 name exceptions that "cost no Mana", which reads as the rule that they do; UNVERIFIED for 0.5).
+# Left out (a lower spend, so a looser cap): the build's other skills' costs; the Mana pool itself spent once over the
+# fight; objective.SUSTAIN_LEFT_OUT's sources (a higher income).
+MANA_CAP_LABEL = "Mana paid a second: the use rate the build can sustain*"
+
+
+def mana_cap_row(income: float, income_how: str, main: str, main_cost: float, feeders: list[dict],
+                 triggered: bool) -> dict | None:
+    """(MECHB64, the note above) the row, or None when the build pays every cost (or spends no Mana)."""
+    parts = [f"{main} {main_cost:,.1f}/s"] if main_cost > 0 else []
+    spend = max(main_cost, 0.0)
+    for f in feeders:
+        each = number((f.get("row") or {}).get("manaPerSecond"))
+        used, speed = number(f.get("used")), number(f.get("speed"))
+        if each > 0 and used > 0 and speed > 0:
+            share = min(1.0, used / speed)
+            spend += each * share
+            parts.append(f"{f['name']} {each * share:,.1f}/s ({each:,.1f}/s used {share:.0%} of the time)")
+    if spend <= 0 or income >= spend:
+        return None
+    scale = max(income, 0.0) / spend
+    return {"label": MANA_CAP_LABEL, "value": f"x1 (the headline); row: x{scale:.3f}",
+            "basis": (f"the build spends {spend:,.1f} Mana a second ({'; '.join(parts)}) against {income:,.1f} a second "
+                      f"of Mana income ({income_how}): it can keep up {scale:.1%} of that pace, so "
+                      + ("its feeders and the triggers they make" if triggered and len(parts) > 1 else "its uses")
+                      + f" would run at x{scale:.3f}, and {main}'s DPS with them. "
+                      + ("A ROW: the headline keeps PoB's rate until RESEARCH60 R60-4 settles whether meta-triggered "
+                         "spells cost Mana in 0.5 (PoB charges them). " if triggered else
+                         "A ROW for now (the manager 07:43); objective.sustain's floor already marks the shortfall. ")
+                      + "Not counted: the build's other skills' costs, its Mana pool spent once over the fight"),
+            "confidence": "MEDIUM (the rates and costs PoB's; the income the sustain share's own)",
+            "play": (f"This build spends Mana faster than it recovers it ({spend:,.0f} against {income:,.0f} a second): "
+                     f"add Mana recovery (regeneration, leech, Mana on hit, a Mana flask) or cheaper skills, or expect "
+                     f"about x{scale:.2f} its DPS once the pool runs dry.")}
+
+
 def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, float, str]:
     """(Energy a second, crits a second, how) the build's self-used skills give a `kind` meta gem (see the note above).
     `feeders`: [{name, uses (0: at will), speed, why, row, final}]."""
@@ -3803,11 +3848,13 @@ def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, flo
         energy, crit = each(f)
         gain, crits = gain + f["uses"] * energy, crits + f["uses"] * crit
         busy += f["uses"] / f["speed"] if f["speed"] > 0 else 0.0
+        f["used"] = f["uses"]  # (MECHB64: the uses it's counted at, for mana_cap_row)
         parts.append(f"{f['name']} {f['uses']:.2f} uses/s ({f['why']}) for {energy:.2f} Energy a use" + beside_how(f))
     filler = max((x for x in feeders if x["uses"] <= 0 and x["speed"] > 0),
                  key=lambda x: x["speed"] * each(x)[0], default=None)
     if filler is not None and each(filler)[0] > 0:
         uses = filler["speed"] * max(0.0, 1.0 - busy)
+        filler["used"] = uses
         energy, crit = each(filler)
         gain, crits = gain + uses * energy, crits + uses * crit
         parts.append(f"{filler['name']} used at will in the time left, {uses:.2f} uses/s for {energy:.2f} Energy a use"

@@ -5161,6 +5161,9 @@ function bridge.useRates(args)
 				speed = jsonNumber(output.Speed or 0), cooldown = output.Cooldown and jsonNumber(output.Cooldown) or nil,
 				-- (MECH79, conditions' Incinerate fuel) one use's Mana cost, PoB's ManaCost
 				manaCost = type(output.ManaCost) == "number" and jsonNumber(output.ManaCost) or nil,
+				-- (MECHB64, models.mana_cap_row) its Mana a second used nonstop, PoB's ManaPerSecondCost (a channel's
+				-- per-second cost, GEM15's cast-speed override in it; else ManaCost x Speed)
+				manaPerSecond = type(output.ManaPerSecondCost) == "number" and jsonNumber(output.ManaPerSecondCost) or nil,
 				repeats = jsonNumber(output.Repeats or 1),
 				-- (MECH57) its minion's counted skill's uses per second, PoB's minion Speed (cooldown-capped, CalcOffence 3008)
 				minionSpeed = env.minion and env.minion.output and type(env.minion.output.Speed) == "number"
