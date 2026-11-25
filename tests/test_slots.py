@@ -86,6 +86,7 @@ def test_a_queue_proof_gets_slots_of_its_own(monkeypatch, tmp_path):
     the real 6 can't starve the proof (7 Nov 2026, the proof's p2pool scene). Real runs get one set of names per PoE2
     folder (12 Nov 2026), the same every time in one folder."""
     monkeypatch.delenv("PC_QUEUE_DIR", raising=False)
+    monkeypatch.delenv("POE2_SLOT_SET", raising=False)  # (set when the probe server runs this file)
     real = slots.slot_name()
     assert real.startswith("Local\PoE2Builder.queue.") and real.endswith(".LuaJIT.%d") and real.count("\\") == 1
     assert slots.slot_name() == real

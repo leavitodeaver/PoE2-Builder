@@ -27,6 +27,8 @@ call history are exactly what a serial run gives it. Three things here only act 
   (builder/pob/slots.py), and two pools at once could ask for more than the slots left, or get fewer workers than the
   same test gets in a serial run;
 - each worker's replay summary line is printed by the controller, "[gw0] ...".
+The pool turn also acts in a test run the probe server started (POE2_POOL_TURN, tools/probe_server.py): its test runs
+share one set of 6 LuaJIT slots, so two of them open pools one at a time.
 """
 
 from __future__ import annotations
@@ -219,8 +221,11 @@ def pytest_collection_modifyitems(session, config, items):
 
 
 def pytest_configure(config):
+    import os
     if _xdist_worker(config):
         _pools_take_turns(str(config.workerinput.get("testrunuid", "x")))
+    elif os.environ.get("POE2_POOL_TURN"):  # a test run the probe server started: its runs open PoB pools one at a time
+        _pools_take_turns(os.environ["POE2_POOL_TURN"])
     config.addinivalue_line("markers", "serial_only: this test starts so many processes that it can't share the run with "
                             "pytest-xdist's workers (the queue allows a run 24 processes): tools/suite.py runs it in a "
                             "second, serial pytest inside the same booking, after the parallel one")

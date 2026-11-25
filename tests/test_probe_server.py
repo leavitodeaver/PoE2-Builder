@@ -235,3 +235,51 @@ def test_no_start_path_can_open_a_window(monkeypatch, tmp_path):
         assert flags & 0x08000000 and not flags & 0x00000008, hex(flags)
     source = "".join((ROOT / "tools" / name).read_text(encoding="utf-8") for name in ("probe_server.py", "probe.py", "suite.py"))
     assert "DETACHED_PROCESS" not in source.replace("NEVER DETACHED_PROCESS", "").replace("never DETACHED_PROCESS", "")
+
+
+# ---- small targeted test runs (the user, 25 Nov ~01:18) ----
+
+def test_only_small_targeted_test_runs_qualify():
+    q = lambda argv, minutes=5, label="MECH-A: MECH107 targeted": ps.qualifies(argv, minutes, label, str(ROOT))  # noqa: E731
+    pytest_cmd = ["uv", "run", "python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    assert q(["uv", "run", "python", "scratch/x/probe.py"]) is None  # a probe
+    assert q(pytest_cmd + ["tests/test_slots.py", "tests/test_pool.py::test_x"]) is None
+    assert "10 min or less" in q(pytest_cmd + ["tests/test_slots.py"], minutes=15)
+    assert "folder" in q(pytest_cmd + ["tests"])
+    assert "no test file" in q(pytest_cmd)
+    assert "part 1" in q(pytest_cmd + ["tests/test_engine_models.py"])
+    assert "parallel" in q(pytest_cmd + ["-n", "2", "tests/test_slots.py"])
+    assert "queue" in q(pytest_cmd + ["tests/test_slots.py"], label="SEARCH: gate4 2b75c")
+    assert "train" in q(pytest_cmd + ["tests/test_slots.py"], label="manager: TRAIN 145 part 2")
+    assert "serial suite" in q(pytest_cmd + ["tests/test_legality.py"])  # 15.6 min in the serial baseline
+
+
+def test_a_test_run_through_the_server_gives_its_exit_code_and_junit(server, tmp_path):
+    folder = tmp_path / "lane"
+    (folder / "tests").mkdir(parents=True)
+    (folder / "tests" / "test_unit.py").write_text("def test_ok():\n    assert True\n\ndef test_bad():\n    assert False\n")
+    result = client.probe([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_unit.py"], job="POE2T0",
+                          minutes=2, what="PERF: unit targeted", cwd=folder, spool=server)
+    assert result.via.startswith("server") and result.code == 1 and "1 failed, 1 passed" in result.output
+    assert result.junit and Path(result.junit).exists() and "test_bad" in Path(result.junit).read_text(encoding="utf-8")
+
+
+def test_a_run_past_the_memory_limit_is_stopped_and_booked(tmp_path, queue_dir, monkeypatch):
+    monkeypatch.setenv("POE2_PROBE_NO_BOOKING", "1")
+    spool = tmp_path / "spool-mem"
+    env = {**os.environ, "PC_QUEUE_DIR": str(queue_dir), "POE2_PROBE_MEMORY_STOP_MB": "150"}
+    proc = subprocess.Popen([sys.executable, str(ROOT / "tools" / "probe_server.py"), "serve", "--spool", str(spool),
+                             "--minutes", "6", "--no-keeper"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            stdin=subprocess.DEVNULL, creationflags=ps.NO_WINDOW)
+    try:
+        assert _wait(lambda: any(b.get("state") == "accepting" for b in ps.servers(spool)))
+        hog = "import time\nblock = bytearray(400 * 1024 * 1024)\nprint('allocated', flush=True)\ntime.sleep(60)"
+        result = client.probe([sys.executable, "-c", hog], job="POE2T0", minutes=2, cwd=tmp_path, spool=spool)
+        assert result.via.startswith("booking refused")
+        assert "too big for the server" in (spool / "server.log").read_text(encoding="utf-8")
+    finally:
+        (spool / "STOP").write_text("x")
+        try:
+            proc.wait(30)
+        except subprocess.TimeoutExpired:
+            proc.kill()

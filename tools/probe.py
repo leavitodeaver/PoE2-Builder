@@ -18,6 +18,15 @@ busy (BUSY_WAITING probes already waiting); `gate=True` / --gate (a probe that n
 stopped the probe (it ended, or a hold paused the probe past its own minutes); or the probe ran short of the server's
 engines or memory (PoolFull / MemoryError, the server's 4 GB and 6 slots being shared by 2 probes). A probe already
 running when a hold starts is paused with the server and goes on after it, as a booked run would.
+
+SMALL TARGETED TEST RUNS go the same way (the user, 25 Nov ~01:18):
+    python tools/probe.py POE2T<n> <minutes> "<LANE>: <JOB> targeted" -- uv run python -m pytest -q -p no:cacheprovider <files>
+    python tools/probe.py POE2T<n> <minutes> "<LANE>: <JOB> targeted" --tests <files> [--replay]    (the same, real PoB by default)
+A test run qualifies when it names test files (not a folder), says 10 minutes or less, isn't run with -n, its files
+took 10 minutes or less in the last serial suite (tests/suite_durations.json), test_engine_models.py isn't among them,
+and its label doesn't say gate / train / calibration / suite part: otherwise it is booked normally, with the reason.
+On the server it is stopped and booked normally if it passes 2 GB or its own minutes. Its junit XML is written next
+to its log (the client prints the path); its exit code is the client's.
 """
 
 from __future__ import annotations
@@ -44,6 +53,8 @@ class Result:
     via: str
     waited: float = 0.0
     ran: float = 0.0
+    junit: str | None = None  # a test run's junit XML (on the server: SPOOL\out\<id>.xml)
+    peak_mb: float = 0.0
 
 
 def _say(text: str) -> None:
@@ -67,7 +78,7 @@ def _server_can_take(spool: Path, minutes: float) -> str | None:
     return None
 
 
-FALLBACK_ERRORS = ("stopped: the server", "stopped: paused", "could not start")
+FALLBACK_ERRORS = ("stopped: the server", "stopped: paused", "stopped: past", "could not start", "refused")
 FALLBACK_OUTPUT = ("PoolFull", "MemoryError", "not enough memory")  # the server's 4 GB / 6 slots, shared by 2 probes
 
 
@@ -89,6 +100,10 @@ def probe(argv: list[str], job: str, minutes: int = 12, what: str = "probe", gat
     cwd = Path(cwd or os.getcwd()).resolve()
     spool = Path(spool or ps.SPOOL)
     if gate:
+        return _booking(argv, job, minutes, what, gate, cwd)
+    refused = ps.qualifies(list(argv), float(minutes), what, str(cwd))
+    if refused:
+        _say(f"not for the probe server: {refused}: booking it normally")
         return _booking(argv, job, minutes, what, gate, cwd)
     server = _server_can_take(spool, minutes)
     if server is None:
@@ -145,22 +160,33 @@ def probe(argv: list[str], job: str, minutes: int = 12, what: str = "probe", gat
     if answer.get("error"):
         output += f"\nprobe: {answer['error']}\n"
     return Result(answer.get("code"), output, f"server {answer.get('server')}",
-                  waited=float(answer.get("started", asked)) - asked, ran=float(answer.get("ended", 0)) - float(answer.get("started", 0)))
+                  waited=float(answer.get("started", asked)) - asked, ran=float(answer.get("ended", 0)) - float(answer.get("started", 0)),
+                  junit=answer.get("junit"), peak_mb=float(answer.get("peak_mb") or 0))
 
 
 def main(argv: list[str]) -> int:
-    if "--" not in argv or argv.index("--") < 3:
+    if ("--" not in argv and "--tests" not in argv) or len(argv) < 4:
         print(__doc__)
         return 2
-    at = argv.index("--")
+    at = argv.index("--") if "--" in argv else len(argv)
     head, command = argv[:at], argv[at + 1:]
+    if "--tests" in head:  # the shortcut: python tools/probe.py POE2T<n> <minutes> "<what>" --tests <files> [--replay]
+        at = head.index("--tests")
+        files = [a for a in head[at + 1:] if a != "--replay"]
+        os.environ.pop("POE2_REPLAY_POB" if "--replay" not in head else "POE2_REAL_POB", None)
+        os.environ["POE2_REPLAY_POB" if "--replay" in head else "POE2_REAL_POB"] = "1"
+        command = ["uv", "run", "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "--tb=line", "-rfE", *files]
+        head = head[:at]
     gate = "--gate" in head
     head = [a for a in head if a not in ("--gate", "--no-gpu")]
     job, minutes, what = head[0], int(head[1]), head[2]
     result = probe(command, job=job, minutes=minutes, what=what, gate=gate, echo=True)
     if result.via.startswith("booking"):
         sys.stdout.write(result.output)
-    _say(f"answered by {result.via}" + (f" (waited {result.waited:.0f} s, ran {result.ran:.0f} s)" if result.via.startswith("server") else ""))
+    _say(f"answered by {result.via}" + (f" (waited {result.waited:.0f} s, ran {result.ran:.0f} s, peak {result.peak_mb:.0f} MB)"
+                                         if result.via.startswith("server") else ""))
+    if result.junit:
+        _say(f"junit: {result.junit}")
     return result.code if isinstance(result.code, int) else 1
 
 

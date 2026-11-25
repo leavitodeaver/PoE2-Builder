@@ -31,19 +31,20 @@ def slot_name() -> str:
     code lives in, so the queue can run one PoE2 run per folder at once without one starving another's engines (12 Nov
     2026: the user stopped the other projects and PoE2's test places went above one; each run is still held to 6).
 
-    POE2_SLOT_SET=<name> (PERF22, 24 Nov 2026: tools/probe_server.py sets it for every probe it runs) names a set of 6
-    of its own: the probe server is ONE queue run that runs probes from many folders, so they all share its 6, and a
-    probe never takes a slot from its folder's own suite running in another place."""
+    POE2_SLOT_SET=<name> (PERF22, 24-25 Nov 2026: the standing probe server, tools/probe_server.py, sets it for every
+    probe and test run it starts) names a set of 6 of its own: the server's runs from many folders all share its 6, and
+    a probe never takes a slot from its folder's own suite. A queue proof's PC_QUEUE_DIR still wins over it (test_slots'
+    own proofs, run by the server, keep slots of their own; the server never passes PC_QUEUE_DIR to a run)."""
+    folder = os.environ.get("PC_QUEUE_DIR")
+    if folder:
+        tag = hashlib.sha1(os.path.normcase(os.path.abspath(folder)).encode("utf-8")).hexdigest()[:12]
+        return "Local\\PoE2Builder.proof." + tag + ".LuaJIT.%d"
     named = os.environ.get("POE2_SLOT_SET", "").strip()
     if named:
         tag = hashlib.sha1(named.encode("utf-8")).hexdigest()[:12]
         return "Local\\PoE2Builder.set." + tag + ".LuaJIT.%d"
-    folder = os.environ.get("PC_QUEUE_DIR")
-    if not folder:
-        root = os.path.normcase(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        return "Local\\PoE2Builder.queue." + hashlib.sha1(root.encode("utf-8")).hexdigest()[:12] + ".LuaJIT.%d"
-    tag = hashlib.sha1(os.path.normcase(os.path.abspath(folder)).encode("utf-8")).hexdigest()[:12]
-    return "Local\\PoE2Builder.proof." + tag + ".LuaJIT.%d"
+    root = os.path.normcase(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    return "Local\\PoE2Builder.queue." + hashlib.sha1(root.encode("utf-8")).hexdigest()[:12] + ".LuaJIT.%d"
 
 
 SLOT_NAME = slot_name()

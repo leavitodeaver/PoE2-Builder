@@ -16,8 +16,8 @@ sender's POE2_* / PYTHON* / UV_* settings (the server's own are removed first), 
 booking (so builder/pob/slots.py limits its engines the same way). Nothing is shared between two probes.
 
 THE OTHER PROJECTS' SAFETY (the user's condition):
-- At most JOBS_AT_ONCE (2) probes at once, all in ONE Windows job object of the server's own: 4 GB of committed memory
-  and 24 processes for the server and all its probes together, a hard cap of CPU_PERCENT (25 %) of the processor,
+- At most JOBS_AT_ONCE (2) probes at once, all in ONE Windows job object of the server's own: 5 GB of committed memory
+  and 48 processes for the server and its 2 runs together (a run is stopped past 2 GB), a hard cap of CPU_PERCENT (25 %) of the processor,
   Below Normal, never on the user's processors 0 and 1 (the limits a PoE2 queue run has). A server started from a
   manager's session is not held back by worker_clamp.py (it leaves managers' sessions alone), so the server sets all of
   this itself; if the job can't be made, it still sets its own priority and processors, which its probes inherit.
@@ -54,8 +54,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SPOOL = Path(os.environ.get("POE2_PROBE_SPOOL") or r"C:\PROJECTS\PoE2 Builder\scratch\probe_server")
 PC_QUEUE = Path(r"C:\PROJECTS\PCQueue\pc_queue.py")
 JOBS_AT_ONCE = 2
-MEMORY_MB = 4096  # the server and its probes together (a plain PoE2 queue run's limit)
-PROCESSES = 24  # likewise
+MEMORY_MB = 5120  # the server and its 2 runs together: above 2 x MEMORY_STOP_MB, so a run's own stop (a clean fallback) comes first
+PROCESSES = 48  # 24 a run, as the queue gives a run (test_slots alone starts ~17 processes)
 CPU_PERCENT = 25  # a hard cap on the whole job (4 of the 16 logical processors' worth)
 GRACE_SECONDS = float(os.environ.get("POE2_PROBE_HOLD_GRACE") or 30)  # the queue's GAME_GRACE_S
 BEAT_SECONDS = 2.0
@@ -166,6 +166,107 @@ def probe_env(base: dict[str, str], wanted: dict[str, str], slot_set: str) -> di
     env["PC_QUEUE_KIND"] = "test"
     env["POE2_SLOT_SET"] = slot_set
     return env
+
+
+MEMORY_STOP_MB = int(os.environ.get("POE2_PROBE_MEMORY_STOP_MB") or 2048)  # a run past this is stopped and booked
+TEST_MINUTES_MAX = 10  # a test run the lane expects to take longer goes to the queue
+SUITE_FILES = ("test_engine_models.py",)  # the train's part 1 alone; the halves / part 3 are refused by size below
+REFUSED_LABELS = ("gate4", "gate ", "train", "calibrat", "whole suite", "full suite", "part 3", "part 1/", "part 2/", "--part")
+PYTEST_VALUE_OPTIONS = {"-p", "-k", "-m", "-c", "-o", "-n", "--tb", "--junitxml", "--basetemp", "--rootdir", "--durations",
+                        "--maxfail", "--dist", "--deselect", "--ignore", "-W", "--confcutdir", "--log-level"}
+
+
+def _is_pytest(word: str) -> bool:
+    return word == "pytest" or word.endswith(("pytest", "pytest.exe"))
+
+
+def is_test_run(argv: list[str]) -> bool:
+    return any(_is_pytest(a) for a in argv)
+
+
+def test_targets(argv: list[str]) -> list[str]:
+    """The files / folders a pytest command names (its arguments after pytest that aren't options or option values)."""
+    after = argv[next(i for i, a in enumerate(argv) if _is_pytest(a)) + 1:]
+    found, skip = [], False
+    for a in after:
+        if skip:
+            skip = False
+            continue
+        if a in PYTEST_VALUE_OPTIONS:
+            skip = True
+            continue
+        if a.startswith("-"):
+            continue
+        found.append(a)
+    return found
+
+
+def _serial_seconds(target: str, cwd: str) -> float | None:
+    """A test file's serial seconds from the folder's tests/suite_durations.json (None if unknown)."""
+    try:
+        files = json.loads((Path(cwd) / "tests" / "suite_durations.json").read_text(encoding="utf-8"))["files"]
+    except (OSError, ValueError, KeyError):
+        return None
+    return files.get(Path(target.split("::")[0]).name)
+
+
+def qualifies(argv: list[str], minutes: float, label: str, cwd: str) -> str | None:
+    """Why this request may NOT run on the server (a one-line reason), or None. Probes always may; a pytest run only
+    when it is a small targeted run: named test files, about 10 minutes at most, not a suite part, gate, train or
+    calibration (the manager's rule, 25 Nov 01:20)."""
+    lowered = label.lower()
+    if any(word in lowered for word in REFUSED_LABELS):
+        return f"its label looks like a suite part, gate, train or calibration ({label!r}): those stay in the queue"
+    if not is_test_run(argv):
+        return None
+    if minutes > TEST_MINUTES_MAX:
+        return f"a test run of {minutes:g} min: the server takes test runs of {TEST_MINUTES_MAX} min or less"
+    if any(a == "-n" or (a.startswith("-n") and a[2:].isdigit()) or a.startswith("--numprocesses") for a in argv):
+        return "a parallel (-n) test run: those take several engines and stay in the queue"
+    targets = test_targets(argv)
+    if not targets:
+        return "a pytest run naming no test file (the whole suite) stays in the queue"
+    for target in targets:
+        path = target.split("::")[0].replace(chr(92), "/").rstrip("/")
+        if not path.endswith(".py"):
+            return f"{target!r} is a folder, not a test file: suites stay in the queue"
+        if Path(path).name in SUITE_FILES:
+            return f"{Path(path).name} is the train's part 1 (12 min alone): it stays in the queue"
+    known = [_serial_seconds(t, cwd) for t in targets if "::" not in t]
+    total = sum(k for k in known if k)
+    if total > TEST_MINUTES_MAX * 60:
+        return (f"its files took {total / 60:.0f} min in the last serial suite: more than {TEST_MINUTES_MAX} min, "
+                "so it stays in the queue")
+    return None
+
+
+def _tree_memory_mb(root: int) -> float:
+    """The committed memory (private bytes) of a process and everything below it."""
+    if os.name != "nt":
+        return 0.0
+
+    class Counters(ctypes.Structure):
+        _fields_ = [("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32), ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t), ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t), ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t), ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    psapi = ctypes.WinDLL("psapi")
+    psapi.GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32]
+    total = 0
+    for pid in _descendants(root):
+        handle = kernel32.OpenProcess(0x1000 | 0x0010, False, pid)  # QUERY_LIMITED_INFORMATION | VM_READ
+        if not handle:
+            continue
+        counters = Counters()
+        counters.cb = ctypes.sizeof(Counters)
+        if psapi.GetProcessMemoryInfo(ctypes.c_void_p(handle), ctypes.byref(counters), counters.cb):
+            total += counters.PagefileUsage
+        kernel32.CloseHandle(ctypes.c_void_p(handle))
+    return total / (1024 * 1024)
 
 
 def servers(spool: Path = SPOOL) -> list[dict]:
@@ -385,8 +486,19 @@ class Server:
         found = shutil.which(argv[0], path=request.get("path")) or shutil.which(argv[0]) if argv else None
         if found:
             argv[0] = found
-        env = probe_env(dict(os.environ), request.get("env", {}), self.slot_set)
         since = _now()
+        refused = qualifies(request["argv"], float(request.get("minutes", 12)), request.get("label", ""), request["cwd"])
+        if refused:
+            log.write(f"probe_server: refused: {refused}\n")
+            log.close()
+            self._finish(rid, request, None, since, f"refused: {refused} (the client books it normally)")
+            return
+        env = probe_env(dict(os.environ), request.get("env", {}), self.slot_set)
+        test = is_test_run(argv)
+        if test:
+            env["POE2_POOL_TURN"] = self.slot_set  # tests/conftest.py: the server's test runs open PoB pools one at a time
+            if not any(a.startswith("--junitxml") for a in argv):
+                argv.append(f"--junitxml={self.spool / 'out' / (rid + '.xml')}")
         try:
             proc = subprocess.Popen(argv, cwd=request["cwd"], env=env, stdout=log, stderr=subprocess.STDOUT,
                                     stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
@@ -395,20 +507,22 @@ class Server:
             log.close()
             self._finish(rid, request, None, since, f"could not start: {error}")
             return
-        _log(self.spool, f"probe {rid} started: {request.get('label', '')!r} in {request['cwd']}")
+        _log(self.spool, f"{'test run' if test else 'probe'} {rid} started: {request.get('label', '')!r} in {request['cwd']}")
         self.running[rid] = {"request": request, "proc": proc, "log": log, "since": since, "paused": 0.0, "paused_at": None, "suspended": [],
-                             "minutes": float(request.get("minutes", 12))}
+                             "minutes": float(request.get("minutes", 12)), "test": test, "peak_mb": 0.0, "measured": 0.0}
 
-    def _finish(self, rid: str, request: dict, code: int | None, since: float, error: str = "") -> None:
+    def _finish(self, rid: str, request: dict, code: int | None, since: float, error: str = "", peak_mb: float = 0.0) -> None:
+        junit = self.spool / "out" / f"{rid}.xml"
         _write_json(self.spool / "out" / f"{rid}.json", {
             "id": rid, "code": code, "error": error, "server": self.name, "asked": request.get("asked"),
-            "started": since, "ended": _now(), "label": request.get("label", "")})
+            "started": since, "ended": _now(), "label": request.get("label", ""), "peak_mb": round(peak_mb),
+            "junit": str(junit) if junit.exists() else None})
         try:
             (self.spool / "claimed" / f"{rid}.json").unlink()
         except OSError:
             pass
         self.done += 1
-        _log(self.spool, f"probe {rid} ended: exit {code}{'; ' + error if error else ''}")
+        _log(self.spool, f"run {rid} ended: exit {code}, peak {peak_mb:.0f} MB{'; ' + error if error else ''}")
 
     def _pause(self, job: dict, resume: bool) -> None:
         """Suspend a probe's processes once (Windows counts suspensions: each needs its own resume), or resume them."""
@@ -452,7 +566,15 @@ class Server:
                 paused = job["paused"] + ((_now() - job["paused_at"]) if job["paused_at"] else 0)
                 ran = _now() - job["since"] - paused
                 limit = job["minutes"] * 60
-                if ran > limit:
+                if not job["paused_at"] and _now() - job["measured"] >= 2:
+                    job["measured"] = _now()
+                    job["peak_mb"] = max(job["peak_mb"], _tree_memory_mb(job["proc"].pid))
+                if job["peak_mb"] > MEMORY_STOP_MB:
+                    error = (f"stopped: past {MEMORY_STOP_MB} MB ({job['peak_mb']:.0f} MB): too big for the server "
+                             "(the client books it normally)")
+                elif ran > limit and job["test"]:
+                    error = "stopped: past the test run's own minutes on the server (the client books it normally)"
+                elif ran > limit:
                     error = "stopped: the probe's own minutes ran out"
                 elif paused > limit:
                     error = "stopped: paused past the probe's own minutes by a hold (the client books it normally)"
@@ -467,7 +589,7 @@ class Server:
                 code = job["proc"].returncode
             job["log"].close()
             del self.running[rid]
-            self._finish(rid, job["request"], code, job["since"], error)
+            self._finish(rid, job["request"], code, job["since"], error, job["peak_mb"])
 
     def serve(self, keeper: bool) -> int:
         stop = threading.Event()
