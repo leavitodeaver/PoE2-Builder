@@ -138,6 +138,7 @@ def test_fiery_death_explodes_ignited_adds_at_the_builds_own_rate():
     second x the supported skill's Ignite chance x the support's 60% x PoB's Fiery Death hit; 0 on a lone boss."""
     added, note = models.fiery_death_model(0.5, "test adds", 40.0, 60.0, 1000.0, "Fireball")
     assert added == pytest.approx(0.5 * 0.4 * 0.6 * 1000.0) and note["confidence"] == "LOW"
+    assert "R60-14" in note["basis"] and "+129.0 DPS" in note["basis"]  # (the row: the boss 2 levels up, x1.075)
     assert models.fiery_death_model(0.0, "", 40.0, 60.0, 1000.0, "Fireball")[0] == 0.0
     assert "lone boss" in models.fiery_death_model(0.0, "", 40.0, 60.0, 1000.0, "Fireball")[1]["basis"]
     assert models.fiery_death_model(0.5, "", 0.0, 60.0, 1000.0, "Fireball")[0] == 0.0

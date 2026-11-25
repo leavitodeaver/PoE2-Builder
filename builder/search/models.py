@@ -20124,8 +20124,9 @@ def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
         more = 100.0 * share * pierce * factor
         if frags > 1:
             how += (f"; one returned fragment for the {frags:g} fired together (R59-1's rule; whether returned "
-                    f"fragments Merge again is UNVERIFIED): the return's more / {frags:g}, all {frags:g} merged on the "
-                    f"return a row: +{more:.1f}%")
+                    f"fragments Merge again is UNVERIFIED, RESEARCH60 R60-15 leaning to a merged hit, MEDIUM-LOW): the "
+                    f"return's more / {frags:g}, the pierced fragments merged on the return (all {frags:g}) a row: "
+                    f"+{more:.1f}%")
             more /= frags
         if more <= 0:
             notes.append({"label": label, "value": 0, "confidence": "MEDIUM",
@@ -23852,8 +23853,10 @@ def tawhoa_model(skills: list[Skill], rows: dict[str, dict], deaths: dict[str, f
 # corpse_explosion_monster_life_% 10, radius 2 m; game files 26650308) goes off when an enemy the supported skill Ignited
 # dies. The boss's own death ends the fight, so only adds feed it: the boss preset's adds killed a second (kill_rate;
 # 0 on a lone boss, every add taken as killed by the build, LOW) x the share the supported skill Ignited (PoB's
-# IgniteChancePerHit for its group, one hit before the add dies: read against the boss's Ailment Threshold, so lower than
-# against an add, the lower reading) x the support's 60%. Each explosion: PoB's Fiery Death hit for its group (AverageHit
+# IgniteChancePerHit for its group, one hit before the add dies, read against the boss's Ailment Threshold: RESEARCH60
+# R60-14, MEDIUM: a monster's threshold is a per-level base (DefaultMonsterStats; 74,191 at level 83), not its Life, so
+# an add and the boss at the same level match; a boss 1-2 levels above its adds has a 3.7-7.5% higher one, the row) x
+# the support's 60%. Each explosion: PoB's Fiery Death hit for its group (AverageHit
 # with the build's modifiers; the 10% of the dying add's Life read as PoB reads it, LOW), every one reaching the boss
 # (LOW: the add dies somewhere near it, the blast 2 m, as Combust's). Added beside PoB's numbers (added_input):
 # objective.ON_DEATH takes PoB's own Fiery Death entry out of Full DPS (it matches the support's description), so this
@@ -23861,6 +23864,7 @@ def tawhoa_model(skills: list[Skill], rows: dict[str, dict], deaths: dict[str, f
 FIERY_DEATH = "Fiery Death"
 FIERY_DEATH_CHANCE_STAT = "chance_to_trigger_fiery_death_on_ignited_enemy_death_%"
 FIERY_DEATH_CHANCE = 60.0  # (the game files' and PoB's value; the support's stat when given)
+FIERY_DEATH_LEVEL_ROW = 1.075  # (R60-14: a boss 2 levels above its adds, its Ailment Threshold 7.5% higher)
 
 
 def fiery_death_model(adds: float, adds_how: str, ignite_pct: float, chance_pct: float, hit: float,
@@ -23872,21 +23876,22 @@ def fiery_death_model(adds: float, adds_how: str, ignite_pct: float, chance_pct:
     ignited = min(max(ignite_pct, 0.0), 100.0) / 100
     chance = min(max(chance_pct or FIERY_DEATH_CHANCE, 0.0), 100.0) / 100
     rate = max(adds, 0.0) * ignited * chance
-    upper = max(adds, 0.0) * chance * max(hit, 0.0)  # (the row: every add it kills Ignited, a lower threshold than the boss's)
+    upper = max(adds, 0.0) * min(1.0, ignited * FIERY_DEATH_LEVEL_ROW) * chance * max(hit, 0.0)  # (R60-14's row)
     if rate <= 0 or hit <= 0:
         why = ("no enemy dies before the boss (a lone boss): the boss's own death ends the fight" if adds <= 0 else
-               f"{source} doesn't Ignite (PoB's chance 0 against the boss); if every add it kills is Ignited (an add's "
-               f"Ailment Threshold is lower: UNVERIFIED how much), +{upper:,.1f} DPS" if ignited <= 0 else
+               f"{source} doesn't Ignite (PoB's chance 0 against the boss's Ailment Threshold, which an add at its "
+               "level shares: RESEARCH60 R60-14, MEDIUM)" if ignited <= 0 else
                "PoB gives its explosion no hit")
         return 0.0, {"label": label, "value": 0, "confidence": "LOW",
                      "basis": f"{why}: 0 (PoB's own Fiery Death entry is left out of Full DPS as on-death damage)"}
     added = rate * hit
     return added, {"label": label, "value": round(added, 1), "confidence": "LOW",
                    "basis": (f"{adds:.3f} adds killed a second ({adds_how}) x {ignited:.0%} Ignited by {source} (PoB's "
-                             f"chance a hit against the boss: the lower reading) x {chance:.0%} = {rate:.3f} explosions "
+                             f"chance a hit against the boss's Ailment Threshold, a per-level base an add at its level "
+                             f"shares: RESEARCH60 R60-14, MEDIUM) x {chance:.0%} = {rate:.3f} explosions "
                              f"a second x {hit:,.0f} a hit (PoB's Fiery Death hit; the dying add's Life as PoB reads it, "
-                             f"LOW), each reaching the boss (LOW). Row: every add it kills Ignited (an add's Ailment "
-                             f"Threshold is lower than the boss's, UNVERIFIED how much): +{upper:,.1f} DPS"),
+                             f"LOW), each reaching the boss (LOW). Row: the boss 2 levels above its adds (its threshold "
+                             f"7.5% higher, R60-14): +{upper:,.1f} DPS"),
                    "play": f"Ignite the boss's adds with {source}: each one that dies Ignited may explode on the boss."}
 
 
