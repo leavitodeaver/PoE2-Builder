@@ -123,3 +123,11 @@ def test_crit_recently_counts_every_groups_crits_at_its_share():
     # (a main skill with no uses: the side skills alone; none that crits: 0)
     assert conditions.crit_recently_share({"CritChance": 100, "Speed": 0, "_side_rows": rows}) > 0.9
     assert conditions.crit_recently_share({"CritChance": 100, "Speed": 0}) == 0.0
+
+
+def test_deceptions_unbroken_chain_is_medium_low_with_the_broken_chain_row():
+    # (MECH109, RESEARCH60 R60-10: x4 stays at a use within the clone's life; what resets the chain is UNVERIFIED)
+    factor, how = models.deception_factor(1.57)
+    assert factor == pytest.approx(1 + models.DECEPTION_CAP)
+    assert "MEDIUM-LOW" in how and "x1.50" in how
+    assert "in runs" in models.DECEPTION_RUNS and "Brutality before a run" in models.DECEPTION_RUNS

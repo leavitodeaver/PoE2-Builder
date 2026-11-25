@@ -15251,6 +15251,13 @@ def blades_on_boss(radius: float) -> float:
 # what resets "consecutively" (no source defines it: reading A, the chain lasts while the last clone lives, is the
 # headline; reading B, while Kelari is summoned, x4, one player guide, and the bunched x1.5 are rows).
 DECEPTION_SPACING = 0.98  # of the clone's life between uses: "just before it expires" (R54-3's script)
+# (MECH109; RESEARCH60 R60-10, research/deception-sequence-reset-r60.md) At a use within the clone's life (build 18: every
+# 1.57 s) readings A and B both keep the chain unbroken, so x4 stays the headline, but what resets "consecutively" is still
+# UNVERIFIED (no game text defines it: checked by R60-10 over every statdescription and ActiveSkills / KeywordPopups text),
+# so it is MEDIUM-LOW, with the row "a short gap or another Command in between breaks the chain": its stored uses' x1.5.
+# The play guide says to press it in runs, with Kelari's Brutality before a run, not between uses (maxroll's boss order),
+# which sidesteps the other-Command reading at no cost.
+DECEPTION_RUNS = "Command Kelari's Deception in runs, with Kelari's Brutality before a run, not between its uses (R60-10). "
 
 
 @functools.lru_cache(maxsize=1024)
@@ -15298,12 +15305,14 @@ def clone_explosions(cooldown: float, clone: float = DECEPTION_CLONE, uses: int 
 
 def deception_factor(cooldown: float, clone: float = DECEPTION_CLONE, uses: int = DECEPTION_USES) -> tuple[float, str]:
     """Kelari's Deception's mean sequence bonus a use (the note above)."""
+    steps = [1 + min(DECEPTION_PER * k, DECEPTION_CAP) for k in range(max(uses, 1))]
+    bunched = sum(steps) / len(steps)
     if cooldown <= clone:
         return 1 + DECEPTION_CAP, (f"a use every {cooldown:.3g} s, within the clone's {clone:g} s: the sequence never "
                                    f"breaks, at the cap (+{DECEPTION_CAP:.0%}) from use "
-                                   f"{int(DECEPTION_CAP / DECEPTION_PER) + 1} on (the climb not taken off, MEDIUM)")
-    steps = [1 + min(DECEPTION_PER * k, DECEPTION_CAP) for k in range(max(uses, 1))]
-    bunched = sum(steps) / len(steps)
+                                   f"{int(DECEPTION_CAP / DECEPTION_PER) + 1} on (the climb not taken off; MEDIUM-LOW: what "
+                                   f"resets the sequence is UNVERIFIED, R60-10; if a short gap or another Command in "
+                                   f"between breaks the chain, its {uses} stored uses: x{bunched:.2f})")
     mean = deception_chain(cooldown, clone, uses)[0]
     return mean, (f"used again just before each clone expires, so the chain runs on as the store refills: x{mean:.2f} a "
                   f"use (R54-3, MEDIUM-LOW; one stored use refilling per cooldown and what resets the sequence: "
@@ -15375,6 +15384,11 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
                         f"sequence lasting while Kelari is summoned: {(blast + clone) * (1 + DECEPTION_CAP) / period:,.1f} DPS")
                 spaced = (f"Use {command.name} again just before each clone expires (about every "
                           f"{DECEPTION_SPACING * DECEPTION_CLONE:.2f} s while a use is stored). ")
+            else:  # (MECH109, R60-10: the chain-breaking row, and the runs line in the play guide)
+                bunched = sum(1 + min(DECEPTION_PER * n, DECEPTION_CAP) for n in range(DECEPTION_USES)) / DECEPTION_USES
+                rows = (f"; if a short gap or another Command in between breaks the chain (R60-10): "
+                        f"{(blast + clone * booms) * bunched / max(period, 0.1):,.1f} DPS")
+            spaced += DECEPTION_RUNS
             how = (f"its blast {blast:,.0f} + the clone's explosion {clone:,.0f} (PoB's \"Hidden\" set) x {booms:.2f} a use "
                    f"(a use while the last clone lives explodes it: RESEARCH29 R29-3, HIGH), both {seq_how}")
             more = (f"; the sequence bonus on the blast only: "
