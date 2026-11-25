@@ -5937,6 +5937,25 @@ class Assumptions:
             return share, f"{how}; in the form until {main}'s next use ({1 / speed:.2f} s)"
         return 0.0, how
 
+    def minion_rage_supports(self, main) -> dict[str, tuple[float, float]]:
+        """(MECHB61, R58-4; models.RAGE_SUPPORT_STAT's note) {minion skill: (Rage a melee hit from the Rage I-III
+        supporting it, its minions' hits a second)}: the main group's Minion.Speed x hit chance, another group's
+        useRates minionSpeed."""
+        build = self.build
+        raw = [s for s in build.call("activeSkills", supportStats=[models.RAGE_SUPPORT_STAT])["skills"]
+               if not s.get("disabled") and s.get("summon") and s.get("group") is not None
+               and number((s.get("supportStats") or {}).get(models.RAGE_SUPPORT_STAT)) > 0]
+        if not raw:
+            return {}
+        index = (build.main_group() or {}).get("index")
+        side = sorted({s["group"] for s in raw if s["group"] != index})
+        rates = {r.get("index"): number(r.get("minionSpeed")) for r in build.call("useRates", indices=side)["rates"]} if side else {}
+        own = build.call("stats", fields=["Minion.Speed", "Minion.HitChance"])
+        chance = number(own.get("Minion.HitChance")) / 100 if own.get("Minion.HitChance") is not None else 1.0
+        return {s["name"]: (number(s["supportStats"][models.RAGE_SUPPORT_STAT]),
+                            number(own.get("Minion.Speed")) * chance if s["group"] == index else rates.get(s["group"], 0.0))
+                for s in raw}
+
     def companion_rune_inputs(self, texts: list[str], main) -> tuple[float, str, float, list[tuple[str, float]], float | None]:
         """(MECHB60, models.companion_runes_model) (the boss's Marked share, how, the share Companions already have
         Onslaught, [(Companion skill, its hits a second)], the fight's length from the boss's pool over Full DPS)."""
@@ -7138,9 +7157,11 @@ class Assumptions:
         if any(models.RALLYING_FORM.search(t.strip()) for t in texts):  # (MECHB58: Rallying Form, at the shifted share)
             rally_mods, rally_notes = models.rallying_form_model(texts, *self.shifted_share(main))
             mods, notes = mods + rally_mods, notes + rally_notes
-        if any(models.COMPANION_MARK_ONSLAUGHT.match(t.strip()) or models.COMPANION_RAGE_ON_HIT.match(t.strip())
-               for t in texts):  # (MECHB60: the two companion Idol lines)
-            rune_mods, rune_notes = models.companion_runes_model(texts, *self.companion_rune_inputs(texts, main))
+        support_rage = self.minion_rage_supports(main)  # (MECHB61, R58-4: Rage I-III on minion skills)
+        if support_rage or any(models.COMPANION_MARK_ONSLAUGHT.match(t.strip()) or models.COMPANION_RAGE_ON_HIT.match(t.strip())
+                               for t in texts):  # (MECHB60: the two companion Idol lines)
+            rune_mods, rune_notes = models.companion_runes_model(texts, *self.companion_rune_inputs(texts, main),
+                                                                 support_rage)
             mods, notes = mods + rune_mods, notes + rune_notes
         self.full_guard_mods = []  # (MECHC38: Guard up all fight, set by life_mana_income: the manager's ruling (ii))
         notes += self.life_mana_income(skills, main)  # (MECH-C: Life / Mana from kills, Remnants, charms, events; MECHC12)

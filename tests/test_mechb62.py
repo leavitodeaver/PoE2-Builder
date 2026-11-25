@@ -135,3 +135,24 @@ def test_the_bridge_gives_skyfall_its_comet_spawn(engine):
     entries = {e["name"]: e["dps"] for e in engine.call("stats", fields=["SkillDPS"])["SkillDPS"]}
     # (its own Full DPS entry, apart from the comet's: a press scale on Skyfall misses it, the count scales it alone)
     assert entries[models.SKYFALL_MINION] == pytest.approx(types[0]["TotalDPS"]) and entries["Skyfall"] > 0
+
+
+# Rage I-III on a minion skill (R58-4; MECHB61's patch): PoB gives the minion 0 Rage with its Minion Rage box unset
+# (probe POE2T4972), so the support's Rage a melee hit is held by companion_rage from the minions' hits a second.
+def test_a_rage_support_on_a_minion_skill_gives_its_minions_rage():
+    mods, notes = models.companion_runes_model([], 0.0, "", 0.0, [], None, {"Skeletal Warrior": (3.0, 1.5)})
+    rage, _ = models.companion_rage(3.0, 1.5, None)
+    assert rage > 0
+    assert [(m["line"], m["skill"]) for m in mods] == [("Minions deal 1% more Attack Damage", "Skeletal Warrior")]
+    assert mods[0]["scale"] == pytest.approx(rage, rel=1e-3)
+    assert "Rage support" in notes[0]["label"]
+    assert models.companion_runes_model([], 0.0, "", 0.0, [], None, {"Skeletal Warrior": (3.0, 0.0)})[0] == []
+
+
+def test_the_bridge_reads_the_rage_support_on_a_minion_skill(engine):
+    engine.call("newBuild")
+    engine.call("setLevel", level=90)
+    engine.call("addSkillGroup", text="Skeletal Warrior 20/0 1\nRage I 1/0 1", main=True, fullDPS=True)
+    rows = [s for s in engine.call("activeSkills", supportStats=[models.RAGE_SUPPORT_STAT])["skills"] if s.get("summon")]
+    assert rows and rows[0]["supportStats"][models.RAGE_SUPPORT_STAT] == 3
+    assert engine.call("stats", fields=["Minion.Rage"]).get("Minion.Rage") in (0, None)  # (PoB's own: 0)

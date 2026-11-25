@@ -13398,10 +13398,23 @@ def companion_rage(per_hit: float, rate: float, fight: float | None) -> tuple[fl
     return held, f"climbs to {RAGE_MAXIMUM:g} in {fill:.1f} s of a {fight:.0f} s fight: {held:.1f} on average"
 
 
+# (MECHB61; RESEARCH58 R58-4, ally-minion-rage-carriers-r58.md) Rage I / II / III ("Supports Melee Attacks, causing them
+# to grant Rage on Hit": gain_x_rage_on_melee_hit 3 / 5 / 5) support minion skills since 0.5.0, the one real minion Rage
+# source found (no carrier exists for rage_generated_also_granted_to_allies_in_presence or minion_gain_rage_on_hit:
+# R58-4, checked over every table's stat and flag columns plus PoB's ModCache / ModRunes / Uniques). PoB maps the stat
+# to the minion's Condition:CanGainRage only (SkillStatMap 2948); the minion's Rage is its "Minion Rage" config box
+# (ConfigOptions multiplierMinionRage), which nothing of ours sets, so PoB gives it 0 (probe POE2T4963). Counted as the
+# Idol line's Rage: the support's Rage a melee hit (the minion skill's supportStats) added to any Idol line's, held by
+# companion_rage from the minion's own hits a second (KeywordPopups Rage's rules, MEDIUM by R57-15; 30 maximum UNVERIFIED).
+RAGE_SUPPORT_STAT = "gain_x_rage_on_melee_hit"
+
+
 def companion_runes_model(texts: list[str], marked: float, how: str, others: float, companions: list[tuple[str, float]],
-                          fight: float | None) -> tuple[list[dict], list[dict]]:
+                          fight: float | None,
+                          support_rage: dict[str, tuple[float, float]] | None = None) -> tuple[list[dict], list[dict]]:
     """(mods, notes) for the two companion Idol lines (see above). `marked`, `how`: the boss's Marked share; `others`: the
-    share of the fight Companions already have Onslaught; `companions`: (skill name, its hits a second)."""
+    share of the fight Companions already have Onslaught; `companions`: (skill name, its hits a second);
+    `support_rage` (MECHB61): {minion skill: (Rage a melee hit from its Rage I-III support, its minions' hits a second)}."""
     lines = [t.strip() for t in texts]
     mods: list[dict] = []
     notes: list[dict] = []
@@ -13420,17 +13433,25 @@ def companion_runes_model(texts: list[str], marked: float, how: str, others: flo
                                 f"carried through every gap in the Mark: +{ONSLAUGHT_SKILL_SPEED * (1 - held):.3g}%"),
                       "play": "Keep your Mark on the boss so your Companions keep Onslaught" if share > 0 else ""})
     gains = [float(m.group(1)) for t in lines if (m := COMPANION_RAGE_ON_HIT.match(t))]
-    if gains:
+    support = {k: v for k, v in (support_rage or {}).items() if v[0] > 0}
+    if gains or support:
         per_hit, parts = sum(gains), []
-        for name, rate in companions:
-            rage, why = companion_rage(per_hit, rate, fight)
-            parts.append(f"{name}: {why}")
+        rates = {name: rate for name, rate in companions} if gains else {}
+        for name in dict.fromkeys([*rates, *support]):
+            own = (per_hit if name in rates else 0.0) + (support[name][0] if name in support else 0.0)
+            rage, why = companion_rage(own, rates.get(name, support.get(name, (0.0, 0.0))[1]), fight)
+            parts.append(f"{name}: {own:g} Rage a hit" + (f" ({support[name][0]:g} from its Rage support)"
+                                                           if name in support else "") + f", {why}")
             if rage > 0:
                 mods.append(line("Minions deal 1% more Attack Damage", rage, skill=name))
-        notes.append({"label": "Companions' Rage on hit*", "value": f"{per_hit:g} a hit", "confidence": "MEDIUM",
+        label = "Companions' Rage on hit*" if gains else "Minions' Rage from their Rage support*"
+        notes.append({"label": label, "value": f"{per_hit:g} a hit" if gains else "a Rage support",
+                      "confidence": "MEDIUM",
                       "basis": ("; ".join(parts) or "no Companion in the build: 0") + ". 1% more Attack damage per Rage "
                                "(KeywordPopups Rage). A Companion follows the player's Rage rules (RESEARCH57 R57-15, "
-                               "MEDIUM); its 30 maximum is UNVERIFIED (the popup's default); PoB gives the line nothing"})
+                               "MEDIUM); its 30 maximum is UNVERIFIED (the popup's default); PoB gives the line nothing"
+                               + ("; Rage I-III on a minion skill: PoB sets only its CanGainRage and its Minion Rage box "
+                                  "stays 0 (R58-4)" if support else "")})
     return mods, notes
 
 
