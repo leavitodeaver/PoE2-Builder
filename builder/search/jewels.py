@@ -108,7 +108,10 @@ MELANCHOLY = "Potent Liquid Melancholy"
 # jewel. Expected cost = EXPOSURE_TRIES x (that jewel + one emotion)
 EXPOSURE_TRIES = 2.0
 EXPOSURE_LINE = "Inflict Elemental Exposure on Hit while you have a Ruby and an Emerald socketed in your tree"
-EXPOSURE_JEWEL = os.environ.get("POE2_SEARCH_EXPOSURE_JEWEL", "1") != "0"  # (JEWEL3) exposure_trial in full jewel rounds
+# (JEWEL3) exposure_trial in full jewel rounds. (JEWEL4) OFF by default since the --work gates of 25 Nov (2b75d, 3 seeds, the
+# manager's ruling: flip it OFF if ON's median isn't higher): with it ON 238,291 median, OFF 238,291, the same DPS on every seed
+# (POE2T8648 / 8650, 8651 / 8653, 8654 / 8656): the trial never kept its Sapphire there and only spent search time
+EXPOSURE_JEWEL = os.environ.get("POE2_SEARCH_EXPOSURE_JEWEL", "0") == "1"
 # (JEWEL3; RESEARCH57 R57-9) The 13 Refined catalysts put quality on a jewel: "Adds quality that enhances <X> modifiers on a
 # jewel", "Replaces other quality types" (poe2db, 23 Nov; 0.5.0 / 0.5.2 notes; BaseItemTypes CurrencyJewelQuality*):
 # one category per jewel, its lines x(1 + quality) (MEDIUM-HIGH, as the jewellery catalysts), up to 20% (MEDIUM: the

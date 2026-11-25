@@ -822,3 +822,13 @@ def test_a_short_jewels_not_finished_note_survives_the_lines_state(search):
     assert len(notes) == 1 and notes[0]["value"] == "2/4" and "Continue" in notes[0]["basis"]
     jewels.unfinished.clear()
     build.restore(snap)
+
+
+def test_melancholys_exposure_trial_is_off_by_default():
+    """(JEWEL4) The --work gates of 25 Nov (2b75d, 3 seeds) gave the same DPS with and without the Exposure trial on every seed,
+    so its default is OFF (the manager's ruling); POE2_SEARCH_EXPOSURE_JEWEL=1 turns it on."""
+    import os
+
+    from builder.search import jewels as module
+
+    assert module.EXPOSURE_JEWEL == (os.environ.get("POE2_SEARCH_EXPOSURE_JEWEL") == "1")
