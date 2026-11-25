@@ -807,6 +807,34 @@ def infusion_seconds(lines: list[str], element: str = "") -> float:
 _EXPIRY_CACHE: dict[tuple, float] = {}
 
 
+# (MECHC61; SPEED3's hang, POE2T7870: example build 07's main-skill use rate collapsed to ~1e-15/s, so each gap between
+# uses held ~1e15 pickups drawn one by one and a fair score never ended.) Where a gap is expected to hold more than
+# INFUSION_GAP_MANY pickups, _infusion_gap draws only what decides the state at the next use: the pickups backward from
+# it (a Poisson process seen backward from a point is again Poisson: exact), at most cap + 1 of them or until a gap longer
+# than the duration (the timer ran out there) or the gap's start; the next forward pickup is then drawn after the use
+# (memoryless). Gaps with fewer expected pickups keep the forward draws, so every normal rate gives the same numbers as
+# before.
+INFUSION_GAP_MANY = 64.0
+
+
+def _infusion_gap(rng, supply: float, gap: float, held: int, age: float, cap: int, seconds: float) -> tuple[int, float]:
+    """(MECHC61: INFUSION_GAP_MANY's note) (Infusions held, the last pickup's age) at a use after the pickups of the
+    `gap` s since the previous use, from `held` / `age` (the last pickup's age) at that use."""
+    ages: list[float] = []
+    a = rng.expovariate(supply)
+    while a < gap and len(ages) <= cap:
+        if ages and a - ages[-1] > seconds:
+            return min(cap, len(ages)), ages[0]  # (the timer ran out before the trailing run began)
+        ages.append(a)
+        a += rng.expovariate(supply)
+    if not ages:
+        return held, age + gap
+    if len(ages) > cap:
+        return cap, ages[0]
+    before = held if held and age + gap - ages[-1] <= seconds else 0
+    return min(cap, before + len(ages)), ages[0]
+
+
 def _infusion_simulated(supply: float, uses: float, keep: float, cap: int, seconds: float, n: int = 20000) -> float:
     """(MECHC46) The share of uses finding an Infusion with expiry (INFUSION_SECONDS's note), by a seeded simulation."""
     key = (round(supply, 4), round(uses, 4), round(keep, 3), cap, round(seconds, 3) if math.isfinite(seconds) else None)
@@ -820,6 +848,19 @@ def _infusion_simulated(supply: float, uses: float, keep: float, cap: int, secon
     t = arrivals.expovariate(supply)  # (the next pickup's time)
     found = counted = 0
     warm = min(500, n // 10)
+    if supply * gap > INFUSION_GAP_MANY:  # (MECHC61: INFUSION_GAP_MANY's note) only the trailing pickups matter
+        age = math.inf  # (the last pickup's age at the current use: relative time, no clock that can lose precision)
+        for k in range(1, n + warm + 1):
+            held, age = _infusion_gap(arrivals, supply, gap, held, age, cap, seconds)
+            if held and age > seconds:
+                held = 0
+            kept = keeps.random() < keep
+            if k > warm:
+                counted += 1
+                found += bool(held)
+            if held and not kept:
+                held -= 1
+        n = -warm  # (the forward loop below is skipped)
     for k in range(1, n + warm + 1):
         now = k * gap
         while t <= now:  # (the pickups up to this use: the shared timer runs out first, then the pickup refreshes it)
@@ -954,8 +995,9 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
     texts = [t.strip() for t in lines]
     # (MECHC60, U4's support: an UNDERCOUNT) the "chance to create an additional Remnant" stat on each source: its
     # supports' (Harmonic Remnants II, in supportStats; it supports only GeneratesRemnants skills: Siphon Elements, Frost
-    # Bomb, Orb of Storms, Living Bomb, Snap) plus the build's lines (the same stat; MEDIUM: Infusion Remnants are
-    # Remnants, KeywordPopups Remnant; the Infusion-only "additional Infusion Remnant" lines stay below, rolled apart)
+    # Bomb, Orb of Storms, Living Bomb, Snap) plus the build's lines (the same stat; MEDIUM-HIGH since RESEARCH59 R59-9,
+    # 25 Nov: the generic line DOES make Infusion Remnants too; KeywordPopups Remnant; the Infusion-only "additional
+    # Infusion Remnant" lines stay below, rolled apart)
     general = additional_remnant_chance(texts)
     for name, chance in made_by.items():
         support = max((number((s.get("supportStats") or {}).get(EXTRA_REMNANT_STAT)) / 100.0
@@ -964,7 +1006,8 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
             for element, rate in chance.items():
                 made[element] += rate * (general + support)
             used.append(f"{name}: +{general + support:.0%} additional Remnants"
-                        + (f" (its supports' {support:.0%})" if support else ""))
+                        + (f" (its supports' {support:.0%})" if support else "")
+                        + (" (the generic line makes Infusion Remnants too: R59-9, MEDIUM-HIGH)" if general else ""))
     if any(EQUILIBRIUM.search(t) for t in texts):
         made = {EQUILIBRIUM_SHIFT[e]: r for e, r in made.items()}
         used.append("Elemental Equilibrium shifts each Remnant's element (Fire to Lightning, Lightning to Cold, Cold to Fire)")
@@ -8556,7 +8599,8 @@ class Assumptions:
                           f"its Rage box ({held:.1f}) is at least {conditions_mod.RAGE_SPEND_AT:g}, so x{factor:.3f} on "
                           f"{name}"),
                 "play": f"keep using {name}: each use that finds 10 Rage is Enraged (without Rage: no bonus)",
-                "confidence": "MEDIUM (the paid share: gains taken as steady, the spenders cut alike)"})
+                "confidence": "MEDIUM (the paid share: gains taken as steady, the spenders cut alike); MEDIUM-HIGH that a use "
+                              "finding under 10 Rage spends none and gets no bonus (RESEARCH59 R59-10)"})
         if kept:
             notes.append({"label": "Rageforged beside the main skill: PoB's reading kept*",
                           "value": ", ".join(sorted(set(kept))),

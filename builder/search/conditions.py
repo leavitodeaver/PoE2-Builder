@@ -2850,7 +2850,8 @@ RAGE_PER_USE = {"Molten Crash": 10, "Furious Slam": 10, "Fury of the Mountain": 
 RAGE_PER_SECOND = {"Rampage": 5.0, "Flame Breath": 6.0}
 # (MECHC60; COV52's C list, example build 1: Twister with Rageforged II fed by Eternal Rage's 5 Rage/s read 0 Rage held)
 # A per-use spender (RAGE_PER_USE: Rageforged, Molten Crash, the bear slams, Fury of the Mountain) spends its 10 Rage on a
-# use only while 10 are there ("consume 10 Rage to Enrage" / "optionally consume", the stats' X_rage amounts), so Rage
+# use only while 10 are there ("consume 10 Rage to Enrage" / "optionally consume", the stats' X_rage amounts; MEDIUM-HIGH
+# since RESEARCH59 R59-10, 25 Nov: below 10 Rage nothing is spent and no bonus given), so Rage
 # isn't "spent as fast as it comes": it climbs to 10 between uses and drops by 10 at the next use (a sawtooth), and
 # with gains above the spend it sits below the maximum between spends, not at it. rage_sawtooth averages that level from
 # the build's own gain a second and its spenders' uses (each spender's Rage a second / its Rage a use), Rageforged II's

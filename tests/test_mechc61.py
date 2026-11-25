@@ -250,3 +250,23 @@ def test_real_pob_blooms_take_an_additional_remnant_line(engine):
     build._model_texts = (None, [])  # (state.Build's per-commit text cache: a raw equip call isn't a commit)
     gain = Charges.of(build)
     assert gain.bloom_rate == pytest.approx(raw * 1.2) and "additional Remnants" in gain.bloom_how
+
+
+def test_infusion_simulation_ends_at_once_on_a_collapsed_use_rate():
+    """(SPEED3's hang, POE2T7870) a main-skill use rate near 0 (example build 07's ~1e-15/s) made every gap hold ~1e15
+    pickups drawn one by one; now only the trailing ones (INFUSION_GAP_MANY): it ends at once, at the exact value (a use
+    finds an Infusion when one came in the duration before it: 1 - e^(-supply x 20 s)); normal rates unchanged (their
+    draws are the same)."""
+    import math
+    import time
+
+    from builder.search import assumptions
+
+    start = time.perf_counter()
+    rare = assumptions._infusion_simulated(0.01, 1e-15, 0.0, 3, 20.0)
+    often = assumptions.infusion_found(1.0, 1e-15)
+    assert time.perf_counter() - start < 5.0
+    assert rare == pytest.approx(1 - math.exp(-0.01 * 20), abs=0.02) and often == pytest.approx(1.0)
+    gap = assumptions._infusion_gap(__import__("random").Random(1), 1.0, 1e15, 0, math.inf, 3, 20.0)
+    assert gap[0] == 3 and 0 < gap[1] < 20
+
