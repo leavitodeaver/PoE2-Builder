@@ -73,7 +73,7 @@ def test_bonestorm_one_use_does_its_spike_and_its_explosion():
     sets = [{"label": "Projectile", "TotalDPS": 1000.0}, {"label": "Explosion", "TotalDPS": 500.0}]
     mods, notes = models.multi_set_model("Bonestorm", "Projectile", sets)
     assert mods[0]["value"] == pytest.approx(50.0) and "R59-4" in notes[0]["basis"]
-    assert notes[0]["confidence"].startswith("MEDIUM-LOW")
+    assert notes[0]["confidence"].startswith("MEDIUM (R60-1")  # (MEDIUM-LOW at R59-4; MEDIUM since R60-1)
     mods, _ = models.multi_set_model("Bonestorm", "Explosion", sets)
     assert mods[0]["value"] == pytest.approx(200.0)
     slam = [{"label": "First Slam", "TotalDPS": 1.0}, {"label": "Second Slam", "TotalDPS": 2.0}]
@@ -89,7 +89,7 @@ def test_a_bonestorm_feeder_crits_with_its_explosion_too():
     alone, crits_alone, _ = models.energy_feed("crit", [feeder], stats)
     both, crits, how = models.energy_feed("crit", [{**feeder, "beside": [blast]}], stats)
     assert crits_alone == pytest.approx(4.0) and crits == pytest.approx(4.0 + 1.6)
-    assert both == pytest.approx(alone + 8.0 * 0.2 * 20 * 0.5) and "R59-4" in how
+    assert both == pytest.approx(alone + 8.0 * 0.2 * 20 * 0.5) and "R60-1" in how and "one crit roll" in how
 
 
 def test_ancestral_cry_is_charged_at_its_glory_when_nothing_else_charges_it(engine):

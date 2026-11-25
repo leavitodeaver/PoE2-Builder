@@ -11101,23 +11101,28 @@ class Assumptions:
             timed = models.number(row.get("cooldown")) > 0 or models.press_choice(row, choices) is not None
             uses, why, _ = conditions_mod.skill_use_rate(row, choices) if timed else (0.0, "", False)
             out.append({"name": s.name, "uses": uses, "speed": conditions_mod.use_ceiling(row),
-                        "why": why, "row": row, "final": s.energy_final, "beside": self.feed_beside(s)})
+                        "why": why, "row": row, "final": s.energy_final, **self.feed_beside(s)})
         return {g: out for g in metas} if out else {}
 
-    def feed_beside(self, s) -> list[dict]:
-        """(MECHB63, models.FEED_BESIDE) a feeder's other stat set's useRates row, the hit each use also makes
-        (Bonestorm's explosion beside its spike, R59-4); [] for any other skill or a set not found."""
+    def feed_beside(self, s) -> dict:
+        """(MECHB63, models.FEED_BESIDE) {"beside": [row]}: a feeder's other stat set's useRates row, the hit each use
+        also makes (Bonestorm's explosion beside its spike, R59-4 / R60-1); {"beside_off": (why, [row])} instead when
+        models.MULTI_SET_MOVED finds Pierce / Chain / Fork on the skill's sets (R60-1: the explosion at the flight's end,
+        a row); {} for any other skill or a set not found."""
         if s.name not in models.FEED_BESIDE or s.name not in models.MULTI_SET_SKILLS:
-            return []
+            return {}
         spot = self.skill_spot(s.group, s.name)
         if not spot:
-            return []
+            return {}
         other = next((x for x in models.MULTI_SET_SKILLS[s.name] if x != s.stat_set), None)
         sets = self.build.call("setRates", index=spot[0], active=spot[1])["sets"]
         k = next((x.get("index") for x in sets if other and x.get("label") == other), None)
         if not k:
-            return []
-        return list(self.build.call("useRates", indices=[spot[0]], actives=[spot[1]], statSets=[k])["rates"])[:1]
+            return {}
+        rows = list(self.build.call("useRates", indices=[spot[0]], actives=[spot[1]], statSets=[k])["rates"])[:1]
+        moved = models.MULTI_SET_MOVED.get(s.name)
+        moves = sorted({m for x in sets if moved for m in moved(x)})
+        return {"beside_off": (" / ".join(moves), rows)} if moves and rows else {"beside": rows}
 
     def _side_rows(self, main_index: int, pick) -> list[tuple[dict, float, str]]:
         """[(useRates row, uses a second, how)] for the build's enabled groups outside the main one that `pick(group)`

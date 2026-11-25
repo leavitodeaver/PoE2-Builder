@@ -3719,11 +3719,23 @@ def minion_count(spell: Skill, rate: float, limit: float | None = None) -> tuple
 # energy_gain's: a crit Power x min(1, the crit / the Ailment Threshold); an ailment Power for a Shock, Power x the
 # Ignite's share for an Ignite. A feeder's Freezes aren't counted (buildup is read for the main skill only: lower).
 FEED_KINDS = ("crit", "ailment")
-# (MECHB63; RESEARCH59 R59-4, an UNDERCOUNT for Cast on Critical feeds, example build 4) a feeder whose each use also
-# hits with its other stat set (MULTI_SET_SKILLS' pair). Bonestorm's spike explodes on the boss it hits (MULTI_SET_WHY's
-# note, MEDIUM-LOW), an area hit with its own crit roll (O4: Cast on Critical's Energy is per Critical Hit). That set's
-# row (useRates on it) goes in the feeder's "beside" (Assumptions.energy_feeders); the own-hit-only reading is the row.
+# (MECHB63; RESEARCH59 R59-4 / RESEARCH60 R60-1, an UNDERCOUNT for Cast on Critical feeds, example build 4) a feeder
+# whose each use also hits with its other stat set (MULTI_SET_SKILLS' pair). Bonestorm's spike explodes on the boss it
+# hits (MULTI_SET_WHY's note, MEDIUM since R60-1), a second Critical Hit when the use crits (O4: Cast on Critical's
+# Energy is per Critical Hit). Since 0.5.0 Bonestorm has no Sustained tag (patch 0.5.0 "No longer has the Sustained
+# tag"; KeywordPopups Sustained), so ONE crit roll covers the use: the spike and its explosion crit together. The mean
+# crits a use (hits x crit chance) is the same as with separate rolls, so the count stands. That set's row (useRates on
+# it) goes in the feeder's "beside" (Assumptions.energy_feeders); the own-hit-only reading is the row. With Pierce,
+# Chain or Fork on the skill (bonestorm_flight_moves) the explosion moves to the flight's end (R60-1): it goes in
+# "beside_off" instead, uncounted, its reading shown as a row (MEDIUM-LOW).
 FEED_BESIDE = frozenset({"Bonestorm"})
+
+
+def bonestorm_flight_moves(row: dict) -> list[str]:
+    """(RESEARCH60 R60-1) what on a Bonestorm set's PoB row moves its spikes' explosion to the end of their flight,
+    off the boss they struck: Pierce (PierceCount), Chain (ChainMax), Fork (ForkCountMax); [] when none."""
+    return [name for name, field in (("Pierce", "PierceCount"), ("Chain", "ChainMax"), ("Fork", "ForkCountMax"))
+            if number(row.get(field)) > 0]
 
 
 def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, float, str]:
@@ -3753,11 +3765,18 @@ def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, flo
         return hit * (shock + ignite * share) * power * scale, hit * crit
 
     def beside_how(f: dict) -> str:
+        if f.get("beside_off"):  # (R60-1: Pierce / Chain / Fork move the explosion off the struck boss)
+            why, rows = f["beside_off"]
+            extra = sum(one(row, f)[0] for row in rows)
+            return (f" (its own hit only: {why} on it moves the explosion to the end of the spike's flight, RESEARCH60 "
+                    f"R60-1, MEDIUM-LOW; row, the explosion on the struck boss too: {each(f)[0] + extra:.2f} Energy a "
+                    f"use)")
         if not f.get("beside"):
             return ""
         own = one(f["row"], f)[0]
-        return (f" (its other stat set's hit each use too, its own crit roll: RESEARCH59 R59-4, "
-                f"MEDIUM-LOW; row, its own hit only: {own:.2f} Energy a use)")
+        return (f" (its other stat set's hit each use too: the spike's explosion on the boss it struck, RESEARCH60 "
+                f"R60-1, MEDIUM; one crit roll covers the use since 0.5.0 (no Sustained tag), so the two crit together, "
+                f"the same mean as separate rolls; row, its own hit only: {own:.2f} Energy a use)")
 
     gain = crits = busy = 0.0
     parts: list[str] = []
@@ -24165,15 +24184,21 @@ def stun_rate(stats: dict, melee: bool = False) -> tuple[float, str]:
 # (MECHB63; RESEARCH59 R59-4, research/bonestorm-volley-landing-r59.md) Bonestorm: "release to fire them at enemies and
 # explode" (ActiveSkills bonestorm): each spike is a Projectile hit and its explosion an area hit at the contact point
 # (BonestormExplosionPlayer, is_area_damage), so a spike that hits the boss explodes on it: one use does both sets
-# (MEDIUM-LOW: the game text and a forum player's Concentrated Effect reading; no source says outright that the struck
-# target takes both). PoB scores one ("Projectile" or "Explosion"). The "spikes only" reading is the row.
+# (MEDIUM-LOW at R59-4; MEDIUM since RESEARCH60 R60-1, research/bonestorm-explosion-struck-boss-r60.md: forum 3656373
+# "a single explosion after each Projectile expires (whether it be a hit, or a miss)"; no excluding stat on either set).
+# PoB scores one ("Projectile" or "Explosion"). The "spikes only" reading is the row. With Pierce, Chain or Fork on the
+# skill (bonestorm_flight_moves on its sets) the spike flies on and explodes at the end of its flight (R60-1: forum
+# 3617828), so the headline is spikes only (MEDIUM-LOW) and the explosion on the struck boss the row (MULTI_SET_MOVED).
 MULTI_SET_SKILLS = {"Rolling Slam": ("First Slam", "Second Slam"), "Bonestorm": ("Projectile", "Explosion")}
 MULTI_SET_WHY = {
     "Rolling Slam": ("Both taken as hitting the boss (the second lands 1.5 m on)",
                      "MEDIUM (game text: a slam, then a second slam; PoB's own per-set numbers; both on the boss "
                      "LOW-MEDIUM)"),
-    "Bonestorm": ("each spike that hits the boss explodes on it (RESEARCH59 R59-4, MEDIUM-LOW); row, spikes only: x1",
-                  "MEDIUM-LOW (R59-4: the game text 'fire them at enemies and explode'; PoB's own per-set numbers)")}
+    "Bonestorm": ("each spike that hits the boss explodes on it (RESEARCH60 R60-1, MEDIUM; R59-4); row, spikes only: x1",
+                  "MEDIUM (R60-1: forum 3656373, an explosion after each projectile 'whether it be a hit, or a miss'; "
+                  "PoB's own per-set numbers)")}
+# (R60-1) what moves a set's later hit off the boss the first one struck: {skill: test on a set's PoB row}
+MULTI_SET_MOVED = {"Bonestorm": bonestorm_flight_moves}
 
 
 def multi_set_model(main: str | None, scored: str | None, sets: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -24187,6 +24212,19 @@ def multi_set_model(main: str | None, scored: str | None, sets: list[dict]) -> t
         return [], []
     more = sum(dps[label] for label in want) / dps[scored]
     parts = " + ".join(f"{label} {dps[label]:,.0f}" for label in want)
+    moved = MULTI_SET_MOVED.get(main or "")
+    moves = sorted({m for s in sets if moved for m in moved(s)})
+    if moves:  # (R60-1: the explosion flies on with the spike, off the struck boss: the headline counts the spikes)
+        first = want[0]
+        scale = dps[first] / dps[scored]
+        return ([raw_mod("DPS", "MORE", 100 * (scale - 1), main)] if scored != first else []), [{
+            "label": f"{main}: its {want[-1]} not on the boss the {first} struck*",
+            "value": f"x{scale:.3f}",
+            "basis": f"{' / '.join(moves)} on {main} moves the {want[-1]} to the end of the {first}'s flight (RESEARCH60 "
+                     f"R60-1: forum 3617828, 'projectile chains then pierce then explode'), so the {first} alone counts "
+                     f"({dps[first]:,.0f} DPS, PoB's). Row, the {want[-1]} on the struck boss too ({parts} DPS): "
+                     f"x{more:.3f}",
+            "confidence": "MEDIUM-LOW (R60-1: two player reports)"}]
     return [raw_mod("DPS", "MORE", 100 * (more - 1), main)], [{
         "label": f"{main}: one use performs {' and '.join(want)}*", "value": f"x{more:.3f}",
         "basis": f"PoB scores the {scored} alone ({dps[scored]:,.0f} DPS); each use does both ({parts} DPS, each set "
