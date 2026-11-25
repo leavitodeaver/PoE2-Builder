@@ -1,0 +1,49 @@
+# COV57 turn 7 (25 Nov 2026; COV43's rule): TRAIN 146's readers (57d363ed..0c7b48cc, origin/main 0c7b48cc) and row 35
+# (the manager's ruling, 25 Nov 07:24), each checked against the code that names it. Links only: each adds nothing to PoB.
+# Left open: Firestorm's / Galvanic Field's / Icestorm's storm and sphere Limits (GEM40 / GEM41 read them into side rows
+# only, the headline one storm / one Orb: COV55's ruling for rows); cands.py's "Wither" skill-zero hit is the word inside
+# "Withering Presence" / "Withered" (MECH107), not a reader of the skill.
+
+- id: model-read-cov57f-mind-phylacteries
+  title: '"Can instead consume N% of maximum Mana to trigger Charms with insufficient charges" read by flasks.MIND_MANA (MECHC61)'
+  kind: pob_gap
+  model: charms
+  match: '^Can instead consume (\(\d+-\d+\)|\d+(?:\.\d+)?)% of maximum Mana to trigger Charms with insufficient charges$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Mind Phylacteries (Huntress Ritualist; stat drain_%_max_mana_to_activate_expended_charms, PoB parses it to nothing).
+    flasks.mind_extra_uses: a charm also fires at its trigger where its charges fall short, each such use paying the
+    line's share of maximum Mana out of the regeneration the main skill's costs leave, split over the charm slots
+    (MEDIUM-LOW, the model's). A link only.
+  sources: ["builder/search/flasks.py (MIND_MANA, mind_extra_uses)"]
+  status: proposed
+
+- id: model-read-cov57f-combo-slower
+  title: '"Skills lose Combo N% slower" read by the Combo model (models.COMBO_SLOWER, GEM42)'
+  kind: pob_gap
+  model: combo
+  match: '^Skills lose Combo (\(\d+-\d+\)|\d+(?:\.\d+)?)% slower$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Disciplined Training (PoB's ModCache leaves it unparsed). assumptions' combo facts sum the lines into "falloff", and
+    the Combo model lengthens the decay delay D / (1 + speed / 100) (R59-8, MEDIUM-LOW; the row D x (1 - speed / 100)).
+    A link only.
+  sources: ["builder/search/models.py (COMBO_SLOWER, the falloff in the Combo model)", "builder/search/assumptions.py (the combo facts)"]
+  status: proposed
+
+- id: model-read-cov57f-pyromantic-pact-twice-flame
+  title: '"Maximum Mana is replaced by twice as much Maximum Infernal Flame" read by models.archon_sources (Seething Body''s Archon)'
+  kind: pob_gap
+  model: archon
+  match: '^Maximum Mana is replaced by twice as much Maximum Infernal Flame$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The manager's ruling (25 Nov 07:24, MECHC61 right, row 35): archon_sources (MECHC4) times Seething Body's Archon with
+    cycle = 2 x maximum Mana / Mana costs a second (the Pact's factor 2), which sets the Archon's uptime, a DPS number
+    (MEDIUM, the model's comment). Seething Body needs the Pact (tree links). The Pact's two other lines (the loss at
+    maximum, the decay) stay open: the model holds them as constants for the managed-bar row only. A link only.
+  sources: ["builder/search/models.py (archon_sources, flame_uptime)"]
+  status: proposed
