@@ -15,4 +15,6 @@ def test_cov58b_train148_readers_are_marked():
     for (stat, skill), entry in expect.items():
         assert coverage.stat_covered(covered, stat, skill) == ("model", entry), stat
         assert sum(len(v) for s, v in covered.items() if s == stat) == 1, stat  # one entry per stat
-    assert coverage.stat_covered(covered, "attack_is_melee_override", "Shield Wave") is None  # (Fortifying Cry: open)
+    # (the manager, TRAIN 149: GEM43's e348f32b, in the same train, closes Fortifying Cry's Shield Wave with a "PoB already
+    # counts it" entry proven by its probe; the pin written before it said "open")
+    assert coverage.stat_covered(covered, "attack_is_melee_override", "Shield Wave") == ("ledger", "gem-gem43-melee-override-pob-flags")

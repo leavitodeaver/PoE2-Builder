@@ -4802,7 +4802,7 @@ class Assumptions:
         hand_mods, hand_notes = hand_mods + passive_mods, hand_notes + passive_notes
         if main is not None and main.group is not None and models.MOMENTUM in supports.get(main.group, []):
             # (GEM40: Momentum's 40% more from the build's own walk during a use; COV56's turn 2)
-            mo_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or [])
+            mo_types = set(skill_types_of(build.ctx, name))  # (SEARCH40: skill_types; the manager, TRAIN 149: GEM40's read)
             mo_got = next((x.get("levelStats") or {} for x in build.call(
                 "activeSkills", levelStats=[main.name])["skills"] if x["name"] == main.name), {})  # (by skill name)
             mo_mods, mo_notes = models.momentum_model(
