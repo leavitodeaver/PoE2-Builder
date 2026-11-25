@@ -832,3 +832,26 @@ def test_melancholys_exposure_trial_is_off_by_default():
     from builder.search import jewels as module
 
     assert module.EXPOSURE_JEWEL == (os.environ.get("POE2_SEARCH_EXPOSURE_JEWEL") == "1")
+
+
+def test_a_rare_time_lost_diamond_is_offered_by_its_reforge_route(search, monkeypatch):
+    """(JEWEL4; RESEARCH59 R59-20, MEDIUM-LOW route) With POE2_SEARCH_TIMELOST_DIAMOND on, a rare Time-Lost Diamond (all three
+    colours' radius rows) is built on the plain 2 + 2 shape and priced as its mods plus the reforge's three Time-Lost rare inputs;
+    OFF by default (one more base in every full jewel round)."""
+    from builder.search import jewels as module
+    from builder.search.rares import rare_price
+
+    assert not module.DIAMOND_JEWEL and module.TIMELOST_DIAMOND not in module.radius_rare_bases()
+    monkeypatch.setattr(module, "DIAMOND_JEWEL", True)
+    assert module.TIMELOST_DIAMOND in module.radius_rare_bases()
+    jewels = search.jewels
+    slot = next((jewels.slot(s) for s in jewels.sockets() if not jewels.plain_only(s)), None)
+    if slot is None:
+        pytest.skip("no socket that takes a radius jewel")
+    assert jewels.pools.pool(module.TIMELOST_DIAMOND)  # (its own rows: the str / dex / int radius tags)
+    option = jewels.build_rare(slot, clock.now() + 300, bases=(module.TIMELOST_DIAMOND,))
+    print("PROBE diamond", option.affixes if option else None, option.price if option else None,
+          option.craft_route if option else None)
+    assert option is not None and option.base == module.TIMELOST_DIAMOND and len(option.affixes) == 4
+    assert option.price > 3 * rare_price("Jewel", []) and "Reforg" in option.craft_route[0]
+    assert "MEDIUM-LOW" in option.craft_route[0] and option.confidence == "estimate (craft route: reforge)"

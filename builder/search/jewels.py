@@ -55,6 +55,19 @@ TRANSFORM_ROW_FIELDS = [prefix + field for prefix in ("", "Minion.") for field i
 
 JEWEL_BASES = ("Ruby", "Emerald", "Sapphire")
 RADIUS_BASES = ("Time-Lost Ruby", "Time-Lost Emerald", "Time-Lost Sapphire")  # rares with a radius (Small)
+# (JEWEL4; RESEARCH59 R59-20) A RARE Time-Lost Diamond (its base takes all three colours' radius rows; AUDIT38 #220 is a live rare
+# listing) made by the Reforging Bench from one Time-Lost Ruby, Emerald and Sapphire (MEDIUM-LOW on the route: one 0.5 guide and
+# R43-6's plain Diamond recipe; MEDIUM that they exist live). Priced by that route: the jewel's own mods by the rare model plus the
+# three Time-Lost rare inputs, each at the model's price for a plain rare jewel (no price = no offer). Plain 2 + 2 shape only.
+# Behind POE2_SEARCH_TIMELOST_DIAMOND, OFF until gated: one more base is one more greedy fill in every full jewel round (the jewel
+# steps already take 26-32% of a gate run's task time)
+TIMELOST_DIAMOND = "Time-Lost Diamond"
+DIAMOND_JEWEL = os.environ.get("POE2_SEARCH_TIMELOST_DIAMOND", "0") == "1"
+
+
+def radius_rare_bases() -> tuple[str, ...]:
+    """(JEWEL4) The Time-Lost bases a rare is built on: RADIUS_BASES, plus the Diamond when its switch is on."""
+    return RADIUS_BASES + ((TIMELOST_DIAMOND,) if DIAMOND_JEWEL else ())
 JEWEL_LIMIT = {"Prefix": 2, "Suffix": 2}
 SOCKET_REACH = 4
 # (SEARCH37; THE USER, 23 Nov, on the Oracle build's Megalomaniac budgeted at the feed's 0.10 div: "a megalomaniac with 3
@@ -96,7 +109,7 @@ SEALED = re.compile(r"^(?:Corrupted|Sanctified)\s*$", re.M)
 # RESEARCH51's table from poe2db agrees; the game tables we extract hold the emotion item, BaseItemTypes 1131, not the
 # colour map). So the Exposure jewel is a Sapphire and needs a Ruby AND an Emerald in other tree sockets (it is neither).
 # One crafted mod per jewel (R-J1, HIGH): no effect line beside it, so the shape is 2 prefixes + 1 suffix + the crafted
-# suffix (the emotion removes a mod first; from the side it adds to by the guides, R52-4: UNVERIFIED). Conditions reads the
+# suffix (the emotion removes a mod first; from the side it adds to when that side is full: RESEARCH59 R59-17, MEDIUM; R52-4). Conditions reads the
 # line (MECH92's socketed_pair), so a plain what-if can't see it: exposure_trial scores it by a real trial (equip, settle)
 EXPOSURE_CRAFT = MELANCHOLY_CRAFTS[0]
 EXPOSURE_BASE = "Sapphire"
@@ -104,7 +117,7 @@ EXPOSURE_PAIR = ("Ruby", "Emerald")
 EXPOSURE_SHAPE = {"Prefix": 2, "Suffix": 1}
 MELANCHOLY = "Potent Liquid Melancholy"
 # (LOW) Tries the route takes: the emotion removes a random modifier, so a jewel bought with the 3 chosen mods + any 4th
-# suffix keeps the chosen suffix about half the time (if it removes from the suffix side: UNVERIFIED); a lost try is a new
+# suffix keeps the chosen suffix about half the time (it removes from the suffix side when that side is full: R59-17, MEDIUM); a lost try is a new
 # jewel. Expected cost = EXPOSURE_TRIES x (that jewel + one emotion)
 EXPOSURE_TRIES = 2.0
 EXPOSURE_LINE = "Inflict Elemental Exposure on Hit while you have a Ruby and an Emerald socketed in your tree"
@@ -411,13 +424,14 @@ class Jewels:
                                    variants=variants.label(tuple(choice)), confidence="low")
 
     def build_rare(self, slot: str, deadline: float, required: Callable[[Affix], bool] | None = None,
-                   bases: tuple[str, ...] = JEWEL_BASES + RADIUS_BASES) -> ItemOption | None:
+                   bases: tuple[str, ...] | None = None) -> ItemOption | None:
         """The best rare jewel for this socket within its budget, on one of `bases`. With `required`,
         it starts from the best affix that passes it (a condition's source, builder/search/sources.py),
         with the plain two-and-two shape."""
         left = self.gear.left_for(slot)
         level = self.pools.item_level
         best: tuple[float, ItemOption] | None = None
+        bases = JEWEL_BASES + radius_rare_bases() if bases is None else bases
         for base_name in bases:
             base = self.ctx.bases_by_name.get(base_name)
             pool = self.pools.pool(base_name) if base else []
@@ -438,6 +452,7 @@ class Jewels:
             # Their own crafts, the Ancient emotions, are offered behind switches OFF until gated: the Very Large radius
             # (JEWEL3, POE2_SEARCH_RADIUS_CRAFT) and the radius resistance (JEWEL4, POE2_SEARCH_RADIUS_RES)
             shapes = [(JEWEL_LIMIT, [forced] if forced else [], None)]
+            diamond = base_name == TIMELOST_DIAMOND  # (JEWEL4: the plain shape only, priced by the reforge route)
             for kind in JEWEL_LIMIT if base_name in JEWEL_BASES else ():
                 if crafted := self.pools.crafted(kind):
                     other = next(k for k in JEWEL_LIMIT if k != kind)
@@ -475,7 +490,7 @@ class Jewels:
                     # it wasn't finished") A jewel short of its slots is kept, and the result says it isn't finished
                     self.mark_unfinished(rare_text("Jewel", base, level, found[1]), found[1], limits, deadline)
                 catalysed = self.catalysed_jewel(slot, base, found[1], found[2], found[0], boost, pool, left) \
-                    if found and JEWEL_CATALYST else None
+                    if found and JEWEL_CATALYST and not diamond else None
                 if catalysed is not None and (best is None or catalysed[0] > best[0]):
                     best = catalysed
                     if rare_text("Jewel", base, level, found[1]) in self.unfinished:
@@ -483,11 +498,27 @@ class Jewels:
                 elif found and (best is None or found[0] > best[0]):
                     value, chosen, priced = found
                     price = None if self.ctx.ssf else rare_price("Jewel", priced)
+                    route = ()
+                    if diamond:
+                        inputs = rare_price("Jewel", [])
+                        if not self.ctx.ssf and (inputs is None or price + 3 * inputs > left + 1e-9):
+                            continue  # (no price, or over the budget: no offer)
+                        if not self.ctx.ssf:
+                            value -= self.gear.lam * 3 * inputs
+                            price += 3 * inputs
+                        route = (f"Reforged: one Time-Lost Ruby, Emerald and Sapphire at the Reforging Bench make a rare "
+                                 f"Time-Lost Diamond (R59-20, MEDIUM-LOW on the route: one 0.5 guide; a live rare listing "
+                                 f"exists, MEDIUM); priced as the three inputs at the rare model's plain-jewel price"
+                                 + ("" if self.ctx.ssf else f" ({3 * inputs:.3g} div)") + " plus these mods",)
+                        if best is not None and value <= best[0]:
+                            continue
                     best = (value, ItemOption(
                         "Rare Jewel", base_name, "Jewel", None, rare_text("Jewel", base, level, chosen), False, price,
-                        "ssf" if self.ctx.ssf else "estimate (uncalibrated)", 0, rare=True,
-                        affixes=tuple(line for a in chosen for line in a.lines)))
-                    if required is None and desecrated.cranium_enabled() and (not boost or CRANIUM_CRAFTED):
+                        "ssf" if self.ctx.ssf else ("estimate (craft route: reforge)" if diamond
+                                                    else "estimate (uncalibrated)"), 0, rare=True,
+                        affixes=tuple(line for a in chosen for line in a.lines), craft_route=route))
+                    if required is None and desecrated.cranium_enabled() and (not boost or CRANIUM_CRAFTED) \
+                            and not diamond:
                         crafted = self.cranium_trial(slot, base, chosen, value, left, deadline, boost or None)
                         if crafted is not None and crafted[0] > best[0]:
                             best = crafted
@@ -642,7 +673,9 @@ class Jewels:
         (JEWEL4, CRANIUM_CRAFTED; AUDIT38 F9 (b)) With `boost` ((kind, percent) of the effect line), `chosen` is the crafted
         3 + 1 + effect jewel: the Desecrated line goes on either side with nothing removed (6 lines, as real listings show;
         MEDIUM-LOW), a side at most CRANIUM_SIDE_MAX; one on the boosted side is written under the effect line too (a
-        Desecrated suffix is a suffix: UNVERIFIED that the effect line reaches it); priced as the crafted jewel's route plus
+        Desecrated suffix is a suffix; HIGH that the effect line reaches it: R59-21, measured on live listings #221 / #333; the
+        order of the steps and whether "full" means a side or the whole jewel stay UNVERIFIED, R59-18); priced as the crafted
+        jewel's route plus
         the Desecration's."""
         build, lam, level, name = self.build, self.gear.lam, self.pools.item_level, base["name"]
         pool = self.cranium_pools.pool(name)
@@ -702,7 +735,7 @@ class Jewels:
                      "be made and the 5-line one stands)")
             if affix.type == boost[0]:
                 note += (f"; the effect line's {boost[1]:g}% is counted on the Desecrated {affix.type.lower()} too "
-                         "(UNVERIFIED)")
+                         "(HIGH: RESEARCH59 R59-21, measured on live listings AUDIT38 #221 / #333)")
         return found, ItemOption("Rare Jewel", name, "Jewel", None, rare_text("Jewel", base, level, affixes), False,
                                  None if ssf else price, "ssf" if ssf else "estimate (craft route: Desecration)", 0,
                                  rare=True, affixes=tuple(line for a in affixes for line in a.lines),
@@ -1490,7 +1523,7 @@ class Jewels:
         for socket in [s for s in sockets if not self.plain_only(s)]:  # (no radius jewel where it can't go or reach)
             if clock.now() > deadline:
                 break
-            rare = self.build_rare(self.slot(socket), deadline, bases=RADIUS_BASES)
+            rare = self.build_rare(self.slot(socket), deadline, bases=radius_rare_bases())
             if rare is not None:
                 self.rare = rare
                 self.fill(socket, deadline, rebuild=False)
