@@ -46,7 +46,8 @@ def server(tmp_path, queue_dir, monkeypatch):
     spool = tmp_path / "spool"
     env = {**os.environ, "PC_QUEUE_DIR": str(queue_dir), "POE2_PROBE_HOLD_GRACE": "1"}
     proc = subprocess.Popen([sys.executable, str(ROOT / "tools" / "probe_server.py"), "serve", "--spool", str(spool),
-                             "--minutes", "4", "--no-keeper"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                             "--minutes", "4", "--no-keeper"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            stdin=subprocess.DEVNULL, creationflags=ps.NO_WINDOW)
     assert _wait(lambda: any(b.get("state") == "accepting" for b in ps.servers(spool)))
     yield spool
     (spool / "STOP").write_text("x")
@@ -153,7 +154,8 @@ def test_the_server_confines_itself_below_normal_off_the_users_processors():
             "k.GetProcessAffinityMask(k.GetCurrentProcess(), ctypes.byref(a), ctypes.byref(b)); "
             "k.GetPriorityClass.argtypes = [ctypes.c_void_p]; "
             "print(json.dumps({'done': done, 'priority': k.GetPriorityClass(k.GetCurrentProcess()), 'affinity': a.value, 'system': b.value}))")
-    out = subprocess.run([sys.executable, "-c", "import json; " + code, str(ROOT / "tools")], capture_output=True, text=True, timeout=60)
+    out = subprocess.run([sys.executable, "-c", "import json; " + code, str(ROOT / "tools")], capture_output=True, text=True, timeout=60,
+                         stdin=subprocess.DEVNULL, creationflags=ps.NO_WINDOW)
     info = json.loads(out.stdout.strip().splitlines()[-1])
     assert info["priority"] == ps.BELOW_NORMAL
     assert info["affinity"] & 0x3 == 0 or info["system"] & ~0x3 == 0  # never on processors 0-1 (unless the PC has only those)
@@ -164,7 +166,7 @@ def test_the_keeper_starts_the_server_again_when_it_dies(tmp_path, queue_dir):
     spool = tmp_path / "spool"
     env = {**os.environ, "PC_QUEUE_DIR": str(queue_dir), "POE2_PROBE_NO_BREAKAWAY": "1"}
     subprocess.run([sys.executable, str(ROOT / "tools" / "probe_server.py"), "start", "--spool", str(spool)], env=env,
-                   capture_output=True, timeout=60)
+                   capture_output=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=ps.NO_WINDOW)
     try:
         assert _wait(lambda: any(b.get("state") == "accepting" for b in ps.servers(spool)), 60)
         first = next(b for b in ps.servers(spool) if b.get("state") == "accepting")
@@ -172,7 +174,7 @@ def test_the_keeper_starts_the_server_again_when_it_dies(tmp_path, queue_dir):
         assert _wait(lambda: any(b.get("state") == "accepting" and b["pid"] != first["pid"] for b in ps.servers(spool)), 90)
     finally:
         subprocess.run([sys.executable, str(ROOT / "tools" / "probe_server.py"), "stop", "--spool", str(spool)], env=env,
-                       capture_output=True, timeout=60)
+                       capture_output=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=ps.NO_WINDOW)
         assert _wait(lambda: not any(b.get("state") not in ("gone",) for b in ps.servers(spool)), 60)
         keeper = ps._read_json(spool / "keeper.json")
         assert _wait(lambda: not keeper or not ps._alive(int(keeper["pid"])), 30)
@@ -188,3 +190,48 @@ def test_a_slot_set_names_slots_of_its_own(monkeypatch):
     a = slots.slot_name()
     monkeypatch.setenv("POE2_SLOT_SET", "probe-server-B")
     assert a != slots.slot_name() and folder not in (a, slots.slot_name()) and a.startswith("Local\\PoE2Builder.set.")
+
+
+def test_no_start_path_can_open_a_window(monkeypatch, tmp_path):
+    """Every process the server, its keeper and the client start is CREATE_NO_WINDOW and never DETACHED_PROCESS (0x8):
+    beside DETACHED, Windows ignores CREATE_NO_WINDOW and a venv's python.exe launcher opens a VISIBLE console (the
+    user saw them, 25 Nov ~02:40)."""
+    if os.name != "nt":
+        pytest.skip("Windows creation flags")
+    seen = []
+
+    class Fake:
+        pid, returncode = 4242, 0
+
+        def __init__(self, *args, **kwargs):
+            seen.append(kwargs.get("creationflags", 0))
+
+        def poll(self):
+            return 0
+
+        def wait(self, *a):
+            return 0
+
+    def fake_run(*args, **kwargs):
+        seen.append(kwargs.get("creationflags", 0))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "Popen", Fake)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "call", lambda *a, **k: seen.append(k.get("creationflags", 0)) or 0)
+    ps._detached([sys.executable, "-c", "pass"], tmp_path / "a.log")  # keeper / serve / start / restarts
+    ps._kill_tree(1)  # taskkill
+    server = ps.Server("unit", tmp_path / "spool")
+    server._start({"id": "r1", "argv": [sys.executable, "-c", "pass"], "cwd": str(tmp_path), "minutes": 1})  # a probe
+    monkeypatch.delenv("POE2_PROBE_NO_BOOKING", raising=False)
+    client._booking([sys.executable, "-c", "pass"], "POE2T0", 1, "unit", False, ROOT)  # the client's fallback booking
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("suite_tool_flags", ROOT / "tools" / "suite.py")
+    suite = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(suite)
+    assert suite.NO_WINDOW == 0x08000000
+    assert len(seen) >= 4
+    for flags in seen:
+        assert flags & 0x08000000 and not flags & 0x00000008, hex(flags)
+    source = "".join((ROOT / "tools" / name).read_text(encoding="utf-8") for name in ("probe_server.py", "probe.py", "suite.py"))
+    assert "DETACHED_PROCESS" not in source.replace("NEVER DETACHED_PROCESS", "").replace("never DETACHED_PROCESS", "")

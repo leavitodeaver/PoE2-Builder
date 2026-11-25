@@ -62,7 +62,11 @@ BEAT_SECONDS = 2.0
 STALE_SECONDS = 20.0  # a heartbeat older than this: the server is gone or stuck
 HOLD_POLL_SECONDS = 3.0
 FORWARDED = ("POE2_", "PYTHON", "UV_")  # the client's own settings that reach its probe (and only the client's)
-CREATE_NO_WINDOW, DETACHED, NEW_GROUP, BREAKAWAY = 0x08000000, 0x00000008, 0x00000200, 0x01000000
+CREATE_NO_WINDOW, NEW_GROUP, BREAKAWAY = 0x08000000, 0x00000200, 0x01000000
+# NEVER DETACHED_PROCESS (0x8): Windows ignores CREATE_NO_WINDOW beside it, so the process gets no console, and a venv's
+# python.exe (a launcher) then gives the real Python a NEW, VISIBLE console window (the user saw them, 25 Nov ~02:40).
+# Every process this server, its keeper or its client starts gets CREATE_NO_WINDOW: a hidden console its children share.
+NO_WINDOW = CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 def _now() -> float:
@@ -111,7 +115,7 @@ def _alive(pid: int) -> bool:
 
 def _kill_tree(pid: int) -> None:
     if os.name == "nt":
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, creationflags=CREATE_NO_WINDOW)
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, creationflags=NO_WINDOW)
     else:
         try:
             os.kill(pid, 9)
@@ -120,9 +124,10 @@ def _kill_tree(pid: int) -> None:
 
 
 def _detached(command: list[str], log: Path) -> subprocess.Popen:
-    """A hidden process that outlives its starter (away from the starter's job where Windows allows it)."""
+    """A hidden process that outlives its starter (away from the starter's job where Windows allows it): a console of its
+    own that no one sees (CREATE_NO_WINDOW), its own process group; never DETACHED_PROCESS (see NO_WINDOW)."""
     out = open(log, "a", encoding="utf-8")
-    flags = (DETACHED | NEW_GROUP | CREATE_NO_WINDOW) if os.name == "nt" else 0
+    flags = (NEW_GROUP | CREATE_NO_WINDOW) if os.name == "nt" else 0
     away = BREAKAWAY if os.name == "nt" and not os.environ.get("POE2_PROBE_NO_BREAKAWAY") else 0  # (tests stay in their job)
     try:
         return subprocess.Popen(command, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
@@ -384,7 +389,7 @@ class Server:
         since = _now()
         try:
             proc = subprocess.Popen(argv, cwd=request["cwd"], env=env, stdout=log, stderr=subprocess.STDOUT,
-                                    stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
+                                    stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         except OSError as error:
             log.write(f"probe_server: could not start {argv!r}: {error}\n")
             log.close()

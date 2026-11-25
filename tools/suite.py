@@ -53,6 +53,7 @@ PARTS = {
 MAX_WORKERS = 4  # each worker holds one of the run's 6 LuaJIT slots; a test's pool of 2 needs the other 2 (conftest's pool turns)
 DEFAULT_WORKERS = 4
 GATE_FROM = 3  # workers at which the run needs the --gate booking's 8 GB
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW: nothing ever shows on the user's screen
 LAST_LINE = re.compile(r"\d+ (passed|failed|error)")
 
 
@@ -112,7 +113,7 @@ def inner(argv: list[str]) -> int:
     seconds, bad = [], False
     for name, workers, path, marks in phases:
         started = time.time()
-        out = subprocess.Popen(pytest_command(workers, path, targets, marks), cwd=ROOT, stdout=subprocess.PIPE,
+        out = subprocess.Popen(pytest_command(workers, path, targets, marks), cwd=ROOT, stdout=subprocess.PIPE, creationflags=NO_WINDOW,
                                stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
         lines = []
         for line in out.stdout:
@@ -164,7 +165,7 @@ def run(argv: list[str]) -> int:
     booking += ["--no-gpu", "--", "python", str(ROOT / "tools" / "suite.py"), "inner", "--workers", str(workers),
                 "--xml", str(xml), "--", *(targets or PARTS[args.part])]
     with open(log, "w", encoding="utf-8") as out:
-        code = subprocess.call(booking, cwd=ROOT, env=env, stdout=out, stderr=subprocess.STDOUT)
+        code = subprocess.call(booking, cwd=ROOT, env=env, stdout=out, stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
     line = last_line(log)
     xmls = [str(xml)] + ([str(xml.with_name(xml.stem + "-serial.xml"))] if xml.with_name(xml.stem + "-serial.xml").exists() else [])
     print(f"{args.job}: {line or '(no result line: see ' + str(log) + ')'}  [exit {code}; log {log}; junit {' '.join(xmls)}]")

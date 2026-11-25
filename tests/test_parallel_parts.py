@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import time
@@ -36,9 +37,11 @@ def test_two_workers_pools_take_turns(tmp_path):
     """Two processes of one run: the second's pool waits until the first's is closed."""
     run_id = f"unit-{time.time_ns()}"
     conftest = str(ROOT / "tests" / "conftest.py")
-    first = subprocess.Popen([sys.executable, "-c", HOLDER, conftest, run_id, "2"], stdout=subprocess.PIPE, text=True, cwd=ROOT)
+    first = subprocess.Popen([sys.executable, "-c", HOLDER, conftest, run_id, "2"], stdout=subprocess.PIPE, text=True, cwd=ROOT,
+                             creationflags=0x08000000 if os.name == "nt" else 0)
     assert first.stdout.readline().startswith("in")
-    second = subprocess.Popen([sys.executable, "-c", HOLDER, conftest, run_id, "0"], stdout=subprocess.PIPE, text=True, cwd=ROOT)
+    second = subprocess.Popen([sys.executable, "-c", HOLDER, conftest, run_id, "0"], stdout=subprocess.PIPE, text=True, cwd=ROOT,
+                             creationflags=0x08000000 if os.name == "nt" else 0)
     out_first = float(first.stdout.readline().split()[1])
     in_second = float(second.stdout.readline().split()[1])
     first.wait(30)

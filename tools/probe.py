@@ -79,7 +79,8 @@ def _booking(argv: list[str], job: str, minutes: int, what: str, gate: bool, cwd
         command.append("--gate")
     command += ["--no-gpu", "--", *argv]
     started = time.time()
-    out = subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    out = subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         stdin=subprocess.DEVNULL, creationflags=ps.NO_WINDOW)
     return Result(out.returncode, out.stdout + out.stderr, f"booking {job}", ran=time.time() - started)
 
 
