@@ -8,6 +8,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from builder.request.schema import DefenceStyle
+from builder.search.objective import Objective, reservation_short
+
 ORACLE = Path(__file__).resolve().parents[1] / "benchmarks" / "results" / "gate4-20261123-073445.json"
 
 
@@ -67,3 +70,31 @@ def test_the_weapon_set_the_main_skill_doesnt_use_gives_the_models_no_lines(engi
     engine.call("equip", slot="Weapon 1", raw="Rarity: RARE\nProbe Fang\nWithered Wand\n+100 to Strength\n+8 to Maximum Rage")
     assert strength() == plain2  # (PoB doesn't read set 1's wand)
     assert not {l["source"] for l in engine.call("sourceLines")["lines"]} & {"item:Weapon 1", "item:Weapon 2"}
+
+
+def limits(stats):
+    o = SimpleNamespace(penalties=[], points_slack=0, groups_enforced=False, style=DefenceStyle.ANY)
+    return [d for d in Objective._deficits(o, stats) if d[2] is True]
+
+
+def test_all_life_reserved_is_a_hard_limit():
+    found = reservation_short({"Life": 1000, "LifeUnreserved": 0, "Mana": 200, "ManaUnreserved": 50})
+    assert found == [("Unreserved Life below 1", 0.001, True)]
+    assert ("Unreserved Life below 1", 0.001, True) in limits({"Life": 1000, "LifeUnreserved": 0})
+
+
+def test_life_reserved_past_the_pool_reads_further_short():
+    (label, amount, hard), = reservation_short({"Life": 1000, "LifeUnreserved": -199})
+    assert label == "Unreserved Life below 1" and hard is True and abs(amount - 0.2) < 1e-9
+
+
+def test_negative_unreserved_mana_is_a_hard_limit_and_zero_mana_left_is_not():
+    assert reservation_short({"Mana": 400, "ManaUnreserved": -100}) == [("Unreserved Mana negative", 0.25, True)]
+    assert reservation_short({"Mana": 400, "ManaUnreserved": 0}) == []  # (PoB's test is "negative")
+
+
+def test_one_life_left_or_no_field_is_no_limit():
+    assert reservation_short({"Life": 1, "LifeUnreserved": 1}) == []  # (Chaos Inoculation: 1 Life, nothing reserved)
+    assert reservation_short({"Life": 3000, "LifeUnreserved": 1}) == []
+    assert reservation_short({"Life": 3000}) == []  # (a stand-in or a what-if without the field)
+    assert limits({"Life": 3000, "LifeUnreserved": 2000, "Mana": 100, "ManaUnreserved": 10}) == []

@@ -101,6 +101,26 @@ def cost_short(stats: dict, field: str) -> float:
     return max(listed, 1.0 if have < cost else 0.0)
 
 
+def reservation_short(stats: dict) -> list[tuple[str, float, bool]]:
+    """(SEARCH40; SPEED2's 2b75c, POE2T7853) Reservations past the pool: hard limits, like Spirit. PoB warns "Your
+    unreserved Life is below 1" at LifeUnreserved <= 0 and "Your unreserved Mana is negative" at ManaUnreserved < 0
+    (BuildDisplayStats.lua 162 / 164; LifeUnreserved = Life - reserved, CalcDefence.lua 344, so it can go negative).
+    Before, no deficit read either (checked: objective._deficits' and state.py's limits; grep of builder/search for
+    LifeUnreserved / ManaUnreserved: only cost_short, conditions' Clash share and two models read them, none as a limit),
+    so a build reserving all its Life reached finalize, whose PoB-warnings check flagged the delivered build. Read only
+    when the stats carry the field (a stand-in or a field-less what-if isn't flagged) and the pool exists. The amount is
+    the shortfall to 1 Life / 0 Mana as a share of the pool."""
+    found: list[tuple[str, float, bool]] = []
+    for pool, label, least in (("Life", "Unreserved Life below 1", 1.0), ("Mana", "Unreserved Mana negative", 0.0)):
+        if f"{pool}Unreserved" not in stats or number(stats.get(pool)) <= 0:
+            continue
+        left = number(stats.get(f"{pool}Unreserved"))
+        short = left <= 0 if pool == "Life" else left < 0  # (PoB's own two tests)
+        if short:
+            found.append((label, (least - left) / number(stats.get(pool)), True))
+    return found
+
+
 # Passive (and ascendancy) points allocated beyond the level's budget (bridge setPointsOver, as PoB's "You have too many
 # passive points allocated" counts them): a hard limit (SEARCH8, Defect C: gate 2b75b delivered a tree 19 points over)
 POINTS_OVER = "PassivePointsOver"
@@ -851,6 +871,7 @@ class Objective:
         unreserved = number(stats.get("SpiritUnreserved"))
         if unreserved < 0:
             found.append(("Spirit", -unreserved / max(number(stats.get("Spirit")), 1.0), True))
+        found += reservation_short(stats)
         if self.style != DefenceStyle.ANY:
             layers = DEFENCE_LAYERS[self.style]
             values = {name: number(stats.get(name)) for name in ("Armour", "Evasion", "EnergyShield")}
