@@ -5523,7 +5523,8 @@ class Assumptions:
                 main, main.stat_set, sets, got.get("levelStats") or {}, got.get("supportStats") or {},
                 [e["text"] for e in source_lines], bosses.hit_radius(stats)[0], det_split, forbidden,
                 previous=self.mods, rage_paid=getattr(build, "rage_paid", None),  # (MECHB50: Molten Crash's Rage, MECHC48)
-                cap=self.fissure_limit(main.name, [e["text"] for e in source_lines]))  # (GEM41: the build's Limit)
+                cap=self.fissure_limit(main.name, [e["text"] for e in source_lines]),  # (GEM41: the build's Limit)
+                overgrown=self.fissure_overgrown(found, main, [e["text"] for e in source_lines]))  # (MECHB65)
             hand_mods, hand_notes = hand_mods + fis_mods, hand_notes + fis_notes
             hit_cut(build, fis_mods, main.name)  # (MECHB57: the Fissures' hits a use, models.HIT_CUT_PER_USE)
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
@@ -11586,6 +11587,19 @@ class Assumptions:
                 limit = self.stat_limit(curse.name, "maximum_curse_zones_allowed", float(models.CURSE_AREAS), texts)
                 out[curse.name] = (limit, models.CURSE_AREAS_WHY)
         return out
+
+    def fissure_overgrown(self, found: list, main, texts: list[str]) -> tuple[float, str] | None:
+        """(MECHB65) The share of a vine Fissure skill's plants Overgrown (models.overgrown_share: the build's
+        Thunderstorm at its pressed rate, the "chance to Overgrow" lines), for Entangle's 3 more vines; None otherwise."""
+        if main is None or main.name not in models.FISSURE_VINES:
+            return None
+        build = self.build
+        storms = sorted({s.group for s in found if s.name in models.OVERGROW_SKILLS and s.group is not None})
+        press = getattr(build.objective, "press_scales", None) or {}
+        groups = {r["index"]: {**r, "_press": press.get(r["name"])}
+                  for r in build.call("useRates", indices=storms)["rates"]} if storms else {}
+        share, parts, conf = models.overgrown_share(found, groups, texts)
+        return share, ("; ".join(parts) or "none") + f" ({conf})"
 
     def fissure_limit(self, name: str, texts: list[str]) -> float | None:
         """(GEM41) A Fissure skill's Fissure Limit with the build's Limit sources (stat_limit), for

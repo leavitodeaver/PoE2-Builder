@@ -101,3 +101,17 @@ def test_infernal_legion_reads_each_minions_place_from_pob(engine):
     added, notes = assumptions.infernal_legion(build, {})
     print(added, notes)
     assert added > 0 and "Skeletal Brute" in notes[0]["basis"] and "melee" in notes[0]["basis"]
+
+
+def test_entangles_overgrown_vines_count_at_the_builds_overgrown_share():
+    """COV58 (an UNDERCOUNT: the Overgrown +3 vines were a row only): 3 + 3 x the build's Overgrown share vine hits a
+    second in the headline; every fissure Overgrown stays the row; the slower expiry moves nothing (said)."""
+    entangle = models.Skill("Entangle", 1, spell=True)
+    sets = [{"label": "Fissures", "TotalDPS": 100.0}, {"label": "Vines", "TotalDPS": 20.0, "AverageDamage": 50.0}]
+    plain = models.fissure_count_model(entangle, "Fissures", sets, {}, {}, [], 0.4)
+    half = models.fissure_count_model(entangle, "Fissures", sets, {}, {}, [], 0.4, overgrown=(0.5, "Thunderstorm 50%"))
+    assert plain[0][0]["value"] == pytest.approx(100 * ((150.0 + 100.0) / 100.0 - 1))
+    assert half[0][0]["value"] == pytest.approx(100 * ((4.5 * 50.0 + 100.0) / 100.0 - 1))
+    basis = half[1][0]["basis"]
+    assert "4.5 vine hits a second" in basis and "Overgrown share 50%" in basis and "a row: x4.000" in basis
+    assert "expire 25% slower" in basis and "none of its plants Overgrown" in plain[1][0]["basis"]

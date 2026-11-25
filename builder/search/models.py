@@ -2681,6 +2681,12 @@ MARK_TRIGGER_EVERY = {"Called Shots": 5.0}  # "applies a socketed Mark to an ene
 # Skills that apply a Mark socketed in them and have a weapon requirement PoB enforces by disabling them (MECH35: Pounce
 # needs a Talisman, WeaponRequirements; PoB then still applies the socketed Mark).
 MARK_CARRIERS = ("Pounce",)
+# (MECHB65, COV58's triggered-side-skill rows: named so the audit's grep finds the reader) The game's trigger flags on
+# the supports these metas lend their socketed Mark: SupportWolfPouncePlayer's implicit triggered_by_cross_slash (Pounce)
+# and SupportHandOfChayulaPlayer's triggered_by_hand_of_chayula (game files 26650308 GrantedEffectStatSets; neither
+# carries a number). Their rate is mark_use's: the meta pressed when the Mark needs applying again (MarkUse.pressed,
+# on demand: recast as it runs out or is consumed, its cast time taken from the main skill; its cooldown when it has
+# one); nothing flat.
 
 
 @dataclass
@@ -25105,7 +25111,7 @@ def shield_wave_model(cry_row: dict, echo_less: float, shield_hits: float, hits_
 
 # Warcries' granted triggered skills PoB scores at a flat rate (MECHB46; GEM26's sweep POE2T3595, the manager 10:50,
 # OVERCOUNTS: each scored at its castTime 1 rate whether or not anything triggers it, so a side group in Full DPS kept it):
-# - Infernal Cry's Combust (InfernalCryCorpseExplosionPlayer): "Enemies in the warcry's area are destabilised and will
+# - Infernal Cry's Combust (InfernalCryCorpseExplosionPlayer, its implicit triggered_by_infernal_cry): "Enemies in the warcry's area are destabilised and will
 #   Combust on death" (ActiveSkills infernal_cry); PoB: 82.1 DPS at 1 a second beside a Boneshatter. One a death of an
 #   enemy the cry reached: the boss preset's adds killed a second (models.kill_rate; 0 on a lone boss, whose own death
 #   ends the fight) x the share of the time the cry's 8 s debuff is fresh (cries a second x its duration, at most 1),
@@ -25292,7 +25298,12 @@ FISSURE_ALONG = {"Glacial Cascade": (6.0, (5.0, 7.0), "of its 8 bursts"), "Sunde
 # second" (entangle_vine_duration_ms 1000): the cap is per enemy over all fissures and a vine hits once as it attaches,
 # so the boss takes at most 3 vine hits a second while it stands on a live fissure (8 s each: the build's own uses keep
 # one under it, MEDIUM). The use = its Fissures (the count above) + 3 vine hits a second at the Vines set's hit,
-# over the one set PoB scored. The Overgrown +3 is a row (models.overgrown_share's fissures not read here: the lower).
+# over the one set PoB scored. (MECHB65, COV58: an UNDERCOUNT before, the +3 a row only) Overgrown fissures attach 3 more
+# (entangle_vines_additional_number_of_vines_allowed_when_wet 3, EntangleVinePlayer): the headline takes 3 + 3 x the
+# share of the build's plants Overgrown (overgrown_share: its Thunderstorm, "chance to immediately Overgrow" lines;
+# Nature's Archon's own Overgrows not counted, an undercount), every fissure Overgrown the row. "Overgrown fissures
+# expire 25% slower" (entangle_duration_speed_+%_when_wet -25, EntanglePlayer: 8 s -> 10.7 s) only lengthens a cover the
+# headline already takes as full (a fissure under the boss all fight from the build's own uses): no number moves, said.
 FISSURE_VINES = {"Entangle": ("Vines", 3.0, 6.0)}  # (the set, vine hits a second, Overgrown)
 # (MECHB50; MECHB49's lead, the manager 23:25: Starborn Onslaught is entirely MECH-B's) Its Star Fall: "The impact
 # releases Fissures and causes stars to fall in the area for a brief period" (ActiveSkills starborn_onslaught), its own
@@ -25383,12 +25394,14 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
                         support_stats: dict, texts: list[str], boss_radius: float,
                         det_share: float | None = None, forbidden: set[str] = frozenset(),
                         previous: list[dict] | None = None,
-                        rage_paid: dict | None = None, cap: float | None = None) -> tuple[list[dict], list[dict]]:
+                        rage_paid: dict | None = None, cap: float | None = None,
+                        overgrown: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """A Fissure skill's Fissures a use at the boss against PoB's one (see above). `cap`: the build's Fissure Limit
     (Assumptions.fissure_limit, GEM41), else FISSURE_MAX_A_USE's base. `level_stats` / `support_stats` the
     activeSkills row's, `texts` the build's lines, `det_share` the share of a DETONATED_SETS skill's set-off part the
     detonated model counts (Earthshatter's spikes, Forge Hammer's hammers), None for the others; `rage_spent` MECH-C's
-    build.rage_paid (Molten Crash's Rage Fissure)."""
+    build.rage_paid (Molten Crash's Rage Fissure); `overgrown` (MECHB65): (share of the build's plants Overgrown, how)
+    from overgrown_share, for Entangle's vines."""
     if main is None or main.name not in FISSURE_SETS or FISSURE_ENTRY in forbidden:
         return [], []
     labels, layout = FISSURE_SETS[main.name]
@@ -25428,8 +25441,10 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         beside = stars[0] * star_dps
         fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
     elif main.name in FISSURE_VINES and scored in labels + (FISSURE_VINES[main.name][0],):  # (MECHB51: R42-8)
-        vine_label, vine_rate, _ = FISSURE_VINES[main.name]
+        vine_label, vine_rate, vine_over = FISSURE_VINES[main.name]
         vine_hit = number(next((x for x in sets if x.get("label") == vine_label), {}).get("AverageDamage"))
+        grown = min(1.0, max(0.0, number((overgrown or (0.0, ""))[0])))  # (MECHB65: the Overgrown share's +3)
+        vine_rate = vine_rate + (vine_over - vine_rate) * grown
         beside = vine_rate * vine_hit
         fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
     elif main.name in FISSURE_BESIDE and scored in FISSURE_BESIDE[main.name] + labels:
@@ -25507,11 +25522,14 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         "confidence": "MEDIUM-LOW", "entry": FISSURE_ENTRY,
         "basis": (f"PoB counts one Fissure a use. The game makes {count:.2f}: {'; '.join(parts)}; {how}. "
                   + (f"The Fissures are {fissure / total:.0%} of the {scored} DPS scored" if beside is None else
-                     (f"Its vines: {FISSURE_VINES[main.name][1]:g} vine hits a second at most on one boss (3 attached "
-                      f"to each enemy, 1 s each, one hit on attaching: RESEARCH42 R42-8, MEDIUM / LOW-MEDIUM), "
-                      f"{beside:,.1f} DPS, beside its Fissures ({fissure:,.1f} DPS each), PoB scoring the {scored} set "
-                      f"alone ({total:,.1f}; an UNDERCOUNT); Overgrown fissures' 3 more a row: "
-                      f"x{(beside * FISSURE_VINES[main.name][2] / FISSURE_VINES[main.name][1] + count * share * fissure) / total:.3f}"
+                     (f"Its vines: {vine_rate:.3g} vine hits a second at most on one boss (3 attached "
+                      f"to each enemy, 1 s each, one hit on attaching: RESEARCH42 R42-8, MEDIUM / LOW-MEDIUM"
+                      + (f"; 3 more on its Overgrown share {grown:.0%}: {overgrown[1]}" if grown > 0 else
+                         "; none of its plants Overgrown") +
+                      f"), {beside:,.1f} DPS, beside its Fissures ({fissure:,.1f} DPS each), PoB scoring the {scored} "
+                      f"set alone ({total:,.1f}; an UNDERCOUNT); every fissure Overgrown (3 more each) a row: "
+                      f"x{(beside * FISSURE_VINES[main.name][2] / vine_rate + count * share * fissure) / total:.3f}; "
+                      "Overgrown fissures expire 25% slower: the cover is already taken as full, no change"
                       if main.name in FISSURE_VINES else
                       f"One use makes its {FISSURE_BESIDE[main.name][0]} set ({beside:,.1f} DPS) and its Fissures "
                       f"({fissure:,.1f} DPS each), PoB scoring the {scored} set alone ({total:,.1f}; an UNDERCOUNT)"))
