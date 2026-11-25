@@ -256,9 +256,9 @@ def test_only_small_targeted_test_runs_qualify():
     assert "queue" in q(pytest_cmd + ["tests/test_slots.py"], label="SEARCH: gate4 2b75c")
     assert "train" in q(pytest_cmd + ["tests/test_slots.py"], label="manager: TRAIN 145 part 2")
     assert "serial suite" in q(pytest_cmd + ["tests/test_legality.py"])  # 15.6 min in the serial baseline
-    # (the manager, 25 Nov 11:20) the size check takes the server's slowdown: ~7.6 min serially is ~12 min on the server
-    assert "on the server" in q(pytest_cmd + ["tests/test_engine_items.py", "tests/test_radius_jewels.py", "tests/test_jewel1.py"])
-    assert q(pytest_cmd + ["tests/test_radius_jewels.py", "tests/test_jewel1.py"]) is None  # ~2.3 min serially: fine
+    # (the manager, 25 Nov) a ~7.6-min set qualifies (it gets declared minutes x SERVER_SLOWDOWN to finish on the server)
+    assert q(pytest_cmd + ["tests/test_engine_items.py", "tests/test_radius_jewels.py", "tests/test_jewel1.py"]) is None
+    assert ps.SERVER_SLOWDOWN >= 1.5  # the server's stop leaves room for its own slowdown (PERF22's proof: x1.53)
 
 
 def test_a_test_run_through_the_server_gives_its_exit_code_and_junit(server, tmp_path):
