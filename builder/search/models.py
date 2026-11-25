@@ -297,6 +297,9 @@ class Skill:
     totem_limit_own: float = 0.0
     by_totem: bool = False  # used by a totem (bridge activeSkills byTotem; MECHB37 cannons_ready_model)
     projectile_attack: bool = False  # an Attack that fires projectiles (bridge projectileAttack; cannons_ready_model)
+    # (GEM41) Totem Limit the game's is_melee_attack_totem lets "Melee Attack Skills have +N" lines add (bridge
+    # meleeAttackTotemAdded; already in totem_limit; totem_count_model's "without it" row)
+    melee_totem_added: float = 0.0
 
     @classmethod
     def of(cls, raw: dict) -> Skill:
@@ -308,7 +311,8 @@ class Skill:
                    dict(raw.get("supportStats") or {}), raw.get("earlyHazard"), number(raw.get("energyFinal")),
                    number(raw.get("totalTimeAdded")), raw.get("statSet"), number(raw.get("totemLimit")),
                    raw.get("ailmentTotems"), number(raw.get("markDuration")), raw.get("overTimeCost"),
-                   number(raw.get("totemLimitOwn")), bool(raw.get("byTotem")), bool(raw.get("projectileAttack")))
+                   number(raw.get("totemLimitOwn")), bool(raw.get("byTotem")), bool(raw.get("projectileAttack")),
+                   number(raw.get("meleeAttackTotemAdded")))
 
 
 # (MECH93, an OVERCOUNT before; the manager 07:25, MECHC45's list) AT_MAIN_SHARE: the main skill's share of the fight
@@ -23100,9 +23104,20 @@ def totem_count_model(skills: list[Skill], main: Skill | None, texts: Iterable[s
              + f": {up} totems, each using {main.name} at PoB's one-totem rate, all in reach of the boss (MEDIUM: placed "
                "at it); PoB counts one. Counted as more speed: Ignites from several totems don't add up (only the "
                "strongest deals damage); placing them isn't taken from your time")
-    return mods, [{"label": f"Totems up ({main.name})", "value": up, "basis": basis,
-                   "play": f"Keep {up} {summoner.name} totems placed at the boss; re-place them as they expire.",
-                   "confidence": "MEDIUM"}]
+    notes = [{"label": f"Totems up ({main.name})", "value": up, "basis": basis,
+              "play": f"Keep {up} {summoner.name} totems placed at the boss; re-place them as they expire.",
+              "confidence": "MEDIUM"}]
+    if summoner.melee_totem_added > 0:  # (GEM41) the is_melee_attack_totem reading, and the count without it
+        without = max(1, int(bond_totems(own, max(0.0, pob - own - summoner.melee_totem_added), doubled)[0]) - len(others))
+        notes.append({"label": f"{summoner.name}: Melee Attack totem lines", "value": f"{up} with / {without} without",
+                      "basis": (f"the game flags {summoner.name} is_melee_attack_totem (GrantedEffectStatSets; poe2db's "
+                                f"hidden stats and Melee tag) though its skill types lack Attack and Melee, so the "
+                                f"build's \"Melee Attack Skills have +N to maximum number of Summoned Totems\" lines "
+                                f"(+{summoner.melee_totem_added:g}) are counted toward its limit, which PoB never does: "
+                                f"read as that flag's purpose (MEDIUM; no game text says so). Without them: {without} "
+                                f"totems"),
+                      "confidence": "MEDIUM"})
+    return mods, notes
 
 
 # Your totems dying a second (MECHB39; the shared rate the manager asked for, 05:40 / 17:55 18 Nov, for MECH-C's Soul

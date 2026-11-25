@@ -1,0 +1,294 @@
+# GEM41 (24 Nov 2026): COV57's gem-stat rows (scratch/cov57/offense.txt in the COV-A folder), the GEM lane.
+- id: gem-gem41-cascade-aftershock-offset
+  title: "cascade_aftershock_additional_offset_distance: moves only cascade Aftershocks (Tectonic Slams, Mountain Splitter), none of which the four carrying skills get counted"
+  kind: gem_stat
+  match: '^cascade_aftershock_additional_offset_distance$'
+  replace: []
+  stats: ["cascade_aftershock_additional_offset_distance"]
+  skill: [Shockwave Totem, Falling Thunder, Rolling Slam, Volcanic Steps]
+  confidence: MEDIUM
+  notes: >-
+    The offset shifts where a skill's cascade Aftershocks land ("ahead and to each side of the initial area"). Cascade
+    Aftershocks come from two sources only (checked: every stat whose id holds "cascade_aftershock" across every game
+    table with a stat field, build 26650308: number_of_dual_cascade_aftershocks on SupportSlamAftershocksPlayer =
+    Tectonic Slams, num_cascade_aftershocks_every_third_slam on PassiveSkills AscendancyWarrior1Notable3 =
+    Mountain Splitter; no Mods row; patch notes: Mountain Splitter 0.4.0, the one entry). Tectonic Slams' Aftershock is
+    an uncounted part (supports-parts.yaml part:tectonic_aftershock), so its offset moves nothing we count. Mountain
+    Splitter is counted (one of its three Aftershocks on the boss, LOW) only for a Slam Attack you use yourself:
+    Shockwave Totem (-5; its own types hold no Slam or Attack, a totem's) and Volcanic Steps (+2; triggered) never get
+    it. Falling Thunder (-5 units: closer) and Rolling Slam (+10 units, 1 m further out than its 1.4 / 1.8 m slams)
+    do: the offset moves Mountain Splitter's geometry, which no data gives (its LOW one-of-three already spans 0 for a
+    small boss to 3 for a huge one). UNVERIFIED: whether Rolling Slam's +1 m makes its Mountain Splitter Aftershocks
+    miss a boss more often (an OVERCOUNT inside that LOW row, for RESEARCH: the in-game test #29). None of COV57's four
+    builds (ex05 ex08 ex09 ex21: Shockwave Totem as a side skill) carries Tectonic Slams or Mountain Splitter.
+  sources: ["data/game-26650308/tables/GrantedEffectStatSets.json", "data/game-26650308/tables/PassiveSkills.json",
+            "ledger/entries/coverage-batch1.yaml (mountain-splitter)", "scratch/gem41/statuse.py"]
+  test_in_game: "Titan with Mountain Splitter: Rolling Slam vs Falling Thunder on a large boss, count the cascade Aftershocks that hit it."
+  status: proposed
+
+- id: model-gem41-ghost-dance-repeat
+  title: "Ghost Dance: Cooldown Recovery on its Shroud interval (read by recovery.ghost_dance_income, MECHC51); its 3 maximum Shrouds"
+  kind: model
+  model: recovery
+  stats: ["cooldown_recovery_modifiers_also_apply_to_repeat_interval", "ghost_dance_max_stacks"]
+  skill: [Ghost Dance]
+  confidence: MEDIUM
+  notes: >-
+    recovery.ghost_dance_income (MECHC27, MECHC51) divides base_cooldown_modifiable_repeat_interval_ms by the skill's
+    Cooldown Recovery Rate (the bridge's cooldownRecovery), as "Modifiers to Cooldown Recovery Rate also apply" says.
+    Its "lost a Shroud recently" share uses the mean rates (a Shroud lost at the next hit when hits come faster than
+    Shrouds; else every hit loses one), where the maximum of 3 never binds; a stock of up to 3 matters only for bunched
+    hits after a long gap (an UNDERCOUNT of Energy Shield there, MECH-C's model; defence, not damage).
+  sources: ["builder/search/recovery.py (ghost_dance_income)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-melee-attack-totem
+  title: "Shockwave Totem is a Melee Attack totem (is_melee_attack_totem): 'Melee Attack Skills have +N to maximum number of Summoned Totems' raises its limit"
+  kind: model
+  model: totem_count
+  stats: ["is_melee_attack_totem"]
+  skill: [Shockwave Totem]
+  confidence: MEDIUM
+  notes: >-
+    GrantedEffectStatSets ShockwaveTotemPlayer (26650308) holds is_melee_attack_totem, its only carrier (checked:
+    every table with a stat field); poe2db's Shockwave Totem shows it among the hidden stats and tags the gem Melee.
+    The skill's own types (the game's ActiveSkills shockwave_totem and PoB's) hold neither Attack nor Melee, so PoB's
+    "Melee Attack Skills have +1 to maximum number of Summoned Totems" (SkillType Melee + Attack tags; Ancestral
+    Artifice, PassiveSkills totems14, whose other stat is melee_attack_skills_additional_totems_allowed; the Ulaman mace
+    prefix AbyssModAllMacesUlamanPrefixMaximumMeleeAttackTotems) never reached its Totem Limit. The flag read as making
+    those lines apply (MEDIUM: no game text says so; poe2db and poe2wiki don't say either). engine/bridge.lua's
+    totemLimit tabulates the limit as for a Melee Attack skill when the skill carries the stat and reports the lines'
+    share (meleeAttackTotemAdded); models.totem_count_model counts the totems and gives the count without them as a row.
+    Ancestral Warrior Totem (Melee but not Attack in both type lists, no such stat) is left as PoB has it (UNVERIFIED).
+  sources: ["data/game-26650308/tables/GrantedEffectStatSets.json", "https://poe2db.tw/us/Shockwave_Totem",
+            "https://poe2db.tw/us/Ancestral_Artifice", "scratch/gem41/probe_totem.py"]
+  test_in_game: "Shockwave Totem with and without Ancestral Artifice: how many totems can be placed?"
+  status: proposed
+
+- id: gem-gem41-crystal-shatter-area
+  title: "ice_crystal_shatter_detonation_area_of_effect_+%_final (Glacial Bolt's wall +50%; 0 on PoB's Frost Wall): area only, no damage on a lone boss"
+  kind: gem_stat
+  match: '^ice_crystal_shatter_detonation_area_of_effect_\+%_final$'
+  replace: []
+  stats: ["ice_crystal_shatter_detonation_area_of_effect_+%_final"]
+  skill: [Glacial Bolt, Frost Wall]
+  confidence: LOW
+  notes: >-
+    Game files (26650308): on GlacialBoltWallPlayer (+50) and a Rogue Exile's Frost Wall only; the player's FrostWallPlayer
+    stat set doesn't carry it (PoB's export still lists it at 0 there: no effect either way) (checked:
+    scratch/gem41/statuse.py over every table with a stat field). It widens each Ice Crystal's shatter explosion. The
+    crystals are cast at the boss and PoB scores one explosion hit (the wall's own part); how many crystals' explosions
+    overlap one boss isn't counted by PoB or us (UNVERIFIED whether several reach it: an undercount at most). So no number
+    we count moves with it; read as moving nothing (LOW).
+  sources: ["data/game-26650308/tables/GrantedEffectStatSets.json (GlacialBoltWallPlayer)", "builder/search/models.py (VRUUN_MAKERS note)"]
+  test_in_game: "Glacial Bolt's wall shattered beside a large boss: count the explosion hits."
+  status: proposed
+
+- id: gem-gem41-whirlwind-storm-radius
+  title: "sandstorm_swipe_storm_radius_+_per_stage (Whirling Slash / Whirlwind Lance, +0.3 m a stage): PoB maps it (radiusExtra); area only"
+  kind: gem_stat
+  match: '^sandstorm_swipe_storm_radius_\+_per_stage$'
+  replace: []
+  stats: ["sandstorm_swipe_storm_radius_+_per_stage"]
+  skill: [Whirling Slash, Whirlwind Lance]
+  confidence: MEDIUM
+  notes: >-
+    PoB's statMap (act_dex.lua WhirlingSlashPlayer / WhirlwindLance: radiusExtra MORE per WhirlwindStageAfterFirst, at
+    most 2) reads it (read, not probed: it moves only the radius PoB displays). The Whirlwind's 1.8 m storm forms on its
+    creator, a melee skill used beside the boss, so the boss is inside it at every stage; a bigger radius moves no
+    damage on a lone boss (MEDIUM). The stages' own damage is models' whirl model (GEM12).
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (WhirlingSlashPlayer statMap)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+# GEM37's audit-hygiene list (scratch/gem37/open_but_read.txt; rerun as scratch/gem41/open_read.py on 24 Nov): open
+# gem-stat rows whose stat id our code reads. Each closed only after reading its reader (comment-only mentions and
+# substring matches left open).
+- id: model-gem41-tempest-bell-ramp
+  title: "Tempest Bell's quality ramp: more damage per time its Bell was hit (read by Assumptions.tempest_bell_shockwaves, MECHB61)"
+  kind: model
+  model: tempest_bell_shockwaves
+  stats: ["tempest_bell_damage_+%_final_per_time_hit"]
+  skill: [Tempest Bell]
+  confidence: MEDIUM
+  notes: >-
+    models.BELL_RAMP_STAT; Assumptions.tempest_bell_shockwaves passes the skill's level stat as the ramp (MECHB61).
+  sources: ["builder/search/assumptions.py (tempest_bell_shockwaves)", "builder/search/models.py (BELL_RAMP_STAT)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-charge-kept-chances
+  title: "A consumer's own chance not to remove the Charges it consumes (Perpetual Charge; Hollow Form's Power Charge quality): read by the charge model (MECHC58)"
+  kind: model
+  model: charges_kept
+  stats: ["charge_skip_consume_chance_%", "base_power_charge_skip_consume_chance_%"]
+  skill: [Perpetual Charge, Hollow Form]
+  confidence: MEDIUM
+  notes: >-
+    conditions.OWN_KEPT_STATS (MECHC58): Conditions.evidence reads each consumer's level and support stats
+    (activeSkills supportStats=OWN_KEPT_STATS) and adds them to the global chance, at most 100%.
+  sources: ["builder/search/conditions.py (OWN_KEPT_STATS and its reader in Conditions.evidence)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-charge-regulation-interval
+  title: "Charge Regulation consumes one of each Charge every 10 s (+quality): read by the charge model (MECHC58)"
+  kind: model
+  model: charge_regulation
+  stats: ["consume_frenzy_power_and_endurance_charge_every_x_ms"]
+  skill: [Charge Regulation]
+  confidence: MEDIUM
+  notes: >-
+    conditions.REGULATION_EVERY_STAT, read at the skill's level in Conditions.evidence (MECHC58; RESEARCH57 R57-1).
+  sources: ["builder/search/conditions.py (REGULATION_EVERY_STAT)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-maim-support
+  title: "The Maim support's Maim on Hit: the boss's Maimed share from the main skill's supports (MECH105)"
+  kind: model
+  model: support_maim
+  stats: ["maim_on_hit_%"]
+  skill: [Maim]
+  confidence: MEDIUM
+  notes: >-
+    conditions.MAIM_STAT, read by Conditions._support_maim from the main skill's supportStats (MECH105; RESEARCH57 R57-8).
+  sources: ["builder/search/conditions.py (MAIM_STAT, _support_maim)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-siphon-elements-remnants
+  title: "Siphon Elements' Fire / Lightning Infusion Remnant chances on Igniting / Shocking a bare target: read by assumptions.siphon_freezes (MECHC58)"
+  kind: model
+  model: siphon_freezes
+  stats: ["infusion_remnants_%_chance_to_spawn_fire_infusion_on_igniting_an_enemy",
+          "infusion_remnants_%_chance_to_spawn_lightning_infusion_on_shocking_an_enemy"]
+  skill: [Siphon Elements]
+  confidence: MEDIUM
+  notes: >-
+    assumptions.SIPHON_NON_AILED: each chance x the main skill's Ignite / Shock applications that find the boss bare.
+  sources: ["builder/search/assumptions.py (SIPHON_NON_AILED, siphon_freezes)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-endurance-on-stun-and-break
+  title: "Enduring Impact's Endurance Charges on Heavily Stunning a Unique, Armour Break II / III's chance on a Full Break: rated from the build's own Heavy Stuns and Full Breaks (MECHC53)"
+  kind: model
+  model: endurance_support_rate
+  stats: ["gain_x_endurance_charges_on_heavy_stunning_unique_enemy", "chance_to_gain_endurance_charge_on_armour_break_%"]
+  skill: [Enduring Impact I, Enduring Impact II, Armour Break II, Armour Break III]
+  confidence: MEDIUM
+  notes: >-
+    conditions.endurance_support_rate (MECHC53; stats["_endurance_supports"] set
+    by Conditions.evidence from the main group's gems): the main skill's Heavy Stuns of the boss a second
+    (models.heavy_stun_rate) x the count, the boss's Full Breaks a second x the chance; 0 when the support is on another
+    skill (an undercount there, said).
+  sources: ["builder/search/conditions.py (_endurance_supports)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-rampage-channel
+  title: "Rampage's shapeshift minimum channel time: its shortest channel (Momentum's share; the channel readers)"
+  kind: model
+  model: momentum_model
+  stats: ["shapeshift_minimum_channel_time_ms_+"]
+  skill: [Rampage]
+  confidence: MEDIUM
+  notes: >-
+    models.MOMENTUM_CHANNEL_STATS (GEM40) and conditions.CHANNEL_MIN_STATS add it to base_minimum_channel_time_ms for the shortest channel.
+  sources: ["builder/search/models.py (MOMENTUM_CHANNEL_STATS)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-devour-corpses
+  title: "Devour's 2 extra corpses a use: 3 corpses consumed a use (RESEARCH37 R37-5)"
+  kind: model
+  model: devour_corpses
+  stats: ["wyvern_devour_max_extra_corpses_to_consume"]
+  skill: [Devour]
+  confidence: MEDIUM
+  notes: >-
+    models.DEVOUR_CORPSES_A_USE = 1 + the stat's 2 (every level), read by the corpse readers.
+  sources: ["builder/search/models.py (DEVOUR_CORPSES_A_USE)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-fissure-caps
+  title: "Molten Crash's extra Fissure from Rage: the Fissure count model (MECHB48)"
+  kind: model
+  model: fissure_count_model
+  stats: ["molten_crash_number_of_additional_fissures_from_rage_consumption"]
+  skill: [Molten Crash]
+  confidence: MEDIUM
+  notes: >-
+    models.FISSURE_RAGE (the stat's 1 on MoltenCrashPlayer, its only carrier: checked, scratch/gem41/statuse.py), read by
+    fissure_count_model. Forge Hammer's Fissure cap stays open (a Limit constant: COV55's ruling, the manager 21:41).
+  sources: ["builder/search/models.py (fissure_count_model)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-toxic-growth-projectiles
+  title: "Toxic Growth's projectile count override: the Pustules counted instead of PoB's 1 (accelerated_growth)"
+  kind: model
+  model: accelerated_growth
+  stats: ["number_of_projectiles_override"]
+  skill: [Toxic Growth]
+  confidence: MEDIUM
+  notes: >-
+    assumptions.accelerated_growth uses models.TOXIC_PUSTULES where PoB's ProjectileCount is the override's 1.
+  sources: ["builder/search/assumptions.py (accelerated_growth)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-time-of-need-repeat
+  title: "Time of Need's Blessing interval over its Cooldown Recovery Rate (recovery.time_of_need_income, MECHC51)"
+  kind: model
+  model: recovery
+  stats: ["cooldown_recovery_modifiers_also_apply_to_repeat_interval"]
+  skill: [Time of Need]
+  confidence: MEDIUM
+  notes: >-
+    recovery.time_of_need_income divides base_cooldown_modifiable_repeat_interval_ms by the skill's Cooldown Recovery Rate (the bridge's cooldownRecovery).
+  sources: ["builder/search/recovery.py (time_of_need_income)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-bells
+  title: "Hollow Focus's Bell hit limit and shockwave cooldown (GEM30's repeat_interval_model; Tempest Bell's: model-read-cov55-tempest-bell-constants)"
+  kind: model
+  model: repeat_interval
+  stats: ["bell_hit_limit", "bell_shockwave_cooldown_ms"]
+  skill: [Hollow Focus]
+  confidence: MEDIUM
+  notes: >-
+    models.BELL_LIMIT_STAT and BELL_WAVE_EVERY (300 ms) are read by repeat_interval_model for Hollow Focus's bells.
+  sources: ["builder/search/assumptions.py (tempest_bell_shockwaves)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-verisium-count
+  title: "Powered by Verisium's Infusions a cast, at its Ward-paid casts (assumptions.verisium_infusions, MECHC58)"
+  kind: model
+  model: verisium_infusions
+  stats: ["verisium_infusion_skill_number_of_verisium_infusion_to_grant"]
+  skill: [Powered by Verisium]
+  confidence: MEDIUM
+  notes: >-
+    assumptions.VERISIUM_COUNT_STAT read at the skill's level by verisium_infusions.
+  sources: ["builder/search/assumptions.py (verisium_infusions)"]
+  test_in_game: "Not needed."
+  status: proposed
+
+- id: model-gem41-tempest-bells-allowed
+  title: "Tempest Bell's Bells allowed: read by Assumptions.tempest_bell_shockwaves (MECHB61)"
+  kind: model
+  model: tempest_bell_shockwaves
+  stats: ["base_number_of_tempest_bells_allowed"]
+  skill: [Tempest Bell]
+  confidence: MEDIUM
+  notes: >-
+    Assumptions.tempest_bell_shockwaves passes the skill's level stat as `allowed`.
+  sources: ["builder/search/assumptions.py (tempest_bell_shockwaves)"]
+  test_in_game: "Not needed."
+  status: proposed
