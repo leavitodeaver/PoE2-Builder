@@ -797,3 +797,28 @@ def test_the_radius_resistance_craft_makes_a_whole_time_lost_rare_pob_reads(sear
     assert fire["with"] >= fire["without"]
     if notables:
         assert fire["with"] > fire["without"]  # PoB applies the line through an allocated notable in radius
+
+
+def test_a_short_jewels_not_finished_note_survives_the_lines_state(search):
+    """(JEWEL4; SEARCHD1's gap, the manager 24 Nov 18:29) Jewels.unfinished rides in Search.state / Search.load, so a later
+    step or finalize (a fresh Search loading the line) still notes a short jewel an earlier step left in a socket."""
+    from builder.search.jewels import JEWEL_BASES
+
+    jewels, build = search.jewels, search.build
+    snap = build.snapshot()
+    slot = jewels.slot(jewels.sockets()[0])
+    rare = jewels.build_rare(slot, clock.now() + 300, bases=JEWEL_BASES)
+    assert rare is not None
+    build.equip(slot, rare)
+    jewels.unfinished.clear()
+    jewels.unfinished[rare.raw] = {"filled": 2, "slots": 4, "why": "the search's time for it ran out first"}
+    jewels.unfinished["Rare\nnot equipped"] = {"filled": 1, "slots": 4, "why": "x"}
+    state = search.state()
+    assert set(state["jewels_unfinished"]) == {rare.raw}  # (only jewels still in a socket ride along)
+    jewels.unfinished.clear()
+    search.load(state)
+    notes = [n for n in jewels.unfinished_notes() if slot in n["label"]]
+    print("PROBE carried", notes)
+    assert len(notes) == 1 and notes[0]["value"] == "2/4" and "Continue" in notes[0]["basis"]
+    jewels.unfinished.clear()
+    build.restore(snap)

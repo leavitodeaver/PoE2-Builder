@@ -465,6 +465,11 @@ class Search:
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
             "unfinished": unfinished.rows(self.build),  # (SEARCHD1 hook: what a deadline cut, carried with the line)
+            # (JEWEL4, SEARCHD1's gap) the jewels left short of their slots, still equipped: a later step or finalize
+            # (a fresh Search) keeps their "Not finished" notes (Jewels.unfinished_notes -> finalize's assumptions, which
+            # run.unfinished_rows joins to SEARCH-D's record by (step, slot): one row per jewel, never a second copy)
+            "jewels_unfinished": {raw: dict(info) for raw, info in self.jewels.unfinished.items()
+                                  if any(o is not None and o.raw == raw for o in self.build.equipped.values())},
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
                      "short": self.line_short,
@@ -532,6 +537,7 @@ class Search:
         self.gear.shortlist = dict(state.get("gear_shortlist") or {})
         self.gear.resume = state.get("gear_resume")
         self.problems = list(state["problems"])
+        self.jewels.unfinished.update({raw: dict(info) for raw, info in (state.get("jewels_unfinished") or {}).items()})  # (JEWEL4)
         setattr(self.build.objective, PRESS_CHOICES, dict(state.get("press_choices") or {}))
         self.press_rows = copy.deepcopy(state.get("press_rows") or {})
         if self.press_sync():
