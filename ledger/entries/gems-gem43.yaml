@@ -24,3 +24,24 @@
             "scratch/gem43/probe_before.log", "scratch/gem43/probe_after.log"]
   test_in_game: "Shockwave Totem with and without a Melee Damage line: does the Jagged Ground eruption's damage change?"
   status: proposed
+
+- id: gem-gem43-melee-override-pob-flags
+  title: "attack_is_melee_override on Shield Wave (Fortifying Cry), Shield Charge and Stampede: PoB's sets already carry the melee flag (probed)"
+  kind: gem_stat
+  match: '^attack_is_melee_override$'
+  replace: []
+  stats: ["attack_is_melee_override"]
+  skill: [Shield Wave, Shield Charge, Stampede]
+  confidence: HIGH
+  notes: >-
+    PoB reads the stat nowhere (SkillStatMap.lua, Modules/*.lua), but its data gives every stat set of these skills
+    baseFlags melee (act_str.lua: FortifyingCryShockwavePlayer "Shield Wave"; ShieldChargePlayer "Area of Effect" /
+    "Collision"; StampedePlayer "Footsteps" / "Slam" / "Explosion"), which is what the stat does: Melee modifiers apply.
+    Probe scratch/gem43/probe_melee_override.py (Warbringer level 90, Shield Charge with Fortifying Cry and Stampede
+    groups; mace + shield), "100% increased Melee Damage" through PoB's own parser: Shield Wave's hit 76.1 -> 237.3,
+    Shield Charge's Collision 115.4 -> 343.5 DPS, Stampede's Slam 56.9 -> 173.1 DPS (scratch/gem43/probe_melee.log). So
+    no Melee modifier is withheld (COV58's "withheld" row was the audit's generic "PoB never reads this stat"); nothing
+    to add. Shockwave Slam's Eruption, the one set PoB left without the flag, is model-gem43-shockwave-totem-eruption-melee.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_str.lua", "scratch/gem43/probe_melee.log"]
+  test_in_game: "Not needed: PoB's flag is the game's reading."
+  status: proposed
