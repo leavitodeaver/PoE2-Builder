@@ -12786,6 +12786,51 @@ def set_flag_model(main: str | None, scored: str | None, sets: list[dict]) -> tu
         "play": f"Without the {flags} reading: {without:,.1f} DPS; with it: {with_it:,.1f} DPS."}]
 
 
+# Flame Breath's Empowered breaths (GEM44; GEM's ranked list, the manager's 16:12 order; an UNDERCOUNT). The game
+# (26650308, ActiveSkills wyvern_flame_breath): "Consumes a Power Charge if possible to Empower the Skill, Gaining extra
+# Lightning damage and spending Rage more slowly"; wyvern_devour_empowered_flame_breath_base_all_damage_%_to_gain_as_
+# lightning 50, "Empowered Flame Breath Gains {0}% of damage as Lightning damage" (wyvern_flame_breath.csd). PoB (act_str.lua
+# WyvernFlameBreathPlayer) maps neither it nor the Empowerment, so every breath was scored un-Empowered. Counted: each
+# breath (one a cycle, max(wind-up + the Rage-free window, the cooldown): MECH-B's flame_breath_model's cycle) is
+# Empowered while the build has a Power Charge to spend: share = min(1, Power Charges gained a second x the cycle), the
+# gains from the build's own lines (conditions._charge_rate, as Oil Barrage's Empowered set reads them), 0 with none.
+# Applied as PoB's own DamageGainAsLightning BASE 50 x share on the skill, so PoB scales the Lightning with the build's
+# modifiers (a gain's share is linear in the average hit). MEDIUM. Not counted (named): the Power Charges held when the
+# fight starts (a short-fight undercount); other skills spending Power Charges (an OVERCOUNT where the build has one:
+# the spenders are listed in the note); the Empowered breath's slower Rage spend
+# (wyvern_devour_empowered_flame_breath_rage_consumption_+% -50: a longer channel, an UNDERCOUNT).
+FLAME_BREATH_GAIN_STAT = "wyvern_devour_empowered_flame_breath_base_all_damage_%_to_gain_as_lightning"
+FLAME_BREATH_GAIN = 50.0  # the stat's value (PoB act_str.lua WyvernFlameBreathPlayer constantStats)
+FLAME_BREATH_EMPOWER_ENTRY = "model-gem44-flame-breath-empowered"
+
+
+def flame_breath_empower_model(main: Skill | None, cycle: float, gains: float, gains_how: str, spenders: list[str],
+                               gain: float = FLAME_BREATH_GAIN, forbidden: set[str] = frozenset()
+                               ) -> tuple[list[dict], list[dict]]:
+    """Flame Breath's Empowered share and its Lightning gain (see above). `cycle`: seconds a breath; `gains`: Power
+    Charges gained a second (`gains_how` says from what); `spenders`: other skills that spend Power Charges."""
+    if main is None or main.name != FLAME_BREATH or FLAME_BREATH_EMPOWER_ENTRY in forbidden or cycle <= 0:
+        return [], []
+    share = min(1.0, max(0.0, gains) * cycle)
+    label = f"{main.name}: Empowered by a Power Charge on {share:.0%} of breaths*"
+    others = (f"; other Power Charge spenders in the build not taken off ({', '.join(spenders)}: an OVERCOUNT if they "
+              "spend the same charges)") if spenders else ""
+    basis = (f"\"Consumes a Power Charge if possible to Empower the Skill, Gaining extra Lightning damage\"; Empowered it "
+             f"gains {gain:g}% of damage as Lightning (PoB maps neither). One breath every {cycle:.1f} s; Power Charges "
+             f"{gains:.3f} a second ({gains_how or 'no source in the build'}): {share:.0%} of breaths Empowered, "
+             f"+{gain * share:.1f}% of damage gained as Lightning through PoB" + others + ". Not counted: the charges "
+             "held at the fight's start, the Empowered breath's slower Rage spend (a longer channel). Rows: no Power "
+             f"Charge +0%; every breath Empowered +{gain:g}%")
+    if share <= 0:
+        return [], [{"label": label, "value": "+0%", "confidence": "MEDIUM", "entry": FLAME_BREATH_EMPOWER_ENTRY,
+                     "basis": basis}]
+    return [raw_mod("DamageGainAsLightning", "BASE", gain * share, main.name, tag=FLAME_BREATH_EMPOWER_ENTRY)], [{
+        "label": label, "value": f"+{gain * share:.1f}% as Lightning", "confidence": "MEDIUM",
+        "entry": FLAME_BREATH_EMPOWER_ENTRY, "basis": basis,
+        "play": (f"Keep Power Charges for {main.name}: each Empowered breath gains {gain:g}% of its damage as Lightning. "
+                 f"Without a Power Charge source: +0%; with this build's: +{gain * share:.1f}%.")}]
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,

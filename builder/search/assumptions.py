@@ -5272,6 +5272,23 @@ class Assumptions:
                                                           forbidden)
             hand_mods, hand_notes = hand_mods + fb_mods, hand_notes + fb_notes
             build.main_hit_cut = models.hit_cut_of(fb_mods, getattr(build, "main_hit_cut", None))
+            # (GEM44: an Empowered breath per Power Charge the build gains, its 50% gained as Lightning)
+            fb_speed = number(fb_stats.get("Speed"))
+            fb_cycle = max(models.FLAME_BREATH_WINDUP / fb_speed + (fb_free or models.FLAME_BREATH_FREE),
+                           number(fb_stats.get("Cooldown"))) if fb_speed > 0 else 0.0
+            fb_charge_stats = with_main_share(build, dict(build.call("stats", fields=models.MODEL_FIELDS + [
+                "enemySkillTime", "EvadeChance", "EffectiveBlockChance"])), main)
+            fb_lines = [e["text"] for e in source_lines]
+            fb_rates = [(r[0], t) for t in fb_lines
+                        if (r := conditions_mod._charge_rate(t, "Power", dict(fb_charge_stats))) is not None and r[0] > 0]
+            fb_spenders = sorted({x["name"] for g in build.groups() if g.get("enabled", True)
+                                  for x in g.get("gems") or [] if x.get("enabled", True) and not x.get("support")
+                                  and x["name"] != main.name
+                                  and "SkillConsumesPowerChargesOnUse" in skill_types_of(build.ctx, x["name"])})
+            fe_mods, fe_notes = models.flame_breath_empower_model(
+                main, fb_cycle, sum(r for r, _ in fb_rates), "; ".join(t[:60] for _, t in fb_rates), fb_spenders,
+                forbidden=forbidden)
+            hand_mods, hand_notes = hand_mods + fe_mods, hand_notes + fe_notes
         if main is not None and main.name == models.HAILSTORM_ROUNDS:  # (MECHB51: R41-4 / R42-11, probe POE2T4762)
             from builder.search import bosses as bosses_mod
 

@@ -1,0 +1,40 @@
+# GEM44 (25 Nov 2026): gem stats read by our code (GEM lane).
+- id: model-gem44-spirit-vessel-per-socketed
+  title: "Spirit Vessel deals 20% more Damage per different socketed Skill (the bridge's Spirit Vessel block)"
+  kind: model
+  model: spirit_vessel
+  stats: ["spirit_vessel_damage_+%_final_per_skill_socketed_in_meta_gem"]
+  skill: [Spirit Vessel]
+  confidence: datamined
+  notes: >-
+    The game (26650308, active_skill_gem_stat_descriptions.csd): "Spirit Vessel deals {0}% more Damage per different
+    socketed Skill"; PoB other.lua SpiritVesselPlayer gives the stat 20 and maps it to nothing. engine/bridge.lua's
+    installSpiritVessel adds Damage MORE 20 x the different socketed skills to the companion's skill (MORE -100 with
+    none). Shown on real PoB by tests/test_engine_models.py's Spirit Vessel test: two socketed skills give the
+    companion 1.4 / 1.2 of one's AverageDamage. The 20 is the bridge's own number, not read from the stat: if the gem's
+    value changes, the bridge must follow (named).
+  sources: ["engine/bridge.lua (installSpiritVessel)", "tests/test_engine_models.py (Spirit Vessel test)"]
+  test_in_game: "Not needed: the gem's own text."
+  status: proposed
+
+- id: model-gem44-flame-breath-empowered
+  title: "Flame Breath Empowered by a Power Charge gains 50% of damage as Lightning, at the share of breaths the build's Power Charges cover"
+  kind: model
+  model: flame_breath_empower
+  stats: ["wyvern_devour_empowered_flame_breath_base_all_damage_%_to_gain_as_lightning"]
+  skill: [Flame Breath]
+  confidence: MEDIUM
+  notes: >-
+    The game (26650308, ActiveSkills wyvern_flame_breath): "Consumes a Power Charge if possible to Empower the Skill,
+    Gaining extra Lightning damage and spending Rage more slowly"; the stat 50: "Empowered Flame Breath Gains {0}% of
+    damage as Lightning damage" (wyvern_flame_breath.csd). PoB (act_str.lua WyvernFlameBreathPlayer) maps neither.
+    models.flame_breath_empower_model: share of breaths Empowered = min(1, Power Charges gained a second from the
+    build's own lines x the breath cycle), applied as PoB's DamageGainAsLightning BASE 50 x share on the skill. Probe
+    scratch/gem44/probe_breath.log: no source +0% (128.04); "Gain a Power Charge every 2 seconds" 128.04 -> 192.00;
+    "50% chance to gain a Power Charge on Critical Hit" 128.04 -> 158.63. Not counted: the stock at the fight's start,
+    the Empowered breath's slower Rage spend (wyvern_devour_empowered_flame_breath_rage_consumption_+%, still open),
+    other Power Charge spenders' share (listed in the note).
+  sources: ["builder/search/models.py (flame_breath_empower_model)", "builder/search/assumptions.py (Flame Breath hook)",
+            "scratch/gem44/probe_breath.log"]
+  test_in_game: "Flame Breath with and without a Power Charge: does the breath deal extra Lightning damage?"
+  status: proposed
