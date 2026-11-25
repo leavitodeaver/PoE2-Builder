@@ -165,6 +165,19 @@ FILL_SIDE_TRIALS = 2
 FILL_SECONDS = 90.0
 # (SEARCH35) POE2_SEARCH_FILL=0 turns the finalize fill off (FILL_KINDS empty), for a fill on / off gate set on one commit
 FILL_KINDS = ("main",) if os.environ.get("POE2_SEARCH_FILL", "1") != "0" else ()
+# (SEARCH40; the manager's 24 Nov 17:01 ruling on SEARCH39's step 3) With POE2_SEARCH_SIDE_FILL=1 the side groups join the
+# finalize fill: fill_open's REAL trials (commit + resolve: a side group's buff or debuff counts only then), FILL_SIDE_TRIALS
+# a socket, within the same fill time, each kept only if the score rises (Spirit counted: a support that leaves Spirit
+# short is a hard limit in the score). OFF until a gate set (>= 3 seeds) measures it. The 21 Nov ruling that turned
+# POE2_SEARCH_SIDE_SUPPORTS off rested on what-ifs that read 0, so it doesn't bind real trials
+SIDE_FILL_SWITCH = "POE2_SEARCH_SIDE_FILL"
+
+
+def fill_kinds() -> tuple[str, ...]:
+    """The groups finalize's fill covers: FILL_KINDS, and the side groups with SIDE_FILL_SWITCH on (read at call time)."""
+    return FILL_KINDS + ("side",) if FILL_KINDS and os.environ.get(SIDE_FILL_SWITCH, "0") == "1" else FILL_KINDS
+
+
 SIDE_GAP = ("not tried: a side group's support what-ifs all read 0 (its buff or debuff counts only after a resolve), so "
             "nothing ranks its candidates yet; the fill covers the main group only (the manager's 06:58)")
 COUNT_RULE = re.compile(r"provided exactly (\w+) other supports", re.I)
@@ -861,8 +874,8 @@ class Gems:
         Records, per group, what was tried and why a socket stays empty (self.fill_log, read by open_sockets)."""
         build = self.build
         improved = False
-        kinds = FILL_KINDS if kinds is None else kinds
-        for meta, index, kind in self.fill_targets():
+        kinds = fill_kinds() if kinds is None else kinds
+        for meta, index, kind in self.fill_targets(side=True if "side" in kinds else None):  # (SEARCH40: side fill)
             if kind not in kinds and not (kind == "free" and kinds):  # (a free group whenever the fill is on)
                 continue
             group = self.supports_group(build.groups(), meta, index)
@@ -899,6 +912,8 @@ class Gems:
                 break
             scored = build.gem_deltas([{"group": index, "slot": len(names) + 1, "gem": c} for c in options])
             ranked = [c for _, c in sorted(zip((s for s, _ in scored), options), key=lambda x: -x[0])][:trials]
+            if kind == "side":
+                ranked = self._side_ranked(options, scored, trials)
             before, snap = build.score, build.snapshot()
             dps_before = build.objective.dps(build.stats)
             short_before = self._spirit_short()
@@ -931,6 +946,16 @@ class Gems:
             if self.checkpoint is not None:
                 self.checkpoint()
         return improved
+
+    def _side_ranked(self, options: list[str], scored: list[tuple[float, dict]], trials: int) -> list[str]:
+        """(SEARCH40; SIDE_FILL_SWITCH) A side group's real trials: its what-ifs mostly read 0 (probe POE2T7507 on 2b75d:
+        196 options for Mace Strike and Raise Shield, none nonzero; on Blasphemy + Temporal Chains only Heightened Curse,
+        +0.0007, whose real trial gained +0.021 ln), so the best what-if first, then, among equal what-ifs, the supports a
+        model may value past PoB (build.model_gem: an effect only a resolve shows), then the rest in PoB's order."""
+        model = getattr(self.build, "model_gem", None)
+        keyed = [(-round(score, 6), 0 if model is not None and model(c) else 1, n, c)
+                 for n, ((score, _), c) in enumerate(zip(scored, options))]
+        return [c for *_, c in sorted(keyed)][:trials]
 
     def _defence(self) -> dict[str, float]:
         stats = self.build.call("stats", fields=list(FREE_DEFENCE_FIELDS))
@@ -1041,7 +1066,8 @@ class Gems:
                 continue
             entry = log.get((group["index"], tuple(names)))
             reasons = []
-            if kind not in FILL_KINDS and not (kind == "free" and FILL_KINDS):
+            kinds = fill_kinds()  # (SEARCH40: the side fill's switch)
+            if kind not in kinds and not (kind == "free" and kinds):
                 out.append({"group": group["index"], "kind": kind, "skill": names[0], "supports": names[first:],
                             "open": open_, "reasons": [SIDE_GAP if kind == "side" else
                                                        "not tried: the fill is off (POE2_SEARCH_FILL=0)" if not FILL_KINDS else

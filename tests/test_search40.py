@@ -179,3 +179,24 @@ def test_close_calls_are_off_by_default_and_time_guarded(monkeypatch):
     b, calls = close_build()  # (an Alloy-factor case: a plain equip can't carry the factor)
     assert Build._rescore_close_calls(b, [{"slot": "Ring 1", "raw": "b", "extra": {"x": 1.2}}], [(9.6, {})],
                                       done=set()) == [(9.6, {})]
+
+
+def test_the_side_fill_is_off_by_default_and_joins_finalizes_fill_when_on(monkeypatch):
+    """(Item 3, the manager's 24 Nov 17:01 ruling) Side groups get fill_open's real trials only with the switch on."""
+    from builder.search import gems
+
+    monkeypatch.delenv(gems.SIDE_FILL_SWITCH, raising=False)
+    assert gems.fill_kinds() == gems.FILL_KINDS == ("main",)
+    monkeypatch.setenv(gems.SIDE_FILL_SWITCH, "1")
+    assert gems.fill_kinds() == ("main", "side")
+
+
+def test_a_side_groups_trials_go_to_a_what_if_signal_then_to_model_valued_supports():
+    from builder.search.gems import Gems
+
+    g = SimpleNamespace(build=SimpleNamespace(model_gem=lambda n: n in ("Model B", "Model A")))
+    options = ["Plain", "Model B", "Signal", "Model A", "Worse"]
+    scored = [(5.0, {}), (5.0, {}), (5.0007, {}), (5.0, {}), (4.9, {})]
+    assert Gems._side_ranked(g, options, scored, 3) == ["Signal", "Model B", "Model A"]
+    g.build.model_gem = None  # (no search set it: what-if, then PoB's order)
+    assert Gems._side_ranked(g, options, scored, 2) == ["Signal", "Plain"]
