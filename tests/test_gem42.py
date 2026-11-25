@@ -88,3 +88,33 @@ def test_the_strongest_ailment_takes_the_mix_models_steer_out_once():
     assert "taken back out" in notes[0]["basis"]
     old, _ = models.strongest_ailment_model(main, rows, {"Plain": 1.0, "Explosion": 0.0}, 1.0)
     assert 60.0 * steer * (1 + old[0]["value"] / 100) == pytest.approx(30.0 * steer, rel=1e-3)  # (before: F twice)
+
+
+def test_martial_master_lets_any_attack_build_combo_and_adept_doubles_each_gain():
+    """The manager 23:57: the Invoker's Martial Master / Martial Adept weren't read by vruun_combo_share (an UNDERCOUNT)."""
+    main = _main()
+    bow = Skill("Lightning Arrow", 2, attack=True)  # (an Attack, not a melee Strike)
+    skills = [main, bow]
+    groups = {2: {"index": 2, "name": "Lightning Arrow", "speed": 2.0, "HitChance": 100, "_press": 0.25}}
+    stats = {"Speed": 0.25, "_groups": groups, "_skills": skills}
+    assert models.vruun_builder_groups(skills, main) == []
+    combo, why, _ = models.vruun_combo_share(main, stats, main)
+    assert combo == 0.0 and "no other melee Strike" in why
+    master = {**stats, models.COMBO_FACTS: {"any_attack": True, "gain": 1.0}}
+    assert models.vruun_builder_groups(skills, main, True) == [2]
+    combo, why, _ = models.vruun_combo_share(main, master, main)
+    assert combo == pytest.approx(2.0) and "Martial Master" in why  # (0.5 hits/s over 0.25 uses/s)
+    adept = {**stats, models.COMBO_FACTS: {"any_attack": True, "gain": 2.0, "groups": {2: 2.2}}}
+    combo, why, _ = models.vruun_combo_share(main, adept, main)
+    assert combo == pytest.approx(4.4) and "x2.2 Combo" in why  # (Adept + a 20% chance in its group)
+
+
+def test_the_gain_caps_at_the_skills_maximum_and_counts_in_the_chain_check():
+    main = _main()
+    skills = [main, Skill("Slow Strike", 2, attack=True, melee=True)]
+    groups = {2: {"index": 2, "name": "Slow Strike", "speed": 0.125, "cooldown": 8.0, "HitChance": 100, "_press": 1.0}}
+    stats = {"Speed": 0.04, "_groups": groups, "_skills": skills, models.COMBO_FACTS: {"gain": 2.0}}
+    combo, why, _ = models.vruun_combo_share(main, stats, main)
+    assert combo == pytest.approx(2.0) and "at most 2 Combo a use" in why  # (one hit a use, 2 Combo each)
+    fast = {**stats, "_groups": {2: {**groups[2], "speed": 30.0, "cooldown": 0}}}
+    assert models.vruun_combo_share(main, fast, main)[0] == pytest.approx(10.0)

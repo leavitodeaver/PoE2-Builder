@@ -2251,6 +2251,23 @@ def hit_cut_share(build: Build, share: float) -> float:
     return share if cut is None else share * max(0.0, min(1.0, models.number(cut)))
 
 
+def combo_facts(build: Build, skills: list[models.Skill]) -> dict:
+    """(GEM42) The Invoker's Combo lines for models.vruun_combo_share (models.COMBO_FACTS' note), read as usage.py reads
+    them: {"any_attack": Martial Master, "gain": a builder hit's Combo (1 + Martial Adept + the build's extra-Combo chance,
+    capped at 100%), "groups": that with each builder group's own Practiced Combo}. {} with no skill keeping Combo
+    (skill_maximum_number_of_combo_stacks), so other builds pay nothing."""
+    if not any(number(s.support_stats.get(conditions_mod.COMBO_MAX_STAT)) for s in skills):
+        return {}
+    from builder.search import usage as usage_mod
+    use = usage_mod.Usage(build, None)
+    adept = 1.0 if use.has_passive(usage_mod.MARTIAL_ADEPT) else 0.0
+    chance = use.combo_chance()
+    groups = {s.group for s in skills if s.group is not None}
+    return {"any_attack": use.has_passive(usage_mod.MARTIAL_MASTER),
+            "gain": 1.0 + adept + min(chance, 100.0) / 100.0,
+            "groups": {g: 1.0 + adept + min(chance + use.group_combo_chance(g), 100.0) / 100.0 for g in groups}}
+
+
 def main_time_share(build: Build, main: models.Skill | None, hits: bool = True) -> float:
     """The main skill's share of the fight as objective.dps scores it (GEM22): its press-model scale (objective.
     press_scales: the time the pressed side skills leave it in Full DPS) x (1 - objective.busy()) (the search's chosen
@@ -3759,12 +3776,13 @@ class Assumptions:
             found, stats, enabled=models.IRON_WARD_ENTRY not in build.ctx.request.forbid_ledger_entries)
         # (a non-main skill's own output for a support counted from it, Practical Magic on a stunning attack: the bridge's
         # useRates for its group, with the share of its nonstop uses the press model last gave it)
-        side = models.gem_stat_side_groups(found, main)
+        combo = combo_facts(build, found)  # (GEM42: the Invoker's Combo lines, models.COMBO_FACTS)
+        side = models.gem_stat_side_groups(found, main, bool(combo.get("any_attack")))
         press = getattr(build.objective, "press_scales", None) or {}
         side_groups = {r["index"]: {**r, "_press": press.get(r["name"])}
                        for r in build.call("useRates", indices=side)["rates"]} if side else None
         stat_stats = {**stats, "_archon_x": {k: inputs.total(k) for k in models.ARCHON_TIMING},  # (GEM28: overgrown_model)
-                      "_main_share": main_time_share(build, main)}
+                      "_main_share": main_time_share(build, main), models.COMBO_FACTS: combo}
         stat_mods, stat_notes = models.gem_stat_model(found, set(build.ctx.request.forbid_ledger_entries), stat_stats, main,
                                                       self.mods, build.call("getConfig")["input"], side_groups,
                                                       [e["text"] for e in source_lines],  # (GEM11: Salvo's Seal lines)
@@ -3796,11 +3814,12 @@ class Assumptions:
         build.combo_on_use = None
         if main is not None and (number(main.support_stats.get("skill_maximum_number_of_combo_stacks"))
                                  or number(main.level_stats.get("skill_maximum_number_of_combo_stacks"))):
-            builders = models.vruun_builder_groups(found, main)
+            builders = models.vruun_builder_groups(found, main, bool(combo.get("any_attack")))
             rows = ({r["index"]: {**r, "_press": press.get(r["name"])}
                      for r in build.call("useRates", indices=builders)["rates"]} if builders else {})
-            combo, why, _ = models.vruun_combo_share(main, {**stats, "_groups": rows, "_skills": found}, main)
-            build.combo_on_use = (combo, why)
+            held, why, _ = models.vruun_combo_share(main, {**stats, "_groups": rows, "_skills": found,
+                                                           models.COMBO_FACTS: combo}, main)
+            build.combo_on_use = (held, why)
         harmony_mods, harmony_notes = models.harmony_model(inputs, stats)
         ring_mods, ring_notes = models.resist_rings_model(source_lines) if models.RESIST_ENTRY not in forbidden else ([], [])
         main_types = set((build.ctx.gems.get(name) or {}).get("skillTypes") or []) if main is not None else set()

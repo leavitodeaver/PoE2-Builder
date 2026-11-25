@@ -5170,8 +5170,8 @@ def shotgun_fragment_count_share(skill: Skill, stats: dict, main: Skill | None =
 # attacks do not count as Strikes") of their uses/s x hit chance x the press model's share (`_press`; 1 when it has
 # none: Full DPS counts that group at PoB's rate, an OVERCOUNT of Combo where the player can't really use both at that
 # rate) over the supported skill's own uses/s (its PoB Speed x its `_press`), capped at 10. One Combo per hitting use
-# (Martial Adept's +1 and "chance to build an additional Combo" lines not counted: an undercount; usage.Usage.combo_chance
-# has them but needs the build), the weapon set assumed shared (Combo builds only on the same weapon set: an overcount
+# (Martial Adept's +1, Martial Master's any-Attack builders and the "chance to build an additional Combo" lines:
+# read since GEM42, COMBO_FACTS), the weapon set assumed shared (Combo builds only on the same weapon set: an overcount
 # where it isn't). No Strike group: 0 with a note. LOW. Area moves a lone-boss number only through area-reading lines and
 # models (grounds, AreaOfEffect conditions): not claimed to move none.
 # The decay (GEM42, from GEM41's find): "Combo will fall off after a short time without this happening" (KeywordPopups
@@ -5186,8 +5186,7 @@ def shotgun_fragment_count_share(skill: Skill, stats: dict, main: Skill | None =
 # is the note's "at random timing" row (combo_at_random_timing: E[min(cap, N)], N the hits in the chain ending at the
 # use; matches GEM41's Monte Carlo). The same check as usage.combo_decayed (RESEARCH25 combo-gain-decay.md: "decay is a
 # check, not a rate"). Not read: combo_falloff_speed_+% ("lose Combo N% slower": Disciplined Training, Flow; UNVERIFIED
-# what it slows, as usage.py says; it would only lengthen the D the chain check uses), Martial Adept's / the Invoker's
-# extra Combo, can_gain_combo_from_any_attack_hit (non-Strike builders: an undercount).
+# what it slows, as usage.py says; it would only lengthen the D the chain check uses). The Invoker's lines: COMBO_FACTS.
 VRUUN_MAX_COMBO = 10.0  # (skill_maximum_number_of_combo_stacks; the share reads the gem's own value where given)
 VRUUN_DECAY_SECONDS = 6.0  # (base_combo_stacks_decay_delay_ms 6000: the fallback when the support's own isn't read)
 COMBO_DECAY_STAT = "base_combo_stacks_decay_delay_ms"  # (GEM42: summed over the skill's supports by the bridge)
@@ -5245,9 +5244,28 @@ def _strike_skill(skill: Skill) -> bool:
     return skill.attack and skill.melee and not skill.triggered and "Slam" not in set(_skill_types().get(skill.name, ()))
 
 
-def vruun_builder_groups(skills: list[Skill], skill: Skill) -> list[int]:
-    """Groups other than `skill`'s holding a Strike that builds its Combo."""
-    return sorted({s.group for s in skills if s.group is not None and s.group != skill.group and _strike_skill(s)})
+# (GEM42; the manager 23:57, an UNDERCOUNT) The Invoker's two Combo passives, as usage.py reads them for the Combo skills'
+# use rate (its module docstring: COVC7 / COVC8): Martial Master (AscendancyMonk1Notable2: can_gain_combo_from_any_attack_hit,
+# "Gain Combo from all Attack Hits", and share_combo_across_weapon_sets_and_weapon_types) makes any Attack of the build a
+# builder, and Martial Adept (AscendancyMonk1Notable1_: additional_combo_gain_on_hit, "When you gain Combo, gain an
+# additional Combo") makes each gain 2; the "N% chance to build an additional Combo on Hit" lines (passives, items, the
+# builder group's Practiced Combo) add their chance, capped at 100% (usage.Usage.combo_chance / group_combo_chance; 1 +
+# Adept + chance a hit, Adept's extra not doubled by the chance: usage.py's lower figure, UNVERIFIED). checked: the two
+# passives' stats in every game table (scratch/gem41/statuse.py on 26650308: PassiveSkills rows 6528 / 6529 only) and the
+# chance stat's carriers (Mods, PassiveSkills, SoulCoreStats, Practiced Combo), as usage.py's list. Assumptions hands
+# them in as stats["_combo"] = {"any_attack": bool, "gain": a hit's Combo by default, "groups": {index: a hit's Combo}}.
+COMBO_FACTS = "_combo"
+
+
+def _combo_builder(skill: Skill, any_attack: bool = False) -> bool:
+    """Builds another skill's Combo: a Strike, or any Attack you use yourself under Martial Master (`any_attack`)."""
+    return (skill.attack and not skill.triggered) if any_attack else _strike_skill(skill)
+
+
+def vruun_builder_groups(skills: list[Skill], skill: Skill, any_attack: bool = False) -> list[int]:
+    """Groups other than `skill`'s holding a Strike that builds its Combo (any Attack under Martial Master: GEM42)."""
+    return sorted({s.group for s in skills if s.group is not None and s.group != skill.group
+                   and _combo_builder(s, any_attack)})
 
 
 def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev: float = 0.0) -> tuple[float, str, str]:
@@ -5262,13 +5280,17 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
         uses = number(own.get("speed")) * number(own.get("_press") if own.get("_press") is not None else 1.0)
     if uses <= 0:
         return 0.0, "the supported skill isn't used at a rate PoB gives: no Combo expended (0)", VRUUN_PLAY + "."
-    builders = vruun_builder_groups(skills, skill)
+    facts = stats.get(COMBO_FACTS) or {}
+    any_attack = bool(facts.get("any_attack"))
+    base_gain = number(facts.get("gain")) or 1.0
+    builders = vruun_builder_groups(skills, skill, any_attack)
     if not builders:
         return 0.0, ("no other melee Strike in the build to build its Combo (Combo comes from Strikes with other melee "
                      "attacks): 0 (no flat rate)"), VRUUN_PLAY + ". Without one it gets no area."
     decay = number(skill.support_stats.get(COMBO_DECAY_STAT)) / 1000 or VRUUN_DECAY_SECONDS
-    hits, parts, unpressed, spacings = 0.0, [], [], []
+    hits, parts, unpressed, spacings, gains, combo_rate = 0.0, [], [], [], [], 0.0
     for index in builders:
+        gain = number((facts.get("groups") or {}).get(index)) or base_gain  # (GEM42: a hit's Combo)
         if main is not None and index == main.group:
             speed = number(stats.get("Speed"))
             rate = speed * min(number(stats.get("HitChance", 100) or 100), 100.0) / 100
@@ -5286,16 +5308,21 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
             name = str(row.get("name"))
         if rate > 0:
             hits += rate
-            parts.append(f"{name} {rate:.2f} hits/s")
+            combo_rate += rate * gain
+            gains.append(gain)
+            parts.append(f"{name} {rate:.2f} hits/s" + (f" x{gain:g} Combo" if abs(gain - 1) > 1e-9 else ""))
             spacings.append(max(1.0 / speed, cooldown))  # (GEM42: its shortest time between hits, used back to back)
     if hits <= 0:
         return 0.0, "the build's other Strikes hit at no rate PoB gives: 0", VRUUN_PLAY + "."
-    plain = min(cap, hits / uses)
+    plain = min(cap, combo_rate / uses)
     chain = combo_chain_cap(spacings, decay)
+    chain = None if chain is None else sum(gains)  # (one hit per builder, each its gain)
     combo = plain if chain is None else min(plain, chain)
     why = (f"{combo:.1f} Combo expended a use ({' + '.join(parts)} over its {uses:.2f} uses/s, cap {cap:g}): "
-           f"+{combo * number(skill.support_stats.get('area_of_effect_+%_per_combo_stack')):.0f}% area (LOW: one Combo "
-           f"per Strike hit, Martial Adept and combo-chance lines not counted; same weapon set assumed")
+           f"+{combo * number(skill.support_stats.get('area_of_effect_+%_per_combo_stack')):.0f}% area (LOW: a Combo a "
+           f"builder hit, more with Martial Adept and the build's extra-Combo chances (GEM42)"
+           + ("; Martial Master: any Attack builds it, on either weapon set" if any_attack else "; same weapon set "
+              "assumed"))
     if unpressed:
         why += (f"; {', '.join(unpressed)} read at PoB's own rate, its time not taken from the supported skill (an "
                 f"overcount of Combo)")
@@ -5303,7 +5330,9 @@ def vruun_combo_share(skill: Skill, stats: dict, main: Skill | None = None, prev
         why += (f"; the builders can't land a Strike within the {decay:g} s Combo decay of the last, even back to back "
                 f"(each every {', '.join(f'{g:.1f}' for g in spacings)} s): at most {chain:g} Combo a use (without the "
                 f"decay: {plain:.1f})")
-    random = min(combo, combo_at_random_timing(round(hits, 3), round(decay, 3), round(1.0 / uses, 3), cap))
+    per_hit = combo_rate / hits
+    random = min(combo, per_hit * combo_at_random_timing(round(hits, 3), round(decay, 3), round(1.0 / uses, 3),
+                                                         max(1.0, round(cap / per_hit))))  # (GEM42: hits, then their gain)
     if combo - random > 0.05:
         why += (f"; the decay is met by pressing the builders right before each use: at random timing (the stock lost "
                 f"after {decay:g} s without a Strike) {random:.1f}")
@@ -7767,7 +7796,7 @@ MODEL_FIELDS.extend(f for f in ("BoltCount", "EffectiveBoltCount", "ChanceToNotC
                                   "Minion.Speed") if f not in MODEL_FIELDS)  # (emergency_reload_share, kelari_beetles_share)
 
 
-def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
+def gem_stat_side_groups(skills: list[Skill], main: Skill | None, any_attack: bool = False) -> list[int]:
     """Non-main groups whose own output a GROUP_SHARES entry reads (the bridge's useRates for them: gem_stat_model's
     `groups`)."""
     from builder.ledger import gem_stat_entries
@@ -7782,7 +7811,7 @@ def gem_stat_side_groups(skills: list[Skill], main: Skill | None) -> list[int]:
                 found.add(skill.group)
             if entry.raw["share"] == "vruun_combo" and any(  # (and the groups whose Strikes build its Combo)
                     entry.pattern.search(stat) and number(v) for stat, v in skill.support_stats.items()):
-                found.update(g for g in vruun_builder_groups(skills, skill) if main is None or g != main.group)
+                found.update(g for g in vruun_builder_groups(skills, skill, any_attack) if main is None or g != main.group)
     for skill in skills:  # (a warcry's triggered Corrupted Cry: corrupting_cry_model reads the warcry's rate)
         if skill.name == CORRUPTED_CRY and skill.group is not None and (main is None or skill.group != main.group):
             found.add(skill.group)

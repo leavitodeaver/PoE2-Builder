@@ -21,7 +21,8 @@
     the supported skill's area. Counted on the supported skill (models.vruun_combo_share) at the Combo a use expends: the
     build's other melee Strikes' hits per second (Attack + Melee, not Slam; their PoB use rate x hit chance x the press
     model's share, 1 where it has none: an overcount, said) over the supported skill's uses per second, cap 10; one Combo
-    per Strike hit (Martial Adept and combo-chance lines not counted, an undercount); the same weapon set assumed; 0 with a
+    per Strike hit (GEM42: more with Martial Adept and the build's extra-Combo chances; any Attack under Martial Master,
+    either weapon set); the same weapon set assumed otherwise; 0 with a
     note without another Strike (no flat rate). LOW. Area moves a lone-boss number only through area-reading lines and
     models (grounds, area conditions); it is not claimed to move none.
   sources: ["SupportVruunsInevitability, GrantedEffectStatSets (build 26476662)", "GemEffects VruunsInevitabilitySupport",
