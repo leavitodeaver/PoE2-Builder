@@ -4771,7 +4771,14 @@ local function installAssumptions()
 				elseif mod.kind == "Raw" then  -- a PoB modifier by name (models.raw_mod), e.g. a skill's DebuffEffect MORE
 					-- (mod.tag: a sub-source, "Assumption:<tag>", that a bridge read can leave out: models.TOTEM_ONE_TAG)
 					local source = "Assumption" .. (mod.tag and (":" .. mod.tag) or "")
-					if mod.keywordFlags then  -- (GEM22: models.raw_mod's keywords, e.g. {"Ignite"}: only that ailment's
+					if mod.enemy then  -- (MECH107: models.raw_mod's enemy, a mod ON THE ENEMY, as PoB's config boxes put
+						-- theirs in enemyModList: carried as the player's EnemyModifier, which CalcPerform's applyEnemyModifiers
+						-- adds to env.enemy's modDB; the player's and the minions' hits both read that enemy (CalcActiveSkill
+						-- 964-967: a non-hostile minion's enemy is env.enemy), e.g. Critical Weakness's SelfCritChance BASE,
+						-- CalcOffence 3881)
+						self.modList:NewMod("EnemyModifier", "LIST",
+							{ mod = modLib.createMod(mod.name, mod.type, mod.value, source) }, source, unpack(tags))
+					elseif mod.keywordFlags then  -- (GEM22: models.raw_mod's keywords, e.g. {"Ignite"}: only that ailment's
 						-- calculation, whose cfg carries KeywordFlag[ailment], CalcOffence 5206-5213)
 						local bits = 0
 						for _, name in ipairs(mod.keywordFlags) do

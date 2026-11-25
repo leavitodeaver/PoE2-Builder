@@ -113,13 +113,17 @@ def derived(name: str, fn: str, value: float, **args) -> dict:
 
 def raw_mod(name: str, kind: str, value: float, skill: str | None = None, tag: str | None = None,
             condition: str | None = None, not_condition: str | None = None, slots: list[str] | None = None,
-            keywords: list[str] | None = None) -> dict:
+            keywords: list[str] | None = None, enemy: bool = False) -> dict:
     """A PoB modifier by its internal name (no text to parse): `kind` "INC" / "MORE" / "BASE" / "FLAG", tagged to
     `skill` if given (SkillName). For what PoB has no parseable line for, such as one skill's DebuffEffect MORE.
     `tag`: its source becomes "Assumption:<tag>", which a bridge read can leave out (TOTEM_ONE_TAG). `condition`: PoB
     applies it only under that player condition (MECH75: "Shocked"); `not_condition` only while it's off (MECHC32);
-    `slots`: only on those items' own defences (PoB's SlotName tag, e.g. ["Helmet", "Boots", "Gloves"]; MECHC32)."""
+    `slots`: only on those items' own defences (PoB's SlotName tag, e.g. ["Helmet", "Boots", "Gloves"]; MECHC32).
+    `enemy`: the mod goes ON THE ENEMY (the bridge carries it as an EnemyModifier, as PoB's config boxes put theirs in
+    enemyModList), so the minions' hits read it too (MECH107: Critical Weakness's SelfCritChance)."""
     mod: dict = {"kind": "Raw", "name": name, "type": kind, "value": _round(value)}
+    if enemy:
+        mod["enemy"] = True
     if keywords:  # (GEM22: PoB KeywordFlag names, e.g. ["Ignite"]: the mod applies only where its cfg carries one)
         mod["keywordFlags"] = list(keywords)
     if condition:
@@ -15065,8 +15069,10 @@ def djinn_commands_model(rows: list[tuple[DjinnCommand, dict]], player_dps: floa
 # second each lasting the line's N s (MEDIUM: one stack per inflict); a parry every PARRY_EVERY s when the build carries
 # Parry / Refutation (the user's 11 Nov cadence); the build's warcries a second (conditions.event_rates); Mark
 # Activations a second (glory_mark_rate: a Mark that Activates is Consumed). Counted as PoB counts the debuff: +0.5% base
-# Critical Hit Chance a stack (CalcOffence 3881 adds the enemy's SelfCritChance to the hit's BASE CritChance, as a
-# player's "CritChance BASE" mod), for every skill hitting the boss.
+# Critical Hit Chance a stack, ON THE BOSS as PoB's own box puts it (enemyModList SelfCritChance BASE; CalcOffence 3881
+# adds the enemy's SelfCritChance to each hit's BASE CritChance), so every hit on the boss reads it, the minions' too
+# (MECH107: before, a player "CritChance BASE" mod, which the minions' hits never read: an UNDERCOUNT on minion builds;
+# CalcActiveSkill 964-967 gives a non-hostile minion env.enemy as its enemy; probe POE2T8801: b06 x1.785).
 CRIT_WEAKNESS_SECONDS, CRIT_WEAKNESS_MAX, CRIT_WEAKNESS_PER = 4.0, 20.0, 0.5
 CW_PRESENCE = re.compile(r"^Every second, inflicts Critical Weakness on enemies in your Presence for (\d+(?:\.\d+)?) "
                          r"seconds?$", re.I)
@@ -15142,14 +15148,15 @@ def critical_weakness_stacks(texts: list[str], skills: list[Skill], stats: dict,
 
 
 def critical_weakness_mods(stacks: tuple[float, str]) -> tuple[list[dict], list[dict]]:
-    """(mods, notes): +0.5% base Critical Hit Chance a stack held (as PoB's enemy SelfCritChance)."""
+    """(mods, notes): +0.5% base Critical Hit Chance a stack held, on the boss (PoB's enemy SelfCritChance BASE, as its
+    Critical Weakness box: the player's and the minions' hits read it)."""
     if not stacks[1]:
         return [], []
     note = [{"label": "Critical Weakness on the boss*", "value": f"{stacks[0]:.1f} stacks, "
              f"+{stacks[0] * CRIT_WEAKNESS_PER:.1f}% Critical Hit Chance", "basis": stacks[1], "confidence": "MEDIUM"}]
     if stacks[0] <= 0:
         return [], note
-    return [raw_mod("CritChance", "BASE", stacks[0] * CRIT_WEAKNESS_PER)], note
+    return [raw_mod("SelfCritChance", "BASE", stacks[0] * CRIT_WEAKNESS_PER, enemy=True)], note
 
 
 # Grisly Pyre's Ignite from another group (MECH74; AUDIT35, an UNDERCOUNT: with His Winnowing Flame as the main skill,

@@ -5829,7 +5829,7 @@ def test_critical_weakness_stacks_come_from_the_builds_own_sources():
     assert m.critical_weakness_stacks(cry, [attack], stats, attack, 2.0, (0.25, "x"))[0] == pytest.approx(3.0)
     # the mods: +0.5% base crit a stack; nothing without a source line
     mods, notes = m.critical_weakness_mods((12.0, "x"))
-    assert mods[0]["name"] == "CritChance" and mods[0]["value"] == pytest.approx(6.0) and notes
+    assert mods[0]["name"] == "SelfCritChance" and mods[0].get("enemy") and mods[0]["value"] == pytest.approx(6.0) and notes
     assert m.critical_weakness_mods((0.0, "")) == ([], [])
     assert m.critical_weakness_stacks(["Grants Onslaught"], [spell], stats, spell, 2.0) == (0.0, "")
 
