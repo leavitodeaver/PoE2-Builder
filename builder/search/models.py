@@ -19692,7 +19692,9 @@ AFTER_PIERCE_QUALITY = frozenset({"Frostbolt", "High Velocity Rounds"})  # +1% m
 # most ONE return hit on a target between them. The "1% more Damage" here adds one returned hit per hit PoB's base
 # counts, and PoB's base counts one projectile a set for every skill that can Return (checked: the only skillData
 # dpsMultiplier in PoB's skill data is Bonestorm's stages (act_int 1866), a Physical skill Breachlord's Amalgam can't
-# support; Barrage's "DPS" MORE counts sequential repeats, each its own set with its own return: UNVERIFIED). So one
+# support (minion.lua 1404 only resets it); PoB's Modules also set it: CalcMirages 379 (x 1 / cooldown on a mirage's
+# main skill) and ConfigOptions 538-539 (two Blade Vortex spectres' skills), none a Return skill's simultaneous set: the manager,
+# 25 Nov 03:05); Barrage's "DPS" MORE counts sequential repeats, each its own set with its own return: UNVERIFIED). So one
 # return a set. Not checked (UNVERIFIED, a possible OVERCOUNT where it meets this): another model's "DPS" MORE on the
 # same skill that counts more SIMULTANEOUS projectiles on the boss would be multiplied by the return too.
 RETURN_RULE = ("a returned projectile hits the boss again only if it pierced it on the way out, at most one returned hit "
