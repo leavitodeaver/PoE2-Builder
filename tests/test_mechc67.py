@@ -129,3 +129,24 @@ def test_walking_in_for_remnants_at_the_boss_is_chosen_by_the_full_score():
     s = search({False: 100.0, True: 120.0}, offered=False)
     setattr(s.build.objective, assumptions.TARGET_SKIP, True)
     assert Search.choose_remnant_walk(s) is True and getattr(s.build.objective, assumptions.TARGET_SKIP) is False
+
+
+def test_archon_of_undeath_play_line_names_the_commands_as_chosen():
+    """The manager 26 Nov 01:50 (MECHB68: Explosive Demise pressed only at the search's chosen rate): the play line
+    names each Command as counted, never 'on cooldown'."""
+    from builder.search import models
+
+    mods, notes = models.archon_of_undeath_model([], ["15% chance to gain Archon of Undeath when you use a Command skill"])
+    assert "on cooldown" not in notes[0]["play"]
+
+
+def test_the_flask_stock_adds_the_bosss_mid_fight_refills():
+    """MECHD9's bosses.flask_refills: a refill adds its share of each flask's maximum to the stock (none on any preset)."""
+    from dataclasses import replace
+
+    from builder.search import flasks
+
+    gain = replace(flasks.Charges(), fight=100.0)
+    info = {"kind": "Flask", "chargesUsed": 10, "chargesMax": 60}
+    assert flasks.stock_charges(info, gain) == pytest.approx(60 / 100)
+    assert flasks.stock_charges(info, replace(gain, refills=2 * 0.5)) == pytest.approx((60 + 60) / 100)

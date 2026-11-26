@@ -662,7 +662,11 @@ def archon_of_undeath_model(skills: list[Skill], texts: list[str], x: dict | Non
              + ". Not counted (UNDERCOUNTS): the Persistent Undead minions revived on each gain, the doubled limit on "
                "Skyfall's minions (no count model yet); not raced: a Nature's Archon source (one slot for every kind: "
                "an OVERCOUNT where the build has one)")
-    play = (f"Archon of Undeath: press your Commands on cooldown / keep your Offerings up to gain it; without it +0%, "
+    # (MECHC67, the manager 26 Nov 01:50: MECHB68's Commands are pressed at the rate the search chose, e.g. Explosive
+    # Demise at none on b06, so "on cooldown" no longer fit) the play line names each Command as command_uses counts it
+    ways = ([f"use your Commands as chosen ({', '.join(command_parts)})"] if on_command > 0 and command_parts else []) \
+        + (["keep your Offerings up"] if on_offering > 0 else [])
+    play = (f"Archon of Undeath: {' / '.join(ways) or 'its sources'} to gain it; without it +0%, "
             f"with it {more:.1f}% more Minion Damage averaged (up {up:.0%})")
     note = {"label": label, "value": round(more, 2), "basis": basis, "play": play,
             "confidence": "MEDIUM (game text: the chances, the 25%, the Archon cycle; the gains taken as random)",

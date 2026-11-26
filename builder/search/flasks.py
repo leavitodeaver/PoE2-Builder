@@ -171,6 +171,10 @@ class Charges:
     # read, the "starts empty" reading), and how it was found
     fight: float = 0.0
     fight_how: str = ""
+    # (MECHC67: MECHD9's bosses.flask_refills) mid-fight refills x the share of each flask's / charm's maximum charges
+    # each gives (0 on every preset today), and how
+    refills: float = 0.0
+    refill_how: str = ""
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -256,7 +260,8 @@ class Charges:
             from dataclasses import replace
 
             fight, how = fight_length(build, boss)
-            gain = replace(gain, fight=fight, fight_how=how)
+            count, share, refill_how = bosses.flask_refills({"_boss": boss})  # (MECHC67)
+            gain = replace(gain, fight=fight, fight_how=how, refills=count * share, refill_how=refill_how)
         return gain
 
     @classmethod
@@ -437,8 +442,12 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
         # the player; Waystone "Players are periodically Cursed" and the Trial of Chaos mod: UNVERIFIED for pinnacle
         # arenas, left out. Your OWN reflected Curses (Shackles of the Wretched's "Curses you inflict are reflected back
         # to you") would trigger it at your curse rate: not counted, an UNDERCOUNT named)
+        # (MECHC67, AUDIT40 A40-30, RESEARCH65 R65-19, MEDIUM-HIGH) The King in the Mists' two "Hex" skills
+        # (EASVoodooKingHexNoMovementAllowed / NoStandingAllowed) apply "Ritual of Meditation" / "Ritual of Dance",
+        # ordinary debuffs (buff category 2); every real Curse sits in category 5 (13, none his): not Curses
         return 0.0, ("no pinnacle boss curses you (R39-1: none of the 13 presets' 53 monster rows' skills or mods "
-                     "curses the player, HIGH); your own reflected Curses (Shackles of the Wretched) not counted: an "
+                     "curses the player, HIGH; the King in the Mists' 'Hex' is a debuff, not a Curse: R65-19, MEDIUM-HIGH); "
+                     "your own reflected Curses (Shackles of the Wretched) not counted: an "
                      "UNDERCOUNT named; map / Trial curse mods left out (UNVERIFIED for pinnacle arenas)")
     if "perfect timing" in text and "used when" in text:
         if gain.perfect_main_rate > 0:
@@ -726,7 +735,8 @@ def stock_charges(info: dict, gain: Charges) -> float:
     if nominal <= 0:
         return 0.0
     uses = math.floor(float(info.get("chargesMax") or 0.0) / nominal + 1e-9)
-    return uses * nominal / gain.fight
+    # (MECHC67) the boss's mid-fight refills (bosses.flask_refills) add their share of the maximum each
+    return (uses * nominal + gain.refills * float(info.get("chargesMax") or 0.0)) / gain.fight
 
 
 def stock_uses(info: dict, gain: Charges) -> int:
@@ -767,7 +777,8 @@ def stock_note(build, gain: Charges) -> list[dict]:
         "value": f"a {gain.fight:,.1f} s fight",
         "basis": (f"{'; '.join(parts)}. The fight: {gain.fight_how}. A Checkpoint before the boss refills Life, Mana, "
                   "Flasks and Charms, and charges carry over from the map (RESEARCH63 R63-5); no charges come back over "
-                  "time, so the starting uses are spread over the fight beside what the build generates"),
+                  "time, so the starting uses are spread over the fight beside what the build generates; mid-fight "
+                  f"refills: {gain.refill_how or 'none read'}"),
         "confidence": "MEDIUM-HIGH (full at the start is the normal state, not a game guarantee)",
         "play": ("Enter the boss with full flasks and charms (use the Checkpoint by the arena); entering with them "
                  "empty, each runs on its generated charges alone")})
