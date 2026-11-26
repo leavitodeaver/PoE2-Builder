@@ -11756,6 +11756,22 @@ class Assumptions:
             how = ", ".join(f"{k} {v:,.1f}" for k, v in got.items()) + (f", recoup / on block {extra:,.1f}" if extra > 0
                                                                         else "")
             pools[pool] = (sum(got.values()) + extra, how or "none", number(stats.get(cost_field)))
+        # (MECHB66, COV59's cost-cap audit: an OVERCOUNT direction) Energy Shield costs (Derange's "Supported Skills cost
+        # Energy Shield equal to your Intelligence", gain_energy_shield_cost_equal_to_intelligence, which PoB maps to
+        # ESCostNoMult: its ESPerSecondCost) were never capped. Its income: Energy Shield regeneration, leech, on-hit and
+        # the search's added Energy Shield recovery (objective.ADDED_RECOVERY); not its Recharge, which "Further loss of
+        # Energy Shield" interrupts (KeywordPopups ESRecharge): a cost paid every use keeps resetting it (MEDIUM-LOW: a
+        # cost read as a loss). Ward costs are Assumptions.ward_paid's; Rage costs MECH-C's (R61-4, MECHC64).
+        es_fields = ("EnergyShieldRegenRecovery", "EnergyShieldLeechRate", "EnergyShieldOnHitRate",
+                     *objective.ADDED_RECOVERY["EnergyShield"])
+        es_cost = number(stats.get(models.ES_COST_FIELD)) if models.ES_COST_FIELD in stats else number(
+            self.build.call("stats", fields=[models.ES_COST_FIELD]).get(models.ES_COST_FIELD))  # (not in Build.stats)
+        es_fed = any(number((f.get("row") or {}).get(models.COST_FEED_FIELDS["EnergyShield"])) > 0
+                     for group in (feeders or {}).values() for f in group)
+        if es_cost > 0 or es_fed:
+            got = {f: number(stats.get(f)) for f in es_fields if number(stats.get(f)) > 0}
+            pools["EnergyShield"] = (sum(got.values()), ", ".join(f"{k} {v:,.1f}" for k, v in got.items()) or "none",
+                                     es_cost)
         fed = [f for group in (feeders or {}).values() for f in group if number(f.get("used")) > 0]
         scale, row = models.mana_cap_row(pools, main.name, fed, bool(main.triggered))
         if row is None:

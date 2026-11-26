@@ -3790,7 +3790,8 @@ def energy_overflow_row(fed: float, crits: float, rate: float) -> str:
 # skills' costs (a looser cap); its pool spent once over the fight (a tighter one); objective.SUSTAIN_LEFT_OUT's
 # sources; for Life, the boss's hits that also drain it (a looser cap).
 MANA_CAP_LABEL = "Mana paid a second: the use rate the build can sustain*"
-COST_FEED_FIELDS = {"Mana": "manaPerSecond", "Life": "lifePerSecond"}
+COST_FEED_FIELDS = {"Mana": "manaPerSecond", "Life": "lifePerSecond", "EnergyShield": "esPerSecond"}
+ES_COST_FIELD = "ESPerSecondCost"  # (MECHB66: PoB's per-second Energy Shield cost, CalcOffence 6217)
 
 
 def mana_cap_row(pools: dict[str, tuple[float, str, float]], main: str, feeders: list[dict],

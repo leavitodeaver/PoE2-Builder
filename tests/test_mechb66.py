@@ -154,3 +154,18 @@ def test_the_cost_cap_skips_mana_when_pyromantic_pact_pays_costs_with_infernal_f
     assert mods and mods[0]["value"] == pytest.approx(-90.0), mods  # (100 / 1000: x0.1)
     pact = ["Gain Infernal Flame instead of spending Mana for Skill costs"]
     assert Assumptions.mana_cap(fake(pact), main, {}) == ([], [])
+
+
+def test_the_cost_cap_holds_energy_shield_costs_to_energy_shield_income():
+    """(COV59's audit, an OVERCOUNT direction) Derange's Energy Shield cost (PoB's ESPerSecondCost) is capped by Energy
+    Shield regeneration / leech / on-hit, not its Recharge (a cost paid every use keeps resetting it)."""
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import Assumptions
+
+    stats = {"ESPerSecondCost": 500.0, "EnergyShieldRegenRecovery": 100.0, "EnergyShieldRecharge": 5000.0}
+    build = SimpleNamespace(stats=stats, call=lambda method, **kw: {"lines": []})
+    main = models.Skill("Comet", group=1, spell=True, triggered=True)
+    mods, notes = Assumptions.mana_cap(SimpleNamespace(build=build), main, {})
+    assert mods and mods[0]["value"] == pytest.approx(-80.0), mods
+    assert "EnergyShield" in notes[0]["label"]

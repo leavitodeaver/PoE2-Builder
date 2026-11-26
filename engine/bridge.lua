@@ -5344,6 +5344,7 @@ function bridge.useRates(args)
 				lifePerSecond = type(output.LifePerSecondCost) == "number" and jsonNumber(output.LifePerSecondCost) or nil,
 				-- (MECHC63, conditions.RAGE_COST_LINE) one use's upfront Rage cost, PoB's RageCost
 				rageCost = type(output.RageCost) == "number" and jsonNumber(output.RageCost) or nil,
+				esPerSecond = type(output.ESPerSecondCost) == "number" and jsonNumber(output.ESPerSecondCost) or nil,  -- (MECHB66)
 				repeats = jsonNumber(output.Repeats or 1),
 				-- (MECH57) its minion's counted skill's uses per second, PoB's minion Speed (cooldown-capped, CalcOffence 3008)
 				minionSpeed = env.minion and env.minion.output and type(env.minion.output.Speed) == "number"
