@@ -30,3 +30,42 @@ def test_the_low_life_factor_is_measured_again_after_each_finished_state_press_r
     final = inspect.getsource(inner.Search.final_choices)
     assert _order(final, "self.choose_distance()", "self.weigh_life()")
     assert re.search(r"weigh_life\(\)[^\n]*\n\s*self\.weigh_uptimes\(\)", final)
+
+
+def test_upkeep_time_is_part_of_the_main_skills_lost_time():
+    """(UPKEEP_PRESS; MECHB66's b12) a kept-up side skill's casts come off the main skill with the other busy shares."""
+    from types import SimpleNamespace
+    from builder.search.objective import Objective
+
+    o = SimpleNamespace(press_busy=0.1, glory_busy=0.05, upkeep_busy=0.164)
+    assert abs(Objective.busy(o) - 0.314) < 1e-9
+    assert Objective.busy(SimpleNamespace(press_busy=0.0, glory_busy=0.0)) == 0.0  # (an old objective: no field)
+
+
+def test_upkeep_sync_charges_once_per_duration_casts_and_drops_skills_gone():
+    """Thunderstorm kept up once per its 4.39 s duration, 0.72 s a cast: 16.4% of the fight (b12's case); a skill no
+    longer in a side group stops costing time."""
+    from types import SimpleNamespace
+    from builder.search.inner import Search
+
+    groups = [{"main": True, "enabled": True, "gems": [{"name": "Entangle"}]},
+              {"main": False, "enabled": True, "gems": [{"name": "Thunderstorm"}, {"name": "Some Support", "support": True}]}]
+    objective = SimpleNamespace(upkeep_busy=0.0, upkeep_rates={})
+    search = object.__new__(Search)
+    search.build = SimpleNamespace(objective=objective, groups=lambda: groups)
+    search.upkeep_rows = {"Thunderstorm": {"uses": 1 / 4.39, "seconds": 0.72},
+                          "Gone Skill": {"uses": 1.0, "seconds": 1.0}}
+    assert search.upkeep_sync() is True
+    assert abs(objective.upkeep_busy - 0.72 / 4.39) < 1e-6 and set(objective.upkeep_rates) == {"Thunderstorm"}
+    assert search.upkeep_sync() is False  # (no change)
+    groups.pop()
+    assert search.upkeep_sync() is True and objective.upkeep_busy == 0.0 and objective.upkeep_rates == {}
+
+
+def test_skills_whose_cast_time_another_model_charges_are_left_out_of_upkeep():
+    from builder.search.inner import UPKEEP_TYPES_CHARGED, upkeep_charged_elsewhere
+
+    names = upkeep_charged_elsewhere()
+    assert {"Ferocious Roar", "Parry", "Raise Shield", "Pounce", "Snap", "Frost Bomb"} <= names
+    assert "Thunderstorm" not in names
+    assert {"AppliesCurse", "Mark", "Warcry"} <= UPKEEP_TYPES_CHARGED

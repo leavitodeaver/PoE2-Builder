@@ -37,6 +37,7 @@ from builder.search.jewels import Jewels
 from builder.search import flasks, play_guide
 from builder.search import gems as gems_module
 from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS, PRESS_CHOICES, press_choices, press_use_rate
+from builder.search.models import press_action
 from builder.search.objective import (
     CLEAR_FIELDS, DARKNESS_FIELDS, RECOVERY_INPUTS, SKILL_SLOTS, SKILL_SLOTS_POB, SUSTAIN_FIELDS, Objective, main_dps,
     number, shortfall,
@@ -75,6 +76,33 @@ TREE_REBUILD_SHARE = 0.4  # of the task's time left that the regrow may take
 # button (the skill is already one, within the cap) and its time is charged against the main skill (press_model's busy
 # share in Full DPS, Objective.press_busy otherwise). Search.press_round; POE2_SEARCH_PRESS=0 turns the round off.
 PRESS_RATES = (0.0, 0.25, 0.5, 1.0, 2.0)
+# (SEARCH41; MECHB66's trace on example build 12, the manager 25 Nov 20:50: a DPS OVERCOUNT) A side skill the build keeps
+# up for what it gives other skills, with no chosen press rate, cost the main skill no time: Thunderstorm on b12 (GEM15's
+# Drenched model and MECHB65's overgrown_share read it "at PoB's rate") took 0 of Entangle's time, while a curse's casts
+# are charged in its own model. Search.upkeep_round charges each such skill at the use its own data gives (models.
+# press_use_rate with no choice: on its cooldown, else once per its duration), each use press_action's seconds (its cast
+# time with the build's speed), in objective.upkeep_busy (Objective.busy: the main skill's share of the fight), but only
+# where the score USES it (its group switched off lowers the score, as fit_buttons' item-skill probe): a skill nothing
+# reads is a button nobody needs to press. Its rate is in objective.upkeep_rates for the models that read its uptime.
+# Left out, because another model charges the cast time already (checked: every "1% more Attack and Cast Speed" time
+# line in models.py / assumptions.py on d374dcae: curse_model, mark_model, roar_model, warcry_press_model, parry_model,
+# raised_model, varashta_blessing_model, annihilation_model, trail_of_caltrops / void_illusion (dodge rolls),
+# remnant_presses, Kaom's embodiment, heavy_stunned_self, living_bomb / untether mains; glory_busy; press_model for
+# pressed Full DPS groups; press_busy for chosen rates): curses (AppliesCurse), Marks, Warcries, the named skills
+# (upkeep_charged_elsewhere), and persistent / triggered skills (not buttons). Totems are left out too: no model found
+# that charges a totem's placement time (UNVERIFIED; left as before, a question for MECH-B). POE2_SEARCH_UPKEEP=0: off.
+UPKEEP_PRESS = os.environ.get("POE2_SEARCH_UPKEEP", "1") != "0"
+UPKEEP_TYPES_CHARGED = frozenset({"AppliesCurse", "Mark", "Warcry", "SummonsTotem", "Totem"})
+UPKEEP_MOST = 0.9  # the most of the fight upkeep may take (as models.WARCRY_PRESS_MOST)
+DISTANCE_SETTLES = 4  # (SEARCH41) settle rounds per boss-distance candidate at most (Search.choose_distance)
+
+
+def upkeep_charged_elsewhere() -> frozenset[str]:
+    """The skills whose cast time a model of their own charges (UPKEEP_PRESS's note)."""
+    from builder.search import assumptions as a, models as m
+
+    return frozenset({m.FEROCIOUS_ROAR, m.TRAIL_OF_CALTROPS, m.VOID_ILLUSION, m.VARASHTA, m.RAISE_SHIELD, m.ANNIHILATION,
+                      *m.PARRY_SKILLS, *m.MARK_CARRIERS, *GLORY_SKILLS, *a.PRESSED_SOURCES})
 PRESS_ROUND = os.environ.get("POE2_SEARCH_PRESS", "1") != "0"
 # (SEARCH25, A36-14) a granted pressed skill tried in Full DPS on the finished build (Search.include_granted)
 GRANTED_PRESS = os.environ.get("POE2_SEARCH_GRANTED_PRESS", "1") != "0"
@@ -244,6 +272,7 @@ class Search:
         self.resume_step: str | None = None
         self.resume_sweep = False
         self.press_rows: dict[str, dict] = {}  # (Search.press_round: each candidate's useRates row, its trial DPS)
+        self.upkeep_rows: dict[str, dict] = {}  # (Search.upkeep_round: each kept-up side skill's row, uses, DPS without)
         self.tree_rebuilt = False  # M2: the line's tree rebuild was tried (carried in the line's state)
         self.fill_seen: list[list] = []  # (SEARCH35, socket_fill_round: the main-group sets the line's fill has seen)
         self.skipped: dict[str, int] = {}  # (IDLE_SKIP: phase -> times this task skipped it, in the task's event)
@@ -485,6 +514,7 @@ class Search:
             "jewels_unfinished": {raw: dict(info) for raw, info in self.jewels.unfinished.items()
                                   if any(o is not None and o.raw == raw for o in self.build.equipped.values())},
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
+            "upkeep_rows": copy.deepcopy(self.upkeep_rows),
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
                      "short": self.line_short,
                      "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt, "curses_tried": self.gems.curses_tried,
@@ -495,7 +525,8 @@ class Search:
     # The objective's per-build factors (not its requirement weights: an escalation raises those for the rest of the
     # search, and a restore must not undo it)
     SCORING_FIELDS = ("extra", "added_dps", "added_parts", "entry_scales", "press_scales", "whole_scales", "cull_scale", "press_choices",
-                      "press_busy", "glory_busy", "life_factor", "uptime_factor", "floor_deltas")
+                      "press_busy", "glory_busy", "upkeep_busy", "upkeep_rates", "life_factor", "uptime_factor",
+                      "floor_deltas")
     ASSUMPTION_FIELDS = ("mods", "active", "extra_groups", "stat_sets", "infused", "infused_skipped", "cooldown_fallback")
 
     def _scoring_state(self) -> dict:
@@ -506,7 +537,7 @@ class Search:
             "assumptions": {k: getattr(assumptions, k) for k in self.ASSUMPTION_FIELDS},
             "uptimes": conditions.uptimes, "found_uptimes": getattr(conditions, "found_uptimes", None),
             "uptime_cache": self.uptime_cache, "uptime_floor": self.uptime_floor, "uptime_rows": self.uptime_rows,
-            "play_notes": self.play_notes, "press_rows": self.press_rows})
+            "play_notes": self.play_notes, "press_rows": self.press_rows, "upkeep_rows": self.upkeep_rows})
 
     def _put_scoring_state(self, saved: dict) -> None:
         saved = copy.deepcopy(saved)
@@ -520,6 +551,7 @@ class Search:
         self.uptime_cache, self.uptime_floor = saved["uptime_cache"], saved["uptime_floor"]
         self.uptime_rows, self.play_notes = saved["uptime_rows"], saved["play_notes"]
         self.press_rows = saved.get("press_rows", {})
+        self.upkeep_rows = saved.get("upkeep_rows", {})
 
     def load(self, state: dict) -> None:
         self.build.call("loadXml", xml=state["xml"])
@@ -554,6 +586,7 @@ class Search:
         self.jewels.unfinished.update({raw: dict(info) for raw, info in (state.get("jewels_unfinished") or {}).items()})  # (JEWEL4)
         setattr(self.build.objective, PRESS_CHOICES, dict(state.get("press_choices") or {}))
         self.press_rows = copy.deepcopy(state.get("press_rows") or {})
+        self.upkeep_rows = copy.deepcopy(state.get("upkeep_rows") or {})
         if self.press_sync():
             self.build.score = self.build.objective.score(self.build.stats)
         line = state.get("line") if PERSIST_LINES else None
@@ -649,7 +682,114 @@ class Search:
         changed = kept != choices or busy != getattr(objective, "press_busy", 0.0)
         setattr(objective, PRESS_CHOICES, kept)
         objective.press_busy = busy
+        return self.upkeep_sync() or changed
+
+    def upkeep_candidates(self) -> dict[str, dict]:
+        """{skill: its useRates row} for each side button whose own data sets how often it is used (a cooldown, or a
+        duration it is kept up for) and whose cast time no other model charges (UPKEEP_PRESS's note)."""
+        build = self.build
+        result = build.call("groups")
+        main = result["mainSocketGroup"]
+        buttons, choices = set(self.gems.buttons()), press_choices(build)
+        known = getattr(build.ctx, "any_gems", None) or {}
+        granted = getattr(build.ctx, "all_gems", None)
+        where: dict[int, list[str]] = {}
+        main_names: set[str] = set()
+        for group in result["groups"]:
+            names = [n["name"] for n in group.get("gems") or [] if n.get("enabled", True) and not n.get("support")]
+            if group["index"] == main:
+                main_names |= set(names)
+                continue
+            if group.get("enabled") is False or pressed_group(group, build.ctx.gems, granted):
+                continue  # (off, or a pressed Full DPS group: press_model charges it)
+            keep = [n for n in names if n in buttons and n not in choices and n not in upkeep_charged_elsewhere()
+                    and not set((known.get(n) or {}).get("skillTypes") or ()) & UPKEEP_TYPES_CHARGED]
+            if keep:
+                where[group["index"]] = keep
+        if not where:
+            return {}
+        out: dict[str, dict] = {}
+        for row in build.call("useRates", indices=sorted(where))["rates"]:
+            if row.get("index") not in where or number(row.get("speed")) <= 0:
+                continue
+            if number(row.get("cooldown")) <= 0 and number(row.get("duration")) <= 0:
+                continue  # (no data sets its use: the press round's choice, press_candidates)
+            label = str(row.get("name") or "")
+            name = next((n for n in where[row["index"]]
+                         if label == n or label.startswith(f"{n} ") or label.startswith(f"{n}:")), None)
+            if name is not None and name not in main_names and name not in out:
+                out[name] = dict(row)
+        return out
+
+    def upkeep_sync(self) -> bool:
+        """Charge the kept-up side skills upkeep_round found used (objective.upkeep_busy / upkeep_rates), dropping any no
+        longer in a side group. True if the charge changed."""
+        objective = self.build.objective
+        if not self.upkeep_rows and not getattr(objective, "upkeep_busy", 0.0):
+            return False
+        present = {n["name"] for g in self.build.groups() if not g["main"] and g.get("enabled") is not False
+                   for n in g.get("gems") or [] if n.get("enabled", True) and not n.get("support")}
+        self.upkeep_rows = {k: v for k, v in self.upkeep_rows.items() if k in present}
+        rates = {k: round(v["uses"], 9) for k, v in self.upkeep_rows.items()}
+        busy = round(min(sum(v["uses"] * v["seconds"] for v in self.upkeep_rows.values()), UPKEEP_MOST), 9)
+        changed = busy != getattr(objective, "upkeep_busy", 0.0) or rates != (getattr(objective, "upkeep_rates", None) or {})
+        objective.upkeep_busy, objective.upkeep_rates = busy, rates
         return changed
+
+    def upkeep_round(self) -> bool:
+        """(UPKEEP_PRESS) Which kept-up side skills the build's score uses (each group switched off once and the score
+        compared, as fit_buttons probes item skills), and their casts' time charged. True if the charge changed."""
+        objective = self.build.objective
+        before = (getattr(objective, "upkeep_busy", 0.0), dict(getattr(objective, "upkeep_rates", None) or {}))
+        self.upkeep_rows, objective.upkeep_busy, objective.upkeep_rates = {}, 0.0, {}
+        if not UPKEEP_PRESS:
+            return before[0] != 0.0
+        found = self.upkeep_candidates()
+        build = self.build
+        if found:
+            base = self._rescore()
+            for name, row in sorted(found.items()):
+                build.set_group(index=row["index"], enabled=False)
+                score, dps = self._rescore(), build.objective.dps(build.stats)
+                build.set_group(index=row["index"], enabled=True)
+                if score < base - EPSILON:
+                    uses, how, _ = press_use_rate(row, None)
+                    seconds = press_action(row)
+                    if uses > 0 and seconds > 0:
+                        self.upkeep_rows[name] = {"row": row, "uses": uses, "seconds": seconds, "how": how, "without": dps}
+            # (the guide's "without it": the skill off with the OTHER kept-up skills' casts still charged)
+            if len(self.upkeep_rows) > 1:
+                for name, info in list(self.upkeep_rows.items()):
+                    self.upkeep_rows.pop(name)
+                    self.upkeep_sync()
+                    build.set_group(index=info["row"]["index"], enabled=False)
+                    self._rescore()
+                    info["without"] = build.objective.dps(build.stats)
+                    build.set_group(index=info["row"]["index"], enabled=True)
+                    self.upkeep_rows[name] = info
+            self.upkeep_sync()
+        self._rescore()
+        for info in self.upkeep_rows.values():
+            info["with"] = build.objective.dps(build.stats)
+        return (objective.upkeep_busy, objective.upkeep_rates) != before
+
+    def upkeep_guide_rows(self) -> list[dict]:
+        """The play guide's "without it / with it" row for each kept-up side skill charged (CLAUDE.md's flat-rate rule)."""
+        rows = []
+        for name, info in sorted(self.upkeep_rows.items()):
+            if "with" not in info:
+                continue
+            without, with_it = number(info.get("without")), number(info.get("with"))
+            share = info["uses"] * info["seconds"]
+            rows.append({
+                "var": f"upkeep:{name}", "label": f"{name}: cast {info['how']}*", "kind": play_guide.PLAYER,
+                "counted": True,
+                "play": (f"cast {name} {info['how']} ({info['uses']:.3g} a second, {info['seconds']:.2f} s each: "
+                         f"{share:.1%} of the fight not spent on the main skill): {with_it:,.0f} DPS with it, "
+                         f"{without:,.0f} without it"),
+                "dps_with": with_it, "dps_without": without,
+                "change": (with_it - without) / without if without > 0 else 0.0, "confidence": "modelled"})
+        return rows
 
     def _press(self, name: str, rate: float) -> tuple[float, float]:
         """Set one skill's chosen press rate, settle, and return (score, DPS)."""
@@ -704,6 +844,7 @@ class Search:
             if best != PRESS_RATES[-1] or (join and best == PRESS_RATES[0]):
                 self._press(name, best)
             self.press_rows[name].update({"without": trials[PRESS_RATES[0]][1], "with": trials[best][1]})
+        self.upkeep_round()  # (SEARCH41: the kept-up side skills' casts, after the chosen rates)
         return build.score > before + EPSILON
 
     def feeder_round(self, deadline: float) -> bool:
@@ -2417,6 +2558,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result
     play = play_guide.guide(search)  # "How to play it": the DPS without each condition the player or fight decides
     play += search.press_guide_rows()  # (and each chosen press rate, without it / with it)
+    play += search.upkeep_guide_rows()  # (SEARCH41: and each kept-up side skill's casts, without it / with it)
     play += search.gear.filler_rows()  # (and each filler: no item raised the score in its slot)
     open_sockets = search.gems.open_sockets()  # (SEARCH34: each open support socket and why, a warning)
     play += search.gems.open_socket_rows(open_sockets)

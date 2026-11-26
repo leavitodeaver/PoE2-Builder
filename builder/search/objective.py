@@ -679,6 +679,11 @@ class Objective:
         self.press_busy = 0.0
         # and the time pressing Glory skills takes for the Glory shares counted (Assumptions.glory_uses_capped, SEARCH15)
         self.glory_busy = 0.0
+        # (SEARCH41) the time casting the side skills kept up only for what they give other skills (Search.upkeep_round:
+        # Thunderstorm's Drenched / Overgrown), and their uses a second ({skill: uses/s}, the interface for the models
+        # that read such a skill's uptime)
+        self.upkeep_busy = 0.0
+        self.upkeep_rates: dict[str, float] = {}
         # The boss's Low Life share of the fight (Search.weigh_life): 1 / (0.65 + 0.35 / (DPS on Low Life / DPS above it)),
         # set at each conditions round from one extra recalculation; 1 for a build with no Low Life lines
         self.life_factor = 1.0
@@ -764,9 +769,11 @@ class Objective:
         return math.prod(max(number(v), 0.0) for v in (getattr(self, "whole_scales", None) or {}).values())
 
     def busy(self) -> float:
-        """The main skill's share of the fight lost to chosen presses not charged in press_scales (press_busy) and to
-        pressing Glory skills for the shares counted from them (glory_busy), 0-1."""
-        return min(max(number(getattr(self, "press_busy", 0.0)) + number(getattr(self, "glory_busy", 0.0)), 0.0), 1.0)
+        """The main skill's share of the fight lost to chosen presses not charged in press_scales (press_busy), to
+        pressing Glory skills for the shares counted from them (glory_busy) and to casting the side skills kept up for
+        their effects (upkeep_busy, Search.upkeep_round), 0-1."""
+        return min(max(number(getattr(self, "press_busy", 0.0)) + number(getattr(self, "glory_busy", 0.0))
+                       + number(getattr(self, "upkeep_busy", 0.0)), 0.0), 1.0)
 
     def rescaled(self, stats: dict) -> float:
         """What entry_scales and press_scales add to Full DPS: each named entry's damage x (its scale - 1)."""
