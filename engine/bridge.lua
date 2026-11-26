@@ -748,7 +748,14 @@ end
 -- the cap for a Lucky build); Esh's maximum then 75%. Below the cap and with no Lucky, nothing moves (the mean of a
 -- linear chance is the chance at the mean). A guard keeps PoB's own number wherever the ranges don't give back PoB's
 -- chance at the average (an override of the hit damage, "Ailments are never from Critical Hits").
-local function shockChancePerHit(output, skill, enemyDB)
+-- (MECH112; the manager's approval of MECH111's candidate, an OVERCOUNT past the cap) Ignite's chance is built the same
+-- way (CalcOffence 5614-5633: a hit's Flammability, (hit / threshold x IgniteChanceMultiplier 20 + base) x (1 + inc) x
+-- more at the AVERAGE hit, capped at 100%), so `ailment` "Ignite" gives the same mean over the roll from PoB's Ignite<Type>
+-- Min / Max (calcMinMaxUnmitigatedAilmentSourceDamage). `roll` (a table): the hit's spread is also appended to it as
+-- { uncapped chance %, weight } points (crits at the crit chance, the two hands at half each), for a reader that adds
+-- live Flammability before the cap (conditions.ignite_roll_chance: E[min(100, X + live)] < min(100, E[min(100, X)] + live)).
+local function ailmentChancePerHit(output, skill, enemyDB, ailment, roll)
+	ailment = ailment or "Shock"
 	local esh = false
 	for _, effect in ipairs(skill and skill.effectList or { }) do
 		for _, set in ipairs(effect.grantedEffect and effect.grantedEffect.statSets or { }) do
@@ -757,21 +764,23 @@ local function shockChancePerHit(output, skill, enemyDB)
 			end
 		end
 	end
-	local function of(out)
-		if type(out) ~= "table" or type(out.ShockChanceOnHit) ~= "number" then
+	local function of(out, weight)
+		if type(out) ~= "table" or type(out[ailment .. "ChanceOnHit"]) ~= "number" then
 			return nil
 		end
 		local crit = (out.CritChance or 0) / 100
-		local onHit, onCrit = out.ShockChanceOnHit, out.ShockChanceOnCrit or 0
+		local onHit, onCrit = out[ailment .. "ChanceOnHit"], out[ailment .. "ChanceOnCrit"] or 0
+		local hitPts, critPts = { { onHit, 1 } }, { { onCrit, 1 } }  -- (MECH112: the roll's points, PoB's own by default)
 		local threshold = out.EnemyAilmentThreshold or output.EnemyAilmentThreshold or 0
 		if threshold > 0 and (onHit > 0 or onCrit > 0) and skill and skill.skillModList then
 			local mods, cfg = skill.skillModList, skill.skillCfg
-			local base = mods:Sum("BASE", cfg, "EnemyShockChance", "AilmentChance")
-				+ (enemyDB and enemyDB:Sum("BASE", nil, "SelfShockChance") or 0)
-			local inc = mods:Sum("INC", cfg, "EnemyShockChance", "AilmentChance")
-				+ (enemyDB and enemyDB:Sum("INC", nil, "SelfShockChance") or 0)
-			local more = mods:More(cfg, "EnemyShockChance", "AilmentChance") * (enemyDB and enemyDB:More(nil, "SelfShockChance") or 1)
-			local mult = data.gameConstants.ShockChanceMultiplier or 25
+			local base = mods:Sum("BASE", cfg, "Enemy" .. ailment .. "Chance", "AilmentChance")
+				+ (enemyDB and enemyDB:Sum("BASE", nil, "Self" .. ailment .. "Chance") or 0)
+			local inc = mods:Sum("INC", cfg, "Enemy" .. ailment .. "Chance", "AilmentChance")
+				+ (enemyDB and enemyDB:Sum("INC", nil, "Self" .. ailment .. "Chance") or 0)
+			local more = mods:More(cfg, "Enemy" .. ailment .. "Chance", "AilmentChance")
+				* (enemyDB and enemyDB:More(nil, "Self" .. ailment .. "Chance") or 1)
+			local mult = data.gameConstants[ailment .. "ChanceMultiplier"] or (ailment == "Ignite" and 20 or 25)
 			-- PoB's chance is slope x damage + offset, capped at 100 (CalcOffence 5617-5628)
 			local slope, offset = mult / threshold * (1 + inc / 100) * more, base * (1 + inc / 100) * more
 			local function chance(damage)
@@ -817,10 +826,10 @@ local function shockChancePerHit(output, skill, enemyDB)
 			-- at 50% (HIGH: the keyword's "with a 50% chance for each"), 75% when Lucky ("picking the maximum if either
 			-- roll had that result"); no source makes damage dealt Unlucky (checked: every Stats id holding "luck",
 			-- 26650308: only damage / crits TAKEN are Unlucky).
-			local function over(pob, crits)
+			local function over(pob, crits, pts)
 				local fixed, varying, avg = 0, { }, 0
 				for _, kind in ipairs({ "Physical", "Lightning", "Cold", "Fire", "Chaos" }) do
-					local lo, hi = out["Shock" .. kind .. "Min"] or 0, out["Shock" .. kind .. "Max"] or 0
+					local lo, hi = out[ailment .. kind .. "Min"] or 0, out[ailment .. kind .. "Max"] or 0
 					if crits then
 						local storedLo, storedHi = out[kind .. "StoredHitMin"] or 0, out[kind .. "StoredHitMax"] or 0
 						local k = storedHi > 0 and hi / storedHi or (storedLo > 0 and lo / storedLo or 1)
@@ -876,26 +885,85 @@ local function shockChancePerHit(output, skill, enemyDB)
 				for _, pt in ipairs(points) do
 					total = total + pt[2] * (exact and mean(exact.lo + pt[1], exact.hi + pt[1], exact.p) or chance(pt[1]))
 				end
+				if pts then
+					-- (MECH112) the spread as points of the UNCAPPED chance: the closed-form range at 16 midpoints too
+					-- (Lucky weighting them, as above)
+					for i = #pts, 1, -1 do
+						pts[i] = nil
+					end
+					for _, pt in ipairs(points) do
+						if exact then
+							for i = 1, 16 do
+								local u = (i - 0.5) / 16
+								pts[#pts + 1] = { math.max(0, slope * (pt[1] + exact.lo + u * (exact.hi - exact.lo)) + offset),
+									pt[2] * ((1 - exact.p) + exact.p * 2 * u) / 16 }
+							end
+						else
+							pts[#pts + 1] = { math.max(0, slope * pt[1] + offset), pt[2] }
+						end
+					end
+				end
 				return total
 			end
 			if onHit > 0 then
-				onHit = over(onHit, false)
+				onHit = over(onHit, false, roll and hitPts)
 			end
 			if onCrit > 0 then
-				onCrit = over(onCrit, true)
+				onCrit = over(onCrit, true, roll and critPts)
+			end
+		end
+		if roll then
+			for _, pt in ipairs(hitPts) do
+				roll[#roll + 1] = { pt[1], pt[2] * (1 - crit) * weight }
+			end
+			for _, pt in ipairs(critPts) do
+				roll[#roll + 1] = { pt[1], pt[2] * crit * weight }
 			end
 		end
 		return onHit * (1 - crit) + onCrit * crit
 	end
-	local own = of(output)
-	if own then
-		return own
+	local function pick()
+		local own = of(output, 1)
+		if own then
+			return own
+		end
+		local hand = function(name)
+			return type(output) == "table" and type(output[name]) == "table" and output[name] or nil
+		end
+		local both = hand("MainHand") and hand("OffHand") and hand("MainHand")[ailment .. "ChanceOnHit"] ~= nil
+			and hand("OffHand")[ailment .. "ChanceOnHit"] ~= nil
+		local main, off = of(hand("MainHand"), both and 0.5 or 1), of(hand("OffHand"), both and 0.5 or 1)
+		if main and off then
+			return (main + off) / 2
+		end
+		return main or off
 	end
-	local main, off = of(type(output) == "table" and output.MainHand), of(type(output) == "table" and output.OffHand)
-	if main and off then
-		return (main + off) / 2
+	local value = pick()
+	if roll and #roll > 32 then
+		-- (MECH112) at most 32 points: sorted, merged into buckets of equal weight (each at its weighted mean)
+		table.sort(roll, function(a, b) return a[1] < b[1] end)
+		local sum = 0
+		for _, pt in ipairs(roll) do
+			sum = sum + pt[2]
+		end
+		local merged, acc, w, x = { }, 0, 0, 0
+		for i, pt in ipairs(roll) do
+			acc, w, x = acc + pt[2], w + pt[2], x + pt[1] * pt[2]
+			if (sum > 0 and acc >= sum * (#merged + 1) / 32 - 1e-12) or i == #roll then
+				if w > 0 then
+					merged[#merged + 1] = { x / w, w }
+				end
+				w, x = 0, 0
+			end
+		end
+		for i = #roll, 1, -1 do
+			roll[i] = nil
+		end
+		for i, pt in ipairs(merged) do
+			roll[i] = pt
+		end
 	end
-	return main or off
+	return value
 end
 
 -- (MECH95, RESEARCH36 R36-18; models.bloodhound_fill) The main skill's own multiplier on its Hits' Heavy Stun buildup,
@@ -953,7 +1021,21 @@ local function pickStats(output, fields)
 		if value == nil and field == "ShockChancePerHit" then
 			local env = build.calcsTab and build.calcsTab.mainEnv  -- (MECH110: the main skill, for Esh's Prowess; a what-if
 			-- reads the committed build's skill, as the Flag: fields do)
-			value = shockChancePerHit(output, env and env.player and env.player.mainSkill, env and env.enemy and env.enemy.modDB)
+			value = ailmentChancePerHit(output, env and env.player and env.player.mainSkill, env and env.enemy and env.enemy.modDB)
+		end
+		if field == "IgniteChancePerHit" and type(value) == "number" or field == "IgniteChanceRoll" then
+			-- (MECH112) Ignite's chance as the mean over the hit's roll (ailmentChancePerHit), only where PoB wrote one
+			-- (a zero, or no Ignite pass, stays PoB's); IgniteChanceRoll its spread, { { uncapped chance %, weight } }
+			local env = build.calcsTab and build.calcsTab.mainEnv
+			local roll = field == "IgniteChanceRoll" and { } or nil
+			local own = (field == "IgniteChanceRoll" or value > 0) and ailmentChancePerHit(output,
+				env and env.player and env.player.mainSkill, env and env.enemy and env.enemy.modDB, "Ignite", roll)
+			if roll then
+				value = (own and #roll > 0 and type(output.IgniteChancePerHit) == "number" and output.IgniteChancePerHit > 0)
+					and roll or nil
+			elseif own then
+				value = own
+			end
 		end
 		if value == nil and field == "HeavyStunHitMult" then
 			value = heavyStunHitMult()  -- (MECH95: Blood Loss isn't a Hit; models.bloodhound_fill)
@@ -976,6 +1058,12 @@ local function pickStats(output, fields)
 			picked[field] = jsonNumber(value)
 		elseif type(value) == "string" or type(value) == "boolean" then
 			picked[field] = value
+		elseif type(value) == "table" and field == "IgniteChanceRoll" then
+			local pts = { }
+			for i, pt in ipairs(value) do
+				pts[i] = { jsonNumber(pt[1]), jsonNumber(pt[2]) }
+			end
+			picked[field] = pts
 		elseif type(value) == "table" and field == "SkillDPS" then
 			-- Full DPS broken down by skill (and best ailment, with the skill it came from)
 			local skills = { }
@@ -5588,10 +5676,17 @@ function bridge.useRates(args)
 					end
 				end
 			end
-			local shock = shockChancePerHit(output, skill, env and env.enemy and env.enemy.modDB)  -- (MECH86: PoB never writes
+			local shock = ailmentChancePerHit(output, skill, env and env.enemy and env.enemy.modDB)  -- (MECH86: PoB never writes
 			-- ShockChancePerHit; shockChancePerHit; MECH110: Esh's Prowess)
 			if shock then
 				entry.ShockChancePerHit = jsonNumber(shock)
+			end
+			if type(output.IgniteChancePerHit) == "number" and output.IgniteChancePerHit > 0 then
+				-- (MECH112: the group's Ignite chance over its roll, as pickStats')
+				local ignite = ailmentChancePerHit(output, skill, env and env.enemy and env.enemy.modDB, "Ignite")
+				if ignite then
+					entry.IgniteChancePerHit = jsonNumber(ignite)
+				end
 			end
 			for _, kind in ipairs({ "Physical", "Fire", "Cold", "Lightning", "Chaos" }) do
 				for _, part in ipairs({ "Hit", "Crit" }) do

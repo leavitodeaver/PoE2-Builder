@@ -4910,6 +4910,7 @@ CHILL_FIELDS = ("ChillChanceOnHit", "Speed", "HitChance", "ChillDuration", "Chil
                 "CritChance", "ChillHitDamage", "ChillCritDamage", *(f"{t}{a}" for t in models.DAMAGE_TYPES for a in ("HitAverage", "CritAverage")))
 EVIDENCE_FIELDS.extend(f for f in CHILL_FIELDS if f not in EVIDENCE_FIELDS)
 EVIDENCE_FIELDS.extend(f for f in ("IgniteDuration", "IgniteStackPotential") if f not in EVIDENCE_FIELDS)  # (MECH81)
+EVIDENCE_FIELDS.extend(f for f in ("IgniteChanceRoll",) if f not in EVIDENCE_FIELDS)  # (MECH112: ignite_roll_chance)
 EVIDENCE_FIELDS.extend(f for f in ("MovementSpeedMod",) if f not in EVIDENCE_FIELDS)  # (MECH83: presence_reentries' roll)
 EVIDENCE_FIELDS.extend(f for f in ("PoisonDPS",) if f not in EVIDENCE_FIELDS)  # (MECH89: Corrosion's Poison Armour Break)
 
@@ -6627,7 +6628,8 @@ def ailment_uptime(stats: dict, ailment: str) -> float:
         # (MECH81: a hit's chance is all the live Flammability on the boss, stacked_ignite_chance; a consumer beside the
         # main skill clears it with each Ignite it consumes, patch 0.3.0, so the per-hit chance stays there)
         live = stacked_ignite_chance(chance if own else 0.0, hits, landed)[1]
-        chance = min(1.0, chance + live) if own else chance
+        # (MECH112: over the roll's points, each hit's own Flammability before the cap: ignite_roll_chance)
+        chance = ignite_roll_chance(stats, live, together, fallback=min(1.0, chance + live)) if own else chance
         others = [(n, h, min(1.0, c + live), d) for n, h, c, d in others]
         extra = sum(h * c for h, c, _ in ignite_events(others))
     absent = (periodic_absent(chance, hits * duration) if own else 1.0) * (1.0 - ground)  # (MECH99: periodic_absent)
@@ -6659,6 +6661,35 @@ def stacked_ignite_chance(chance: float, hits: float, extra: float = 0.0) -> tup
     return min(1.0, chance + live), live
 
 
+# (MECH112; the manager's approval of MECH111's candidate, an OVERCOUNT past the cap) A hit's damage rolls, and so does
+# its own Flammability: the bridge gives IgniteChancePerHit as the mean of the capped chance over the roll (bridge
+# ailmentChancePerHit, as Shock's since 73236fd7) and IgniteChanceRoll the roll's points (uncapped chance %, weight).
+# With live Flammability L the hit Ignites at min(1, its own + L), and E[min(1, X + L)] is below min(1, E[min(1, X)] + L)
+# wherever the roll crosses 1 - L, so the stacked readers take the mean over the points. PoB's Ignite RollAverage
+# (CalcOffence 5304-5312: which roll the live Ignite holds) is left as PoB's: a lower chance moves it down, the Ignites
+# coming from the bigger rolls up (both not modelled, named).
+def ignite_roll_chance(stats: dict, live: float, together: float = 1.0, fallback: float | None = None) -> float:
+    """A hit's Ignite chance (0-1) with `live` Flammability (0-1 a hit's worth) added before the cap, over the roll's
+    points (IgniteChanceRoll); each point raised for `together` hits a use (as ailment_uptime). `fallback` (else
+    min(1, IgniteChancePerHit + live)) where the bridge gave no points."""
+    points = [(number(p[0]), number(p[1])) for p in (stats.get("IgniteChanceRoll") or ())
+              if isinstance(p, (list, tuple)) and len(p) == 2]
+    weight = sum(w for _, w in points if w > 0)
+    if weight <= 0:
+        if fallback is not None:
+            return fallback
+        return min(1.0, min(number(stats.get("IgniteChancePerHit")) / 100.0, 1.0) + max(live, 0.0))
+    total = 0.0
+    for x, w in points:
+        if w <= 0:
+            continue
+        c = min(max(x, 0.0) / 100.0, 1.0)
+        if together > 1.0 and c > 0:
+            c = 1.0 - (1.0 - c) ** together
+        total += w * min(1.0, c + max(live, 0.0))
+    return total / weight
+
+
 def flammability_ignite_scale(stats: dict) -> tuple[float, str]:
     """(x on PoB's own Ignite DPS for the main skill, how): the Ignited uptime with stacked Flammability over PoB's
     activeAilments, min(1, IgniteStackPotential). (1.0, "") where it doesn't apply (no Ignite chance, a consumed Ignite)."""
@@ -6673,6 +6704,7 @@ def flammability_ignite_scale(stats: dict) -> tuple[float, str]:
     pob = min(1.0, potential) if potential > 0 else min(1.0, hits * chance * duration)
     others = [o for o in (stats.get("_ailment_others") or {}).get("Ignite") or () if o[1] > 0 and o[2] > 0]
     eff, live = stacked_ignite_chance(chance, hits, sum(o[1] * o[2] for o in others))
+    eff = ignite_roll_chance(stats, live, fallback=eff)  # (MECH112: the roll's own Flammability before the cap)
     up = 1.0 - periodic_absent(eff, hits * duration)  # (MECH99: periodic_absent, as ailment_uptime)
     if pob <= 0 or abs(up / pob - 1.0) < 1e-3:
         return 1.0, ""
