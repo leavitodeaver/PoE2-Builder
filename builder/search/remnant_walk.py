@@ -13,9 +13,13 @@ Two seeded, cached simulations of a lone boss fight (scratch/research61/breach_s
   No time cost: the moves are already the fight's.
 - route_share: a nearest-flame walk every `every` seconds through the flames it can see, then back to the boss: the
   collected share and the share of the fight spent walking (time off the main skill).
-Flames spawn evenly over the 8.5 m disc around the player (UNVERIFIED: "within"; the 5-8.5 m ring a lower reading),
-each lasting the skill's Remnant duration (25 s base). The base pickup radius has no source (UNVERIFIED, LOW): rows at
-1.0 / 1.5 / 2.25 m, the headline 1.5 m, x (1 + the build's remnant_pickup_range_+%).
+Flames spawn evenly over the 8.5 m disc around the player (UNVERIFIED: "within"; the 5-8.5 m ring a lower reading;
+THE USER's recording shows them close to the player too, 2-6 m, R66-1), each lasting the skill's Remnant duration (25 s
+base). The base pickup radius: 2.6 m (MECHC67; RESEARCH66 R66-1, MEDIUM: THE USER's own recording, five pickups at
+6.0-6.6 m with +145% pickup range, two rulers within ~3%), rows 2.4 / 2.8 m (its range) and 3.0 m (if Harmonic
+Remnants II didn't apply to those Remnants), x (1 + the build's remnant_pickup_range_+%). One shared base for every
+Remnant type (0.3.1 raised "the base pickup radius for all Remnants", MEDIUM; flames and Blooms measured alike). Was 1.5 m
+(no source, LOW).
 """
 from __future__ import annotations
 
@@ -27,8 +31,8 @@ from functools import lru_cache
 SPAWN_METRES = 8.5  # "manifests within 8.5m of you" (HIGH)
 REVEAL_METRES = 5.0  # "Flame of Chayula within 5m of you are revealed"; pickup-range modifiers scale it since 0.5.0
 LIFE_SECONDS = 25.0  # base_remnant_duration_ms 25000 (IntoTheBreachPlayer / AncientGiftsPlayer)
-BASE_PICKUP = 1.5  # metres: no source gives it (UNVERIFIED, LOW; 0.3.1 "+~50%"); rows below
-PICKUP_ROWS = (1.0, 2.25)
+BASE_PICKUP = 2.6  # metres (R66-1, MEDIUM: THE USER's measured pickups); rows below
+PICKUP_ROWS = (2.4, 2.8, 3.0)  # (R66-1's range, and its reading without Harmonic Remnants II)
 ROUTE_EVERY = 20.0  # seconds between collection walks (R61-1's table: ~85% collected for ~35-40% of the fight walking)
 DRIFT_METRES = 4.0  # beyond this from the boss a free roll heads back toward it
 PICKUP_STAT = "remnant_pickup_range_+%"  # supports' stat (Fleeting / Magnetic / Harmonic Remnants) on the supported skill

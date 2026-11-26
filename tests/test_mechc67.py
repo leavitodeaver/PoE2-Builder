@@ -89,3 +89,12 @@ def test_remnants_made_at_the_boss_are_collected_by_walking_in_from_range():
     assert target_walk(8.0, 1.5, 3.7, 0.05, 8.0, False)[1] == pytest.approx(0.05 * trip)
     # a longer pickup radius shortens the walk
     assert target_walk(8.0, 3.0, 3.7, 0.3, 8.0, False)[1] < walk
+
+
+def test_the_remnant_pickup_base_is_the_users_measured_2_6_m():
+    """RESEARCH66 R66-1 (THE USER's recording, MEDIUM): base 2.6 m, rows 2.4 / 2.8 (its range) and 3.0 (without
+    Harmonic Remnants II); was 1.5 m with no source."""
+    from builder.search import remnant_walk
+
+    assert remnant_walk.BASE_PICKUP == 2.6 and remnant_walk.PICKUP_ROWS == (2.4, 2.8, 3.0)
+

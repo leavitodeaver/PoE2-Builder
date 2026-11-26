@@ -759,7 +759,7 @@ def still_far(config: dict) -> bool:
 # convention, MEDIUM-LOW). Each lasts 8 s (base_remnant_duration_ms 8000, HIGH; the skill's own level stat where it has
 # one). "Walking over a Remnant collects it" (KeywordPopups Remnant). So (target_walk), at the build's distance from the
 # boss (PoB's enemyDistance, the conditions' choice) and pickup radius (remnant_walk.BASE_PICKUP x the build's pickup
-# lines and supports, UNVERIFIED until THE USER's in-game test):
+# lines and supports; 2.6 m base from THE USER's recording, R66-1, MEDIUM; R65-20: they appear near the enemy, MEDIUM):
 # - within the pickup radius + the 1.5 m spread: collected where you stand (melee), no walking;
 # - standing still beyond it (PoB's conditionStationary): none collected (the search's choose_stationary weighs that
 #   against moving, as for the boss-spot Infusions);
@@ -1188,7 +1188,7 @@ def breach_flame_rate(skills: list[dict], chance: float = 0.0) -> tuple[float, s
 # of Purple Flame stacks: a flame lands anywhere within 8.5 m of you). Now the share collected comes from the build's own
 # movement: the fight's moves a second (fight_moves: the boss's forced moves, boss_hits.red_flash_rate, plus its attacks
 # dodged by movement, ON_YOU_DODGE of the rest of its damaging uses, or the build's own dodge rolls where more), each a
-# dodge roll of the build's own length (models.dodge_roll), and its pickup radius (remnant_walk.BASE_PICKUP, UNVERIFIED,
+# dodge roll of the build's own length (models.dodge_roll), and its pickup radius (remnant_walk.BASE_PICKUP, 2.6 m, R66-1,
 # x the build's "Remnants can be collected from N% further away" lines and its supports' remnant_pickup_range_+%). Play
 # strategies the search picks between (Assumptions.breach_collection): "moves" (collect on the fight's own moves, no time
 # cost), "route" (a collection walk every remnant_walk.ROUTE_EVERY s: more collected, the walking taken off every skill's
@@ -1250,7 +1250,7 @@ def remnant_reach(texts: list[str], skills: list[dict], name: str, base: float) 
                    if s.get("name") == name and not s.get("disabled")), default=0.0)
     pct, used, skipped = remnant_walk.pickup_percent(texts, support)
     scale = max(1 + pct / 100, 0.0)
-    how = (f"pickup radius {base * scale:.2f} m ({base:g} m base, UNVERIFIED (no source: LOW)"
+    how = (f"pickup radius {base * scale:.2f} m ({base:g} m base, MEDIUM: THE USER's measured pickups, R66-1"
            + (f" x{scale:.2f}: {pct:+g}% from " + "; ".join(used + ([f"its supports {support:+g}%"] if support else []))
               if pct else "") + (f"; not counted: {'; '.join(skipped)} (condition not read)" if skipped else "")
            + f"), flames shown within {remnant_walk.REVEAL_METRES * scale:.1f} m")
