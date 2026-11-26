@@ -38,7 +38,9 @@ def test_the_switch_opens_only_the_listed_off_hand_kinds(monkeypatch):
     monkeypatch.setenv(GIANTS_BLOOD_SWITCH, "all")
     assert gb_pairs(context(main_skill="Earthshatter", ascendancies=["Titan"])) == {
         ("Two Hand Mace", "Two Hand Mace"), ("Two Hand Mace", "Shield"), ("Two Hand Mace", "One Hand Mace"),
-        ("Two Hand Mace", "Sceptre")}
+        ("Two Hand Mace", "Sceptre"), ("Two Hand Mace", "Focus")}  # (the Focus: RESEARCH64 R64-7, MEDIUM; SEARCHB11)
+    monkeypatch.setenv(GIANTS_BLOOD_SWITCH, "Focus")
+    assert gb_pairs(context(main_skill="Earthshatter", ascendancies=["Titan"])) == {("Two Hand Mace", "Focus")}
 
 
 def test_the_open_pairs_keep_the_requests_off_hand_choice_and_bans(monkeypatch):
@@ -46,7 +48,9 @@ def test_the_open_pairs_keep_the_requests_off_hand_choice_and_bans(monkeypatch):
     # an off hand the request names: only that kind
     assert gb_pairs(context(main_skill="Earthshatter", ascendancies=["Titan"], offhand="shield")) \
         == {("Two Hand Mace", "Shield")}
-    assert not gb_pairs(context(main_skill="Earthshatter", ascendancies=["Titan"], offhand="focus"))  # (never a Focus)
+    assert gb_pairs(context(main_skill="Earthshatter", ascendancies=["Titan"], offhand="focus"))         == {("Two Hand Mace", "Focus")}  # (a Focus since RESEARCH64 R64-7, MEDIUM; SEARCHB11)
+    assert ("Two Hand Mace", "Focus") not in gb_pairs(
+        context(main_skill="Earthshatter", ascendancies=["Titan"], forbid={"item_classes": ["Focus"]}))
     # a banned keystone or item class: none / that kind out
     assert not gb_pairs(context(main_skill="Earthshatter", ascendancies=["Titan"], forbid={"passives": ["Giant's Blood"]}))
     assert ("Two Hand Mace", "Shield") not in gb_pairs(

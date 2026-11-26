@@ -76,14 +76,16 @@ off_hand:
       named_only: true  # only for a request or code that names this pair: the open search's weapons don't change
       # (SEARCHB7) The pair live builds prove: example builds 6, 13 and 17 allocate Giant's Blood and hold a Two Hand
       # Mace + Sceptre.
-      sources: ["tree.json Giant's Blood stats", "PoB ModParser.lua:2619, ItemsTab.lua:2718-2721", "the user's example builds 6, 13, 17"]
+      confidence: high  # (RESEARCH64 R64-7) seen in game: Mattjestic, youtube p88pl4DPTzE (9 Jun 2026, 0.5), 528 s:
+      # Chober Chaber (a Two Hand Mace) beside Sylvan's Effigy (a Sceptre) in the off-hand slot
+      sources: ["tree.json Giant's Blood stats", "PoB ModParser.lua:2619, ItemsTab.lua:2718-2721", "the user's example builds 6, 13, 17", "RESEARCH64 R64-7 (youtube p88pl4DPTzE, 528 s)"]
     # (SEARCHB8; the manager's 23:08 ruling: offer each off-hand kind PoB allows once a second source backs it, as the
     # Sceptre, named only) PoB's ItemsTab 2718-2721 is the first source for each. Axes and swords are unreleased (above),
     # so only the Two Hand Mace main hand is offered. Patch notes: 0.2.0 / 0.3.0 change the keystone's costs and Life; 0.3.0c
     # fixes "allocating the same weapon for each weapon set with the Giant's Blood Keystone"; none removes an off-hand kind
-    # (no hit is not proof of no silent change). A Focus stays out: R57-16 rates it MEDIUM-LOW (no page shows a focus beside
-    # a martial weapon; an undated guide says the keystone allows no off-hand ability), and its bonuses are mostly spell /
-    # ES, small for a two-hander's attacks. Never a Quiver (KeywordPopups: "only usable while you have a Bow equipped").
+    # (no hit is not proof of no silent change). A Focus: R57-16 rated it MEDIUM-LOW and left it out; RESEARCH64 R64-7
+    # raised it to MEDIUM (no sighting) and the manager (26 Nov 02:57) asked to offer it labelled MEDIUM: its own row below.
+    # Never a Quiver (KeywordPopups: "only usable while you have a Bow equipped").
     - main_hand: Two Hand Mace
       off_hand: Two Hand Mace
       passive: Giant's Blood
@@ -108,6 +110,17 @@ off_hand:
       confidence: medium  # (R57-16: follows from the keystone + KeywordPopups DualWield; no page shows the exact pair) the wiki's keystone text (search snippet, above); deltiasgaming / sportskeeda: "one
       # two-handed weapon and one one-handed weapon". No live build seen
       sources: ["PoB ItemsTab.lua:2718-2721", "RESEARCH57 R57-16", "poe2wiki Giant's Blood (search snippet)", "deltiasgaming.com, sportskeeda.com"]
+    - main_hand: Two Hand Mace
+      off_hand: Focus
+      passive: Giant's Blood
+      named_only: true
+      confidence: medium  # (RESEARCH64 R64-7: MEDIUM, no sighting; the manager 26 Nov 02:57: offer it, labelled MEDIUM)
+      # KeywordPopups Focus: "Foci are armour items that are equipped in your off hand and require Intelligence to equip",
+      # no main-hand condition (unlike the Quiver's "only usable while you have a Bow equipped"); Giant's Blood: "You can
+      # wield Two-Handed Axes, Maces and Swords in one hand", which frees the off hand as for a Shield (HIGH, R57-16). PoB
+      # allows it (ItemsTab.lua 2718-2719: beside a Giant's Blood mace, "Shield or Focus or Sceptre"). A Focus's lines are
+      # mostly spell / Energy Shield: it pays a spell or minion main beside the mace more than an attack (the search decides).
+      sources: ["PoB ItemsTab.lua:2718-2721", "RESEARCH64 R64-7", "KeywordPopups Focus", "RESEARCH57 R57-16"]
 
 floor_blockers:
   # Item lines that pin a stat, so a request's floor on that stat can never be met while the item
