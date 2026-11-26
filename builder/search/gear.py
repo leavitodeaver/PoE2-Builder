@@ -147,6 +147,21 @@ RESIST_SWAP_ATTEMPTS = 4  # slot pairs one resist_swap_round tries (two rare bui
 RESIST_RECEIVERS = ("Boots", "Helmet", "Body Armour", "Weapon 2", "Belt", "Gloves", "Amulet", "Ring 1", "Ring 2", "Ring 3")
 SWITCH_QUICK_FILL = "POE2_SEARCH_QUICK_FILL"  # "1": a full round's quick pick for every empty slot first (OFF by default)
 SWITCH_RESIST_SWAP = "POE2_SEARCH_RESIST_SWAP"  # "1": gear_round's full rounds try resist_swap_round (OFF by default)
+# (SEARCHB10) Of a full round's time, the share its slot loop leaves for resist_swap_round when the switch is on (LOW, a
+# search-effort setting: SEARCHB2's probe POE2T6234 spent 21 s on 4 pairs). Without it the round never ran in a gate:
+# at gate budgets every full round runs out inside its slot loop (each task of POE2T8410 / 8412 / 8416 / 8421 ended with
+# gear.resume set), so resist_swap_round came after the deadline and tried no pair (8421 = 8406 and 8416 = 8415 task by
+# task: the same DPS, gear seconds and evaluations).
+RESIST_SWAP_SHARE = 0.3
+
+
+def resist_swap_split(now: float, deadline: float) -> tuple[float, float]:
+    """(the slot loop's deadline, resist_swap_round's) for a full gear round starting at `now`: with
+    POE2_SEARCH_RESIST_SWAP=1 the slot loop stops RESIST_SWAP_SHARE of the round's time early, so the swap round gets
+    that time even when the loop is cut; otherwise both are `deadline`, as before."""
+    if os.environ.get(SWITCH_RESIST_SWAP, "0") != "1":
+        return deadline, deadline
+    return now + (1.0 - RESIST_SWAP_SHARE) * max(0.0, deadline - now), deadline
 # (SEARCHC1) "0": a socket no rune scored for stays empty, as before (Gear.fill_sockets; ON by default: THE USER 23 Nov,
 # never an empty rune socket; a filler never lowers the score)
 SWITCH_FILL_SOCKETS = "POE2_SEARCH_FILL_SOCKETS"
@@ -2341,6 +2356,9 @@ class Gear:
             start = slots.index(self.resume) if self.resume in slots else 0
             slots = slots[start:] + slots[:start]
             self.resume = None
+        swap_deadline = deadline  # (SEARCHB10: resist_swap_round's own end, past a slot loop it would otherwise follow)
+        if whole:
+            deadline, swap_deadline = resist_swap_split(clock.now(), deadline)
         for slot in slots:
             if clock.now() > deadline:
                 if whole and self.resume is None:
@@ -2418,7 +2436,8 @@ class Gear:
         if whole:
             improved = self.character_rune_round(deadline) or improved
         if whole and os.environ.get(SWITCH_RESIST_SWAP, "0") == "1":
-            improved = any(row["kept"] for row in self.resist_swap_round(deadline)) or improved
+            self.resist_swap_rows = self.resist_swap_round(swap_deadline)  # (kept for probes: one row per pair tried)
+            improved = any(row["kept"] for row in self.resist_swap_rows) or improved
         if whole and self.fill_granted is not None:
             improved = self.granted_meta_trials(deadline) or improved
         if whole and os.environ.get(SWITCH_PURITY, "0") == "1":
