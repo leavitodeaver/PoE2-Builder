@@ -731,9 +731,23 @@ end
 -- mean is PoB's. For a skill whose effects carry the stat (`skill`, its active effect or a support), each hit's chance is
 -- the mean of that formula at the Lightning minimum and maximum (PoB's own ShockLightningMin / Max, its buildup "more"
 -- in them; a crit's from LightningStoredCritMin / Max times the same factor), the other damage types that Shock at their
--- average, each capped at 100%: equal odds of the two rolls (MEDIUM: the text gives none; equal odds keep the average
--- damage PoB scores). A zero chance stays zero (PoB's Cannot Shock, crit-only mode). `enemyDB` the enemy's mods (its
+-- average, each capped at 100%: equal odds of the two rolls (MECH111: HIGH, KeywordPopups
+-- BooleanDamageRoll "with a 50% chance for each", RESEARCH61 R61-12; 75% maximum when Lucky). A zero chance stays zero (PoB's Cannot Shock, crit-only mode). `enemyDB` the enemy's mods (its
 -- SelfShockChance terms, as CalcOffence). Electrocute's buildup is linear in the hit (CalcOffence 5571-5577): unchanged.
+-- (MECH111; the manager's 16:25 approval of MECH110's candidate, an OVERCOUNT) The same holds for EVERY skill's ordinary
+-- roll: a hit rolls between its minimum and maximum, so where the top of the range would pass 100% the mean of the
+-- capped chance is below PoB's chance at the average hit (E[min(100, a x D + b)] < min(100, a x E[D] + b)). Each hit's
+-- chance is now that mean over the hit's roll (a closed form for one rolling type: the linear part's mean up to the
+-- 100% point, 100 past it), a crit's over its own range (PoB's <Type>StoredCritMin / Max x the type's Shock buildup
+-- factor). Each type that Shocks rolls apart ("Each Damage Type has its damage value rolled separately", KeywordPopups
+-- BooleanDamageRoll, RESEARCH61 R61-12; PoB sums them into one range): the widest in closed form, the others as points
+-- (Esh's Prowess's two rolls; an even roll at 16 midpoints; past two such, the rest summed into the closed-form range,
+-- the lower reading). (MECH111, item 5) Lucky damage ("the better of two rolls", PoB's LuckyHits / <Type>LuckyHitsChance
+-- / LightningNoCritLucky / CritLucky / ElementalLuckHits, as its damage pass reads them, CalcOffence 4259-4266) weights
+-- the roll toward the top: PoB's own Shock chance never reads it (its hitAvg is (min + max) / 2, an UNDERCOUNT below
+-- the cap for a Lucky build); Esh's maximum then 75%. Below the cap and with no Lucky, nothing moves (the mean of a
+-- linear chance is the chance at the mean). A guard keeps PoB's own number wherever the ranges don't give back PoB's
+-- chance at the average (an override of the hit damage, "Ailments are never from Critical Hits").
 local function shockChancePerHit(output, skill, enemyDB)
 	local esh = false
 	for _, effect in ipairs(skill and skill.effectList or { }) do
@@ -750,8 +764,7 @@ local function shockChancePerHit(output, skill, enemyDB)
 		local crit = (out.CritChance or 0) / 100
 		local onHit, onCrit = out.ShockChanceOnHit, out.ShockChanceOnCrit or 0
 		local threshold = out.EnemyAilmentThreshold or output.EnemyAilmentThreshold or 0
-		local lmin, lmax = out.ShockLightningMin or 0, out.ShockLightningMax or 0
-		if esh and lmax > lmin and threshold > 0 and skill.skillModList then
+		if threshold > 0 and (onHit > 0 or onCrit > 0) and skill and skill.skillModList then
 			local mods, cfg = skill.skillModList, skill.skillCfg
 			local base = mods:Sum("BASE", cfg, "EnemyShockChance", "AilmentChance")
 				+ (enemyDB and enemyDB:Sum("BASE", nil, "SelfShockChance") or 0)
@@ -759,24 +772,117 @@ local function shockChancePerHit(output, skill, enemyDB)
 				+ (enemyDB and enemyDB:Sum("INC", nil, "SelfShockChance") or 0)
 			local more = mods:More(cfg, "EnemyShockChance", "AilmentChance") * (enemyDB and enemyDB:More(nil, "SelfShockChance") or 1)
 			local mult = data.gameConstants.ShockChanceMultiplier or 25
+			-- PoB's chance is slope x damage + offset, capped at 100 (CalcOffence 5617-5628)
+			local slope, offset = mult / threshold * (1 + inc / 100) * more, base * (1 + inc / 100) * more
 			local function chance(damage)
-				return math.min(100, math.max(0, (damage / threshold * mult + base) * (1 + inc / 100) * more))
+				return math.min(100, math.max(0, slope * damage + offset))
 			end
-			local scale = (out.LightningStoredHitMin or 0) > 0 and lmin / out.LightningStoredHitMin or 1
-			local otherHit, otherCrit = 0, 0
-			for _, kind in ipairs({ "Physical", "Fire", "Cold", "Chaos" }) do
-				local lo, hi = out["Shock" .. kind .. "Min"] or 0, out["Shock" .. kind .. "Max"] or 0
-				otherHit = otherHit + (lo + hi) / 2
-				local stored = out[kind .. "StoredHitMin"] or 0
-				local k = stored > 0 and lo / stored or 1
-				otherCrit = otherCrit + ((out[kind .. "StoredCritMin"] or 0) + (out[kind .. "StoredCritMax"] or 0)) / 2 * k
+			-- (MECH111) the mean of the capped chance for a hit rolled between lo and hi: evenly (the linear part's mean
+			-- up to where the chance reaches 100%, 100 past it, 0 below where it is 0), or with chance p Lucky (the
+			-- better of two rolls: density 2 (x - lo) / w^2), the two mixed
+			local function mean(lo, hi, p)
+				if hi <= lo or slope <= 0 then
+					return chance((lo + hi) / 2)
+				end
+				local w = hi - lo
+				local zero, full = -offset / slope, (100 - offset) / slope
+				local a, b = math.max(lo, zero), math.min(hi, full)
+				local top = math.max(lo, full)
+				local even = b > a and (slope * (b * b - a * a) / 2 + offset * (b - a)) or 0
+				local lucky = 0
+				if b > a then
+					local function f(x)
+						return slope * (x * x * x / 3 - lo * x * x / 2) + offset * (x * x / 2 - lo * x)
+					end
+					lucky = 2 * (f(b) - f(a)) / (w * w)
+				end
+				if hi > top then
+					even = even + 100 * (hi - top)
+					lucky = lucky + 100 * (1 - ((top - lo) / w) ^ 2)
+				end
+				return (1 - (p or 0)) * even / w + (p or 0) * lucky
+			end
+			-- each type's chance to roll Lucky, as PoB's damage pass reads it (CalcOffence 4259-4266)
+			local function luck(kind, crits)
+				if mods:Flag(cfg, "LuckyHits") or (not crits and kind == "Lightning" and mods:Flag(cfg, "LightningNoCritLucky"))
+					or (crits and mods:Flag(cfg, "CritLucky"))
+					or ((kind == "Lightning" or kind == "Cold" or kind == "Fire") and mods:Flag(cfg, "ElementalLuckHits")) then
+					return 1
+				end
+				return math.min(mods:Sum("BASE", cfg, kind .. "LuckyHitsChance", "LuckyHitsChance"), 100) / 100
+			end
+			-- the types that Shock (PoB's ShockXMin / Max; a crit's from XStoredCritMin / Max x the type's Shock buildup
+			-- factor), each rolled apart: "Each Damage Type has its damage value rolled separately" (KeywordPopups
+			-- BooleanDamageRoll; RESEARCH61 R61-12). Esh's Prowess's Lightning rolls its minimum or maximum, the maximum
+			-- at 50% (HIGH: the keyword's "with a 50% chance for each"), 75% when Lucky ("picking the maximum if either
+			-- roll had that result"); no source makes damage dealt Unlucky (checked: every Stats id holding "luck",
+			-- 26650308: only damage / crits TAKEN are Unlucky).
+			local function over(pob, crits)
+				local fixed, varying, avg = 0, { }, 0
+				for _, kind in ipairs({ "Physical", "Lightning", "Cold", "Fire", "Chaos" }) do
+					local lo, hi = out["Shock" .. kind .. "Min"] or 0, out["Shock" .. kind .. "Max"] or 0
+					if crits then
+						local storedLo, storedHi = out[kind .. "StoredHitMin"] or 0, out[kind .. "StoredHitMax"] or 0
+						local k = storedHi > 0 and hi / storedHi or (storedLo > 0 and lo / storedLo or 1)
+						lo, hi = (out[kind .. "StoredCritMin"] or 0) * k, (out[kind .. "StoredCritMax"] or 0) * k
+					end
+					avg = avg + (lo + hi) / 2
+					if hi > lo then
+						varying[#varying + 1] = { lo = lo, hi = hi, p = luck(kind, crits), two = esh and kind == "Lightning" }
+					else
+						fixed = fixed + lo
+					end
+				end
+				-- a guard: PoB's own chance at the average hit must come back from these ranges, else PoB's is kept (an
+				-- override of the hit damage, "Ailments are never from Critical Hits": what this doesn't read)
+				if math.abs(chance(avg) - pob) > 1e-6 * math.max(1, pob) then
+					return pob
+				end
+				-- the widest even roll in closed form; the others as points: Esh's two, an even roll at 16 midpoints
+				-- (Lucky weighting them), past two such types the rest summed into the closed-form range (the lower
+				-- reading: a wider spread loses more past the cap)
+				local exact
+				for _, v in ipairs(varying) do
+					if not v.two and (not exact or v.hi - v.lo > exact.hi - exact.lo) then
+						exact = v
+					end
+				end
+				local points, discrete = { { fixed, 1 } }, 0
+				for _, v in ipairs(varying) do
+					if v ~= exact then
+						local new = { }
+						if v.two then
+							local q = 0.5 + 0.25 * v.p
+							for _, pt in ipairs(points) do
+								new[#new + 1] = { pt[1] + v.lo, pt[2] * (1 - q) }
+								new[#new + 1] = { pt[1] + v.hi, pt[2] * q }
+							end
+						elseif discrete >= 2 then
+							exact = { lo = exact.lo + v.lo, hi = exact.hi + v.hi, p = math.min(exact.p, v.p) }
+							new = points
+						else
+							discrete = discrete + 1
+							for _, pt in ipairs(points) do
+								for i = 1, 16 do
+									local u = (i - 0.5) / 16
+									new[#new + 1] = { pt[1] + v.lo + u * (v.hi - v.lo), pt[2] * ((1 - v.p) + v.p * 2 * u) / 16 }
+								end
+							end
+						end
+						points = new
+					end
+				end
+				local total = 0
+				for _, pt in ipairs(points) do
+					total = total + pt[2] * (exact and mean(exact.lo + pt[1], exact.hi + pt[1], exact.p) or chance(pt[1]))
+				end
+				return total
 			end
 			if onHit > 0 then
-				onHit = (chance(lmin + otherHit) + chance(lmax + otherHit)) / 2
+				onHit = over(onHit, false)
 			end
 			if onCrit > 0 then
-				onCrit = (chance((out.LightningStoredCritMin or 0) * scale + otherCrit)
-					+ chance((out.LightningStoredCritMax or 0) * scale + otherCrit)) / 2
+				onCrit = over(onCrit, true)
 			end
 		end
 		return onHit * (1 - crit) + onCrit * crit

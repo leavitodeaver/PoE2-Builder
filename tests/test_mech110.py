@@ -20,7 +20,7 @@ def test_persistent_ground_ii_iii_keep_clouds_from_exploding_and_lengthen_them()
 # Esh's Prowess: Shock chance from its minimum and maximum Lightning rolls (bridge shockChancePerHit) ---------------------
 
 ESH_FIELDS = ["ShockChanceOnHit", "ShockChanceOnCrit", "ShockChancePerHit", "CritChance", "ShockLightningMin",
-              "ShockLightningMax", "LightningStoredHitMin", "LightningStoredCritMin", "LightningStoredCritMax",
+              "ShockLightningMax", "LightningStoredHitMin", "LightningStoredHitMax", "LightningStoredCritMin", "LightningStoredCritMax",
               "EnemyAilmentThreshold"]
 
 
@@ -56,6 +56,27 @@ def esh_expected(s: dict) -> float:
     return hit * (1 - c) + crit * c
 
 
+def uniform_mean(k: float, lo: float, hi: float) -> float:
+    """(MECH111) The mean of min(100, k x D) for D rolled evenly between lo and hi."""
+    if hi <= lo:
+        return min(100.0, k * lo)
+    full = 100.0 / k
+    a, b = lo, min(hi, full)
+    area = k * (b * b - a * a) / 2 if b > a else 0.0
+    return (area + 100.0 * max(0.0, hi - max(lo, full))) / (hi - lo)
+
+
+def plain_expected(s: dict) -> float:
+    """(MECH111) Without Esh's Prowess: the mean of the capped chance over the hit's roll range and the crit's."""
+    lo, hi = s["ShockLightningMin"], s["ShockLightningMax"]
+    k = s["ShockChanceOnHit"] / ((lo + hi) / 2)
+    scale = hi / s["LightningStoredHitMax"]
+    hit = uniform_mean(k, lo, hi)
+    crit = uniform_mean(k, s["LightningStoredCritMin"] * scale, s["LightningStoredCritMax"] * scale)
+    c = s["CritChance"] / 100
+    return hit * (1 - c) + crit * c
+
+
 def test_eshs_prowess_shock_chance_is_the_mean_of_its_two_rolls(engine):
     from builder.request.schema import BuildRequest
     from builder.search.context import Context, make_payload
@@ -69,7 +90,7 @@ def test_eshs_prowess_shock_chance_is_the_mean_of_its_two_rolls(engine):
     build = search.build
     group = next(g for g in build.call("groups")["groups"] if g["gems"] and g["gems"][0]["name"] == "Spark")
     gems = [{"name": n["name"], "level": n.get("level") or 20, "quality": n.get("quality") or 0} for n in group["gems"]]
-    capped_somewhere = False
+    capped_somewhere = plain_capped = False
     for esh in (False, True):
         build.set_group(index=group["index"], gems=gems + ([{"name": "Esh's Prowess", "level": 1, "quality": 0}]
                                                             if esh else []), main=True)
@@ -78,15 +99,19 @@ def test_eshs_prowess_shock_chance_is_the_mean_of_its_two_rolls(engine):
             print("PROBE esh", esh, level, s)
             c = s["CritChance"] / 100
             pob = s["ShockChanceOnHit"] * (1 - c) + s["ShockChanceOnCrit"] * c
-            if not esh or not 0 < s["ShockChanceOnHit"] < 100 or s["ShockLightningMax"] <= s["ShockLightningMin"]:
-                if not esh:  # without the support: PoB's average-hit reading, unchanged
-                    assert s["ShockChancePerHit"] == pytest.approx(pob)
+            if not 0 < s["ShockChanceOnHit"] < 100 or s["ShockLightningMax"] <= s["ShockLightningMin"]:
+                continue
+            if not esh:  # (MECH111) without the support: the mean over the ordinary roll, at most PoB's average reading
+                assert s["ShockChancePerHit"] == pytest.approx(plain_expected(s), rel=1e-6)
+                assert s["ShockChancePerHit"] <= pob + 1e-9
+                plain_capped = plain_capped or s["ShockChancePerHit"] < pob - 1.0
                 continue
             assert s["ShockChancePerHit"] == pytest.approx(esh_expected(s), rel=1e-6)
             assert s["ShockChancePerHit"] <= pob + 1e-9  # the cap can only take chance away
             capped_somewhere = capped_somewhere or s["ShockChancePerHit"] < pob - 1.0
     build.call("setConfig", vars={"enemyLevel": 84}, fields=[])
     assert capped_somewhere  # at some enemy level the maximum roll passes 100% and the mean falls below PoB's
+    assert plain_capped  # (MECH111) and so does the ordinary roll's mean
 
 
 # Herald of Plague: Poisons spread from the preset's killed adds, up to the Poison limit -------------------------------
