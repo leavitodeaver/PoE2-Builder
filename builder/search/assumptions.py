@@ -5924,6 +5924,11 @@ class Assumptions:
         if any(s.name == models.HERALD_OF_PLAGUE for s in found):  # (MECH110: its Poison spread from killed adds)
             hp_mods, hp_notes = models.herald_of_plague_model(found, stats, forbidden)
             hand_mods, hand_notes = hand_mods + hp_mods, hand_notes + hp_notes
+        if any(s.name == models.HARBINGER for s in found):  # (GEM47, R65-6: its apparitions, PoB 0)
+            hb_mods, hb_notes = self.harbinger(found, main, main_types, stats, forbidden)
+            hand_mods, hand_notes = hand_mods + hb_mods, hand_notes + hb_notes
+        if any(s.name == models.CRUSHING_FEAR for s in found):  # (GEM47, A40-53: its Shockwave from adds, a row)
+            hand_notes = hand_notes + self.crushing_fear_adds(found, main, stats, forbidden)
         if main is not None and group and main.name == models.FROZEN_LOCUS:  # (GEM20: an explosion when it breaks)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             breaks, breaks_how = self.locus_breaks(group["index"], main.name)
@@ -8140,6 +8145,83 @@ class Assumptions:
         return models.vine_plant_model(number(stats.get(models.VINE_STORED)), number(stats.get(models.VINE_LIMIT)) or 1.0,
                                        plants, plant_seconds, clouds, poison_limit=poison_limit,
                                        forbidden=set(build.ctx.request.forbid_ledger_entries))
+
+    def harbinger(self, found: list[models.Skill], main: models.Skill | None, main_types, stats: dict,
+                  forbidden: set[str]) -> tuple[list[dict], list[dict]]:
+        """(GEM47, R65-6) Harbinger of Madness's apparitions (models.harbinger_model): PoB's AverageDamage for its group
+        (setRates) and the build's melee hits a second on the boss: the main skill's (Speed x HitChance x hits a use x
+        its share of the fight, main_time_share) when it is a melee Attack, plus each other used group's melee Attack
+        (in Full DPS: _skill_hits, PoB's rate x hit chance x its press-model share; outside it: the search's chosen
+        presses x hit chance; a group neither scores nor presses: not used, 0)."""
+        build = self.build
+        skill = next(s for s in found if s.name == models.HARBINGER)
+        spot = self.skill_spot(skill.group, skill.name)
+        sets = (build.call("setRates", index=spot[0], active=spot[1])["sets"] if spot else []) or [{}]
+        per_hit = number(sets[0].get("AverageDamage"))
+        hits, parts = 0.0, []
+        main_index = (build.main_group() or {}).get("index")
+        if main is not None and {"Melee", "Attack"} <= set(main_types or ()):
+            per_use = max(1.0, number(getattr(build, "main_hits_per_use", None)) or 1.0)
+            share = main_time_share(build, main)
+            hits = models.hits_per_second(stats) * per_use * share
+            parts.append(f"{main.name} (main): {number(stats.get('Speed')):.2f} uses a second x "
+                         f"{number(stats.get('HitChance')):.0f}% hit chance x {per_use:g} hits a use x {share:.0%} of the "
+                         f"fight = {hits:.2f}")
+        press = getattr(build.objective, "press_scales", None) or {}
+        choices = models.press_choices(build)
+        for group in build.groups():
+            if not group.get("enabled", True) or group["index"] == main_index:
+                continue
+            for position, active in enumerate(group["skills"], start=1):
+                if not {"Melee", "Attack"} <= set(skill_types_of(build.ctx, active["name"])):
+                    continue
+                if group.get("fullDPS"):
+                    side, _ = _skill_hits(build, group, position, press)
+                else:
+                    row = next(iter(build.call("useRates", indices=[group["index"]], actives=[position])["rates"]),
+                               None) or {}
+                    chosen = models.press_choice(row, choices)
+                    side = (number(chosen) * min(number(row.get("HitChance", 100) or 100), 100.0) / 100
+                            if chosen is not None else 0.0)
+                if side > 0:
+                    hits += side
+                    parts.append(f"{active['name']} (group {group['index']}): {side:.2f}")
+        how = "; ".join(parts) if parts else (
+            f"no melee Attack in the build is used on the boss (the main skill {main.name if main else '(none)'} "
+            "isn't one, and no other melee Attack is in Full DPS or pressed)")
+        return models.harbinger_model(per_hit, hits, how, forbidden)
+
+    def crushing_fear_adds(self, found: list[models.Skill], main: models.Skill | None, stats: dict,
+                           forbidden: set[str]) -> list[dict]:
+        """(GEM47, A40-53) models.crushing_fear_adds_row for the build's best Crushing Fear group: its uses a second (the
+        main skill's Speed x its share of the fight; a side group the search's chosen presses, else the press model's
+        rate in Full DPS) and its Strike set's hit (setRates)."""
+        build = self.build
+        kills = max(number(stats.get(models.CULLS_STAT)), number(stats.get("AddKillsPerSecond")), 0.0)
+        choices = models.press_choices(build)
+        main_index = (build.main_group() or {}).get("index")
+        best = (0.0, 0.0, "not used")
+        for skill in found:
+            if skill.name != models.CRUSHING_FEAR or not skill.group:
+                continue
+            spot = self.skill_spot(skill.group, skill.name)
+            if spot is None:
+                continue
+            group = next(g for g in build.groups() if g["index"] == spot[0])
+            if main is not None and main.name == skill.name and spot[0] == main_index:
+                uses, how = number(stats.get("Speed")) * main_time_share(build, main), "the main skill"
+            else:
+                row = (build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"] or [{}])[0]
+                chosen = models.press_choice(row, choices)
+                scale = (getattr(build.objective, "press_scales", None) or {}).get(skill.name)
+                uses = (number(chosen) if chosen is not None else
+                        number(scale) * number(row.get("speed")) if group.get("fullDPS") and scale is not None else 0.0)
+                how = f"group {spot[0]}, pressed" if uses > 0 else f"group {spot[0]}, not pressed"
+            sets = build.call("setRates", index=spot[0], active=spot[1])["sets"] or []
+            strike = number(next((s for s in sets if s.get("label") == "Strike"), {}).get("AverageDamage"))
+            if uses * strike >= best[0] * best[1]:
+                best = (uses, strike, how)
+        return models.crushing_fear_adds_row(kills, best[0], best[1], best[2], forbidden)
 
     def ward_paid(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Runic Ward pays for the Ward-cost skills (MECHB13, models.ward_plan): every Ward-cost skill the build uses

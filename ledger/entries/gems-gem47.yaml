@@ -1,0 +1,56 @@
+# GEM47 (26 Nov 2026): Harbinger of Madness's apparitions (RESEARCH65 R65-6) and Sunder's Shockwave on a lone boss
+# (RESEARCH65 R65-5). Crushing Fear's adds row (AUDIT40 A40-53) reads GEM46's gem-gem46-crushing-fear-shockwave-on-kill.
+
+- id: model-gem47-harbinger-of-madness-apparitions
+  title: "Harbinger of Madness: one apparition per melee hit on the boss, at PoB's own hit (PoB rates the skill at 0 uses)"
+  kind: model
+  model: harbinger
+  stats: ["unique_chance_to_spawn_harbinger_of_madness_orb_on_hitting_rare_or_unique_enemy_with_melee_attacks_%",
+          "harbinger_of_madness_additional_damage_from_%_source_enemy_life"]
+  skill: [Harbinger of Madness]
+  confidence: MEDIUM-LOW
+  notes: >-
+    ActiveSkills harbinger_of_madness (26650308): "Draws out the latent fears of enemies you kill and Rare or Unique
+    enemies you Hit, turning them into unstable apparitions which charge towards enemies and then explode". Granted by
+    Sadist's Mercy (unique mace, new in 0.5.0). RESEARCH65 R65-6 (research/dps-group-r65.md, MEDIUM-LOW): one apparition per
+    MELEE hit on a Rare / Unique enemy (unique_chance_..._with_melee_attacks_% 100; forum 3962742: melee attacks only), no
+    cooldown or cap found in stat set 8120's constants, its buff's two stats, poe2db or the in-game tooltip on video
+    (Woolfio PJOUBYxI4jE); the 50 ms timer is the kill path only. x2.0 against a boss from 5% more per Power (PoB's
+    Multiplier:EnemyPower, 20 in its boss config, ConfigOptions.lua 2027: in PoB's AverageDamage). The 8% of the enemy's
+    Life (harbinger_of_madness_additional_damage_from_%_source_enemy_life, "added unscalable Physical damage") needs a
+    slain enemy: never the boss, not counted. PoB rates the Persistent skill at 0 uses: probe POE2T9740
+    (scratch/gem47/probe_harb.log; a level-90 Sadist's Mercy skeleton, Harbinger level 18): AverageDamage 231.5, Speed 0,
+    TotalDPS 0, FullDPS 0 (an UNDERCOUNT). models.harbinger_model: the main skill's melee hits a second on the boss (PoB's
+    Speed x HitChance x its hits a use x its share of the fight) x PoB's AverageDamage, an added source; a main skill
+    that isn't a melee Attack: 0 with a note; side melee skills' hits not read (an UNDERCOUNT, named). Row: a hidden limit
+    of one a second (UNVERIFIED, never the headline: R65-6).
+  sources: ["data/game-26650308/tables/ActiveSkills.json (harbinger_of_madness)", "research/dps-group-r65.md (R65-6)",
+            "vendor PoB src/Data/Skills/other.lua (HarbingerOfMadnessPlayer)", "scratch/gem47/probe_harb.log"]
+  test_in_game: "Whether a hidden limit caps apparitions from one boss (R65-6's open point): only if a returned build rides on it."
+  status: proposed
+
+- id: gem-gem47-sunder-shockwave-other-enemies
+  title: "Sunder's Shockwave damages OTHER enemies: none on a lone boss (RESEARCH65 R65-5)"
+  kind: gem_stat
+  match: '^sunder_armor_break_extra_magnitude$'
+  replace: ["1% less Damage"]
+  factor: 5
+  stats: ["sunder_armor_break_extra_magnitude"]
+  skill: [Sunder]
+  stat_sets:
+    Sunder: [Shockwave]
+  confidence: MEDIUM-HIGH
+  notes: >-
+    ActiveSkills sunder (26650308): "A number of enemies hit by the wave will release a shockwave, damaging other
+    enemies"; RESEARCH65 R65-5 (research/dps-group-r65.md, MEDIUM-HIGH): the enemy releasing it isn't hit by its own
+    shockwave, so on a lone boss the Shockwave set deals nothing. PoB scores it as a hit; the search keeps the Wave today
+    (probe POE2T9710, scratch/gem46/probe_sunder.log: Wave 142.9 vs Shockwave 40.6 DPS), so no number moves now: this
+    guards a build whose lines would lift the Shockwave above the Wave. The line rides on a constant of the set
+    (sunder_armor_break_extra_magnitude 20, on both sets; x5 = exactly 100% less), tagged to the Shockwave set only
+    (GEM46's stat-set tag), so the Wave keeps its damage. With adds beside the boss, an add hit by the wave releases a 1.2 m
+    shockwave that can hit the boss (R65-5); the presets hold no data on where adds stand (MECHD9), so that reading is not
+    counted (UNVERIFIED; as Crushing Fear's adds row, AUDIT40 A40-53).
+  sources: ["data/game-26650308/tables/ActiveSkills.json (sunder)", "research/dps-group-r65.md (R65-5)",
+            "scratch/gem46/probe_sunder.log"]
+  test_in_game: "Not needed beyond R65-5."
+  status: proposed

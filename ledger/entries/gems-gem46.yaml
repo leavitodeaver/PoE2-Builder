@@ -14,8 +14,9 @@
     of Effect"; its own Poisons are not stored. PoB maps the cap to PlagueBearerMaxDamage, which nothing reads, and the
     nova has no base damage: 0 (probe POE2T9709). models.plague_bearer_model (Iron Ward's route): released full every
     cap / (4% x the main skill's PoB PoisonDPS) seconds, at most once per its 1 s cast; the cap is the nova's base
-    Physical damage, scaled by PoB (MEDIUM: 0.2.0g made the nova area damage; row: a fixed hit equal to the stored
-    Poison, UNVERIFIED); Full DPS counts it, the press model charges its time; a boss beyond its reach (1.8 m x sqrt(7)
+    Physical damage, scaled by PoB (MEDIUM-HIGH, RESEARCH65 R65-2 (GEM47): no "unscalable" in its text, where GGG
+    writes the word wherever a skill's damage ignores modifiers; 0.2.0g made the nova area damage; lower row: a fixed
+    hit equal to the stored Poison); Full DPS counts it, the press model charges its time; a boss beyond its reach (1.8 m x sqrt(7)
     released full, its hit radius added) takes nothing unless the nova is cast at the target (Astral Projection).
     Probe POE2T9720 (scratch/gem46/probe_plague8.log; a level-90 Toxic Growth skeleton + Plague Bearer 20 in Full DPS): its own
     Poison (10.9 DPS, the Explosion set; the search keeps the Pustules set, no Poison): nothing stored, 15.96 unchanged; with
@@ -23,7 +24,7 @@
     the main skill keeps 58.1%), the nova 14,347 a hit (3,762 DPS) plus its own Poison 1,200: 15.96 -> 4,995.9.
   sources: ["builder/search/models.py (plague_bearer_model)", "builder/search/assumptions.py (Assumptions.plague_bearer)",
             "https://poe2db.tw/us/Plague_Bearer", "patch notes 0.2.0, 0.2.0g, 0.4.0b (grep_notes --history 'Plague Bearer')"]
-  test_in_game: "Not asked: whether the nova's hit is scaled by damage modifiers stays a RESEARCH question (row)."
+  test_in_game: "Not asked: RESEARCH65 R65-2 settled the scaling at MEDIUM-HIGH (no current test found); the fixed hit stays the lower row."
   status: proposed
 
 - id: model-gem46-vine-arrow-poisoned-plant

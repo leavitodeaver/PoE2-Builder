@@ -11698,9 +11698,11 @@ def earthquake_jagged_note(main: Skill | None, scored: str | None) -> list[dict]
 # only costs more presses), the nova's base Physical damage = the cap, used every cap / fill seconds, at most once per
 # its castTime; PoB scales that base through the nova's hit (the build's Physical and Area Damage modifiers, the boss's
 # armour) and adds its Poison; Full DPS counts it and the press model charges the main skill's time.
-# The scaled reading is MEDIUM: 0.2.0g "Fixed a bug where Plague Bearer's Nova was not considered to be area damage"
-# (area damage modifiers reach it), the Iron Ward precedent; "equal to the stored Poison" read as a fixed hit is the row
-# (UNVERIFIED which; RESEARCH question). Reach: the nova is centred on you (Astral Projection's "at the target" stats put
+# The scaled reading is MEDIUM-HIGH (RESEARCH65 R65-2, research/dps-group-r65.md; GEM47): no "unscalable" in "Deals
+# [Physical] damage equal to the stored [Poison]" (GGG writes the word wherever a skill's damage ignores modifiers);
+# 0.2.0g "Fixed a bug where Plague Bearer's Nova was not considered to be area damage" (the tag matters only if
+# modifiers reach the hit); the nova's stat set carries is_area_damage and no flag that stops scaling. "Equal to the
+# stored Poison" read as a fixed hit stays the lower row (no current test found). Reach: the nova is centred on you (Astral Projection's "at the target" stats put
 # it on the boss: 0.4.0b fixed Astral Projection with Plague Bearer), radius PoB's x sqrt(1 + 600%) released full; a boss
 # beyond it (its hit radius added) takes nothing: not counted, said, stepping in the row.
 # Not counted: Poisons from other skills (only the main skill's PoisonDPS is read: an UNDERCOUNT where side skills
@@ -11770,9 +11772,9 @@ def plague_bearer_model(buff: Skill | None, nova: Skill | None, poison_dps: floa
                   f"{refill:.1f} s" + (f", faster than one use every {use_time:g} s" if refill < use_time else "")
                   + f"; released full: {area:.0f}% more area, {reach:.1f} m"
                   + (" (cast at the target)" if at_target else f", the boss {distance:.1f} m away")
-                  + ". The stored amount is the nova's base Physical damage, scaled by the build's modifiers (MEDIUM: "
-                    "0.2.0g made it area damage; Iron Ward's reading); row: a fixed hit equal to the stored Poison "
-                    "(UNVERIFIED which). Not counted: other skills' Poisons, the nova's own Poisons (not stored)"),
+                  + ". The stored amount is the nova's base Physical damage, scaled by the build's modifiers (MEDIUM-HIGH, "
+                    "RESEARCH65 R65-2: no 'unscalable' in its text; 0.2.0g made it area damage); lower row: a fixed hit "
+                    "equal to the stored Poison. Not counted: other skills' Poisons, the nova's own Poisons (not stored)"),
         "play": f"keep Plague Bearer active and release it each time it is full (about every {max(refill, use_time):.1f} s)"
                 + ("" if at_target else ", next to the boss")}]
 
@@ -13751,6 +13753,96 @@ def vine_plant_model(stored: float, limit: float, plants: float, plant_seconds: 
                   f"+{dps * max(poison_limit, 1.0):,.0f}; scaled again by the vines' modifiers (UNVERIFIED); a cap at the "
                   "visual maximum (UNVERIFIED)"),
         "play": f"drop Vine Arrow inside your {name} cloud at the boss and keep the cloud over it"}]
+
+
+# Harbinger of Madness (GEM47; RESEARCH65 R65-6, research/dps-group-r65.md; an UNDERCOUNT: PoB rates the Persistent skill
+# at Speed 0, so it scores 0 DPS: probe POE2T9740, scratch/gem47/probe_harb.log, a level-90 Sadist's Mercy skeleton:
+# AverageDamage 231.5, Speed 0, TotalDPS 0, FullDPS 0). Sadist's Mercy (unique mace) grants it; ActiveSkills
+# harbinger_of_madness (26650308): "Draws out the latent fears of enemies you kill and Rare or Unique enemies you Hit,
+# turning them into unstable apparitions which charge towards enemies and then explode". Its stat set's constants:
+# unique_chance_to_spawn_harbinger_of_madness_orb_on_hitting_rare_or_unique_enemy_with_melee_attacks_% 100 (one apparition
+# per MELEE hit on a Rare / Unique: R65-6 MEDIUM-LOW, no cooldown or cap in any client file, poe2db page or the in-game
+# tooltip seen on video; forum 3962742: melee attacks only); skill_grants_spawn_..._on_melee_kill_once_per_timer_ms 50
+# (the KILL path only: no kill on a lone boss but its death); harbinger_of_madness_damage_+%_final_per_power_of_source_enemy
+# 5 (PoB maps it to Multiplier:EnemyPower, 20 on a boss: x2.0, in PoB's AverageDamage); harbinger_of_madness_additional_
+# damage_from_%_source_enemy_life 8 ("of that enemy's Life as added unscalable Physical damage": slain enemies only, so
+# never on the boss: R65-6; not counted). An apparition drawn from the boss charges at it and explodes on it (2 m).
+# The rate, from the build (CLAUDE.md's second rule): the main skill's melee hits a second on the boss (PoB's Speed x its
+# HitChance x its hits a use, x the main skill's share of the fight, main_time_share); a main skill that isn't a melee
+# Attack: 0 with a note; side melee skills' hits aren't read (an UNDERCOUNT, named). Each apparition at PoB's
+# AverageDamage for the skill (the build's modifiers applied by PoB: no "unscalable" word on the base hit, R65's
+# convention). Added beside PoB (added_input). Row: a hidden server limit of one a second (UNVERIFIED, never the
+# headline: R65-6).
+HARBINGER = "Harbinger of Madness"
+HARBINGER_ENTRY = "model-gem47-harbinger-of-madness-apparitions"
+HARBINGER_LIMIT_ROW = 1.0  # (apparitions a second in the hidden-limit row: R65-6's suggested row, UNVERIFIED)
+
+
+def harbinger_model(per_hit: float, hits: float, how: str,
+                    forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Harbinger of Madness's apparitions drawn from the boss (see above): `per_hit` PoB's AverageDamage for the skill,
+    `hits` the build's melee hits a second on the boss, `how` where they come from."""
+    if HARBINGER_ENTRY in forbidden:
+        return [], []
+    label = f"{HARBINGER}: an apparition per melee hit on the boss*"
+    if hits <= 0 or per_hit <= 0:
+        why = how if hits <= 0 else "PoB gives the apparition no damage"
+        return [], [{"label": label, "value": "0 DPS", "confidence": "MEDIUM-LOW", "entry": HARBINGER_ENTRY,
+                     "basis": f"one apparition per melee hit on a Rare or Unique enemy (R65-6): {why}",
+                     "play": "Harbinger of Madness needs melee hits on the boss: each draws out an apparition."}]
+    dps = hits * per_hit
+    capped = min(hits, HARBINGER_LIMIT_ROW) * per_hit
+    return [added_input("Harbinger", dps)], [{
+        "label": label, "value": f"+{dps:,.0f} DPS", "confidence": "MEDIUM-LOW", "entry": HARBINGER_ENTRY,
+        "basis": (f"{hits:.2f} melee hits a second on the boss ({how}) x one apparition each (R65-6, MEDIUM-LOW: no "
+                  f"cooldown or cap found) x {per_hit:,.1f} a hit (PoB's, x2.0 from the boss's 20 Power; PoB rates the "
+                  f"skill at 0 uses, so it scores none); the 8% of Life part needs a slain enemy, never the boss. Row: "
+                  f"a hidden limit of {HARBINGER_LIMIT_ROW:g} a second (UNVERIFIED) +{capped:,.0f}"),
+        "play": (f"Hit the boss in melee: each hit draws out an apparition that explodes on it. Without melee hits +0; "
+                 f"with this build's {hits:.2f} a second +{dps:,.0f} DPS.")}]
+
+
+# Crushing Fear's Shockwave from adds killed beside the boss (GEM47; AUDIT40 A40-53, the manager 26 Nov 07:06: a row, the
+# headline stays 0). GEM46's gem-gem46-crushing-fear-shockwave-on-kill makes the Shockwave set 100% less: "When this skill
+# kills an enemy you draw out their final fears, crushing them to create a shockwave" (ActiveSkills crushing_fear,
+# 26650308), and on a lone boss the only kill is the boss's death. Against a preset WITH adds (bosses.kill_stats'
+# AddKillsPerSecond > 0), a Shockwave made by killing an add beside the boss can hit the boss; the presets hold no data on
+# where adds die (MECHD9: no data, not "never near"), so, as Herald of Plague's headline reads it (killing adds beside the
+# boss), this reading is given as a labelled UNVERIFIED row, never the headline: Shockwaves a second = min(the preset's
+# add kills a second, Crushing Fear's uses a second) (each use kills at most its one target: UNVERIFIED), each at the
+# Shockwave's own hit x (1 + 10% x the add's Power) (crushing_fear_damage_+%_final_per_power_of_culled_enemy 10, which
+# PoB maps to nothing: checked, grep of SkillStatMap.lua and Modules/; KeywordPopups Power: an average Normal monster 1).
+# PoB's Shockwave hit is 0 under the 100% less, so the Strike's hit stands in (both sets share the level's base damage in
+# PoB's other.lua; Chaos conversion 50% vs 80% and the boss's mitigation differ: a stand-in, UNVERIFIED).
+CRUSHING_FEAR = "Crushing Fear"
+CRUSHING_FEAR_ENTRY = "gem-gem46-crushing-fear-shockwave-on-kill"
+CRUSHING_FEAR_POWER_MORE = 10.0  # (% more a Power of the killed enemy: the Shockwave set's constant)
+CRUSHING_FEAR_ADD_POWER = 1.0  # (KeywordPopups Power: an average Normal monster; the presets' adds are Normal)
+
+
+def crushing_fear_adds_row(kills: float, uses: float, strike_hit: float, how: str,
+                           forbidden: set[str] = frozenset()) -> list[dict]:
+    """The labelled UNVERIFIED row for Crushing Fear's Shockwave from adds killed beside the boss (see above): `kills` the
+    preset's add kills a second, `uses` Crushing Fear's uses a second (`how` says where from), `strike_hit` PoB's
+    AverageDamage of its Strike set (the stand-in for the Shockwave's hit)."""
+    if CRUSHING_FEAR_ENTRY in forbidden:
+        return []
+    label = f"{CRUSHING_FEAR}: Shockwaves from adds killed beside the boss (a row, not counted)*"
+    if kills <= 0:
+        return [{"label": label, "value": "0 (a lone boss)", "confidence": "datamined", "entry": CRUSHING_FEAR_ENTRY,
+                 "basis": "the Shockwave comes only when Crushing Fear kills an enemy; this boss has no killable adds "
+                          "(AddKillsPerSecond 0), and its own death ends the fight"}]
+    rate = min(kills, max(uses, 0.0))
+    each = strike_hit * (1 + CRUSHING_FEAR_POWER_MORE * CRUSHING_FEAR_ADD_POWER / 100)
+    return [{"label": label, "value": f"+{rate * each:,.0f} DPS (UNVERIFIED, not counted)", "confidence": "LOW",
+             "entry": CRUSHING_FEAR_ENTRY,
+             "basis": (f"if every add Crushing Fear kills dies beside the boss (the presets hold no data on where adds die; "
+                       f"Herald of Plague's reading): min({kills:.3f} add kills a second, {uses:.2f} uses a second "
+                       f"({how})) = {rate:.3f} Shockwaves a second x {each:,.1f} (the Strike's hit {strike_hit:,.1f} as a "
+                       f"stand-in, x{1 + CRUSHING_FEAR_POWER_MORE * CRUSHING_FEAR_ADD_POWER / 100:.2f} for a Normal add's "
+                       "Power 1). The headline keeps 0: a lone boss's only kill is its death"),
+             "play": "Crushing Fear's Shockwave needs a kill: kill the boss's adds with it beside the boss."}]
+
 
 
 # Warbringer's Ancestral Spirits (MECHB29; NOTES2 H3-2, an UNDERCOUNT). Answered Call (tree node 39411): "Trigger Ancestral
