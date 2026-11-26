@@ -1136,6 +1136,119 @@ def breach_flame_rate(skills: list[dict], chance: float = 0.0) -> tuple[float, s
     return best * scale, how
 
 
+# Walking to Flames of Chayula / Ancient Blooms (MECHC64; RESEARCH61 R61-1; builder/search/remnant_walk.py has the game
+# text and the simulations). Before, every flame and Bloom counted as collected with no walking (a likely LARGE OVERCOUNT
+# of Purple Flame stacks: a flame lands anywhere within 8.5 m of you). Now the share collected comes from the build's own
+# movement: the fight's moves a second (fight_moves: the boss's forced moves, boss_hits.red_flash_rate, plus its attacks
+# dodged by movement, ON_YOU_DODGE of the rest of its damaging uses, or the build's own dodge rolls where more), each a
+# dodge roll of the build's own length (models.dodge_roll), and its pickup radius (remnant_walk.BASE_PICKUP, UNVERIFIED,
+# x the build's "Remnants can be collected from N% further away" lines and its supports' remnant_pickup_range_+%). Play
+# strategies the search picks between (Assumptions.breach_collection): "moves" (collect on the fight's own moves, no time
+# cost), "route" (a collection walk every remnant_walk.ROUTE_EVERY s: more collected, the walking taken off every skill's
+# use rate as the forced moves are), with "none" (never collect) a row.
+BREACH_STRATEGIES = ("moves", "route")
+BREACH_WALK = os.environ.get("POE2_BREACH_WALK", "1") != "0"  # (off: every flame / Bloom collected, the old reading)
+BREACH_WALK_TAG = "BreachWalk"
+BREACH_LIFE_STAT = "base_remnant_duration_ms"
+
+
+def fight_moves(build, rolling: float = 0.0) -> tuple[float, dict, float, str]:
+    """(moves a second the fight makes you take, the build's dodge roll (models.dodge_roll), walking speed in m/s, how).
+    The moves: the boss's forced moves (boss_hits.red_flash_rate) + its other damaging uses x ON_YOU_DODGE (dodged by
+    movement: the user's 2 in 3), or the build's own dodge rolls (`rolling`, the share of the fight rolling, over the roll's
+    time) where more. The worst-case pinnacle: the real preset with the FEWEST moves (the cautious side for a gain)."""
+    from builder.search import boss_hits, bosses
+
+    stats = build.call("stats", fields=["enemySkillTime", "MovementSpeedMod"])
+    request = getattr(getattr(build, "ctx", None), "request", None)
+    if getattr(request, "boss", None):
+        stats["_boss"] = request.boss
+    texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+    roll = models.dodge_roll(texts, stats)
+    speed = BASE_RUN * (number(stats.get("MovementSpeedMod")) or 1.0)
+
+    def of(name: str, seen: dict) -> tuple[float, float, float]:
+        red = boss_hits.red_flash_rate({**seen, "_boss": name})[0]
+        scored = number(seen.get("enemySkillTime"))
+        slowed = scored / bosses.defence_hit_every(name) if scored > 0 else 1.0
+        every = bosses.USE_EVERY.get(name, 0.0) * slowed
+        dodged = (1 - boss_hits.red_use_share(name)) / every * boss_hits.ON_YOU_DODGE if every > 0 else 0.0
+        return red + dodged, red, dodged
+
+    name = boss_hits.boss_name(stats)
+    if name == boss_hits._worst() or name not in bosses.USE_EVERY:
+        rows = sorted((of(n, {**stats, "enemySkillTime": 0}), n) for n in bosses.REAL if n in bosses.USE_EVERY)
+        (total, red, dodged), name = rows[0]
+        where = (f"worst case: the real preset with the fewest, {name} (the presets give {rows[0][0][0] * 60:.1f}-"
+                 f"{rows[-1][0][0] * 60:.1f} a minute)")
+    else:
+        total, red, dodged = of(name, stats)
+        where = name
+    own = max(rolling, 0.0) / max(roll["seconds"], 0.05)
+    moves = max(total, own)
+    how = (f"{moves * 60:.1f} moves a minute ({where}: {red * 60:.1f} forced moves (red flash or ground marker) + "
+           f"{dodged * 60:.1f} attacks dodged by movement ({boss_hits.ON_YOU_DODGE:.0%} of its other damaging uses, the "
+           f"user's rate)" + (f"; your own dodge rolls {own * 60:.1f} a minute" if own > 0 else "")
+           + f"), each a {roll['metres']:.1f} m dodge roll")
+    return moves, roll, speed, how
+
+
+def remnant_reach(texts: list[str], skills: list[dict], name: str, base: float) -> tuple[float, float, str]:
+    """(pickup radius in m, reveal radius in m, how) for `name`'s Remnants: `base` x (1 + the build's pickup-range lines
+    + the skill's supports' remnant_pickup_range_+%); the 5 m reveal range scaled the same (0.5.0: "applies modifiers to
+    remnant pickup range to the range at which Flames of Chayula can be seen")."""
+    from builder.search import remnant_walk
+
+    support = max((number((s.get("supportStats") or {}).get(remnant_walk.PICKUP_STAT)) for s in skills
+                   if s.get("name") == name and not s.get("disabled")), default=0.0)
+    pct, used, skipped = remnant_walk.pickup_percent(texts, support)
+    scale = max(1 + pct / 100, 0.0)
+    how = (f"pickup radius {base * scale:.2f} m ({base:g} m base, UNVERIFIED (no source: LOW)"
+           + (f" x{scale:.2f}: {pct:+g}% from " + "; ".join(used + ([f"its supports {support:+g}%"] if support else []))
+              if pct else "") + (f"; not counted: {'; '.join(skipped)} (condition not read)" if skipped else "")
+           + f"), flames shown within {remnant_walk.REVEAL_METRES * scale:.1f} m")
+    return base * scale, remnant_walk.REVEAL_METRES * scale, how
+
+
+def remnant_life(skills: list[dict], name: str) -> float:
+    """`name`'s Remnant duration in seconds (its base_remnant_duration_ms level stat; 25 s without one)."""
+    from builder.search import remnant_walk
+
+    ms = max((number((s.get("levelStats") or {}).get(BREACH_LIFE_STAT)) for s in skills
+              if s.get("name") == name and not s.get("disabled")), default=0.0)
+    return ms / 1000 if ms > 0 else remnant_walk.LIFE_SECONDS
+
+
+def bloom_collected(build, skills: list[dict], texts: list[str]) -> tuple[float, str]:
+    """(MECHC64) (the share of Wildwood's Gifts' Ancient Blooms collected, how) for flasks.bloom_remnants: under the
+    strategy Assumptions.breach_collection chose last (build.remnant_collection), else on the fight's own moves."""
+    from builder.search import remnant_walk
+
+    if not BREACH_WALK:
+        return 1.0, "every Bloom collected (POE2_BREACH_WALK=0, the old reading)"
+    chosen = getattr(build, "remnant_collection", None) or {}
+    strategy = chosen.get("strategy", "moves")
+    moves, roll, speed, moves_how = fight_moves(build, 0.0)
+    pickup, reveal, reach_how = remnant_reach(texts, skills, flasks_mod.WILDWOOD, remnant_walk.BASE_PICKUP)
+    share = collected_share(strategy, 1 / REMNANT_SOURCES[flasks_mod.WILDWOOD][0], moves, roll, speed, pickup, reveal,
+                            remnant_life(skills, flasks_mod.WILDWOOD))[0]
+    return share, (f"{share:.0%} collected ({'a collection walk' if strategy == 'route' else 'on the fight own moves'}: "
+                   f"{moves_how}; {reach_how}; simulated, LOW: R61-1)")
+
+
+def collected_share(strategy: str, interval: float, moves: float, roll: dict, speed: float, pickup: float,
+                    reveal: float, life: float, **row) -> tuple[float, float]:
+    """(share of the Remnants collected, share of the fight walking) under `strategy` ("moves", "route", "none")."""
+    from builder.search import remnant_walk
+
+    if strategy == "none" or interval <= 0:
+        return 0.0, 0.0
+    if strategy == "route":
+        return remnant_walk.route_share(pickup, speed, interval, life)
+    return remnant_walk.incidental_share(moves, roll["metres"], pickup, reveal, interval, life, roll["seconds"],
+                                         **row), 0.0
+
+
 RESCORE_MODELS = os.environ.get("BUILDER_RESCORE_MODELS") == "1"
 
 
@@ -1192,6 +1305,7 @@ DOT_BYPASSES_ES_LINE = re.compile(r"^Damage over Time bypasses your Energy Shiel
 
 # Purple Flames of Chayula (MECHC26, G1-1): "for 8 seconds, and stacks up to 10 times" (KeywordPopups FlamesOfChayula)
 PURPLE_SECONDS, PURPLE_MAX = 8.0, 10
+PURPLE_TAG = "PurpleFlames"  # (MECHC64: the stacks line, left out of breach_collection's strategy trial)
 
 
 def purple_stacks(rate: float, seconds: float = PURPLE_SECONDS, most: int = PURPLE_MAX) -> float:
@@ -7110,6 +7224,10 @@ class Assumptions:
             elif name == BREACH:  # (MECHC60, U4: its own level's cadence and supports; scaled there)
                 rate, flames_how = breach_flame_rate(skills, chance or 0.0)
                 condition = f"{condition}; {flames_how}"
+            if name in (BREACH, flasks_mod.WILDWOOD) and (walk := self.breach_collection(skills)):
+                got = walk["share"] if name == BREACH else walk["bloom"]  # (MECHC64, R61-1: the share collected)
+                rate *= got
+                condition = f"{condition}; {got:.0%} collected ({walk['note']['label'].rstrip('*')})"
             if name != BREACH and not solved_here:  # (MECHC60: the source's own supports' additional Remnants)
                 own = LINGERING_OWN_CHANCE if name == "Lingering Illusion" else 0.0  # (already in its row's rate)
                 scale, support = support_remnant_scale(skills, name, (chance or 0.0) + own)
@@ -7342,8 +7460,11 @@ class Assumptions:
             *models.curse_gem_names(getattr(getattr(self.build, "ctx", None), "gems", None))],  # (MECH100: each curse's level cap)
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
                           models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT, models.ECHO_COUNT_STAT,
-                          EXTRA_REMNANT_STAT])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade; MECHC60: Harmonic Remnants II)
+                          EXTRA_REMNANT_STAT, "remnant_pickup_range_+%"])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade; MECHC60: Harmonic Remnants II; MECHC64: remnant_walk.PICKUP_STAT)
         mods, notes, self.extra_groups = self.models(skills)
+        self.rolling_now = min(1.0, sum(float(m.group(1)) / 100 for n in notes  # (MECHC64: fight_moves' own rolls)
+                                        if str(n.get("label", "")).startswith("Time spent dodge rolling")
+                                        and (m := re.match(r"([\d.]+)%", str(n.get("value"))))))
         explosion = next((s for s in skills if s["name"] == "Transmutation Explosion"), None)
         if explosion is not None:
             self_fed = self.main_skill() == "Transmutation Explosion" and any(
@@ -8371,6 +8492,9 @@ class Assumptions:
             # the build's Remnant multiplier lines (remnant_multiplier, as the pickup lines read them)
             multiplier, multiplier_how = remnant_multiplier(texts)
             flames, flames_how = breach_flame_rate(skills, additional_remnant_chance(texts))  # (MECHC60, U4)
+            if walk := self.breach_collection(skills):  # (MECHC64, R61-1: the share collected)
+                flames *= walk["share"]
+                flames_how += f", {walk['share']:.0%} of them collected"
             recovery.flame_income(income, {**stats, **leech_stats}, flames * multiplier,
                                   breach["remnantGain"], texts,
                                   flames_how + (f", {multiplier_how}" if multiplier_how else ""))
@@ -8799,20 +8923,138 @@ class Assumptions:
         multiplier, multiplier_how = remnant_multiplier(texts)
         shares, colour = recovery.flame_shares(texts)
         flames, flames_how = breach_flame_rate(skills, additional_remnant_chance(texts))  # (MECHC60, U4)
-        rate = flames * multiplier * shares["purple"]
+        walk = self.breach_collection(skills)  # (MECHC64, R61-1: the share collected, from the build's own movement)
+        share = walk["share"] if walk else 1.0
+        rate = flames * multiplier * shares["purple"] * share
         stacks = purple_stacks(rate)
-        configured = (build.call("getConfig").get("input") or {}).get("purpleFlameStacks")
-        pob = min(number(configured), PURPLE_MAX) if configured is not None else float(PURPLE_MAX)
-        mods = [models.raw_mod("Multiplier:PurpleFlamesCount", "BASE", stacks - pob)] if abs(stacks - pob) > 1e-9 else []
-        return mods, [{
+        pob = self.purple_pob()
+        mods = [models.raw_mod("Multiplier:PurpleFlamesCount", "BASE", stacks - pob, tag=PURPLE_TAG)] \
+            if abs(stacks - pob) > 1e-9 else []
+        if walk and walk["walk"] > 0:
+            mods.append(models.raw_mod("Speed", "MORE", -100.0 * walk["walk"], tag=BREACH_WALK_TAG))
+        notes = [{
             "label": "Into the Breach: Purple Flame stacks*", "value": f"{stacks:.2f} of {PURPLE_MAX} (PoB's default {pob:g})",
             "basis": (f"{rate:.3f} Purple Flames collected a second ({flames_how}"
-                      + (f", {multiplier_how}" if multiplier_how else "") + f"; {colour}), each stack {PURPLE_SECONDS:g} s, "
+                      + (f", {multiplier_how}" if multiplier_how else "") + f"; {colour}; {share:.0%} of them collected: "
+                      f"see 'Into the Breach: flames collected'), each stack {PURPLE_SECONDS:g} s, "
                       f"at most {PURPLE_MAX}: min({PURPLE_MAX}, {PURPLE_SECONDS:g} s x the rate), each giving PoB's 7% x Remnant "
                       "effect of damage as extra Chaos (with Choice of Power every flame is Purple: HIGH, PoB's flag)"),
-            "play": "walk onto each Purple Flame as it appears (with them: the stacks above; without: none)",
+            "play": walk["play"] if walk else "",
             "confidence": ("MEDIUM (without a Choice notable a third Purple: the user's observation from play, 16 Nov, "
-                           "MEDIUM; every flame taken as collected)")}]
+                           "MEDIUM) / LOW (the share collected: an UNVERIFIED pickup radius, simulated)")}]
+        if walk:
+            notes.append(walk["note"])
+        return mods, notes
+
+    def purple_pob(self) -> float:
+        """PoB's own Purple Flame stacks (its purpleFlameStacks config, 10 by default: ConfigOptions 474)."""
+        configured = (self.build.call("getConfig").get("input") or {}).get("purpleFlameStacks")
+        return min(number(configured), PURPLE_MAX) if configured is not None else float(PURPLE_MAX)
+
+    def breach_collection(self, skills: list[dict]) -> dict | None:
+        """(MECHC64, R61-1; BREACH_STRATEGIES' note) How the build collects Into the Breach's flames: {"strategy", "share"
+        (flames collected), "walk" (the share of the fight walking for them), "bloom" (Wildwood's Gifts' Blooms collected,
+        same strategy), "note" (the row), "play" (the play guide's line)}; None without Into the Breach or Wildwood's Gifts.
+        The strategy with the higher DPS: "moves" unless a collection walk's extra Purple stacks outweigh its walking
+        (checked by a PoB recalculation only when an upper bound of 35% damage a stack lets it)."""
+        from builder.search import recovery, remnant_walk
+
+        present = {s["name"] for s in skills if not s.get("disabled")}
+        wildwood = flasks_mod.WILDWOOD in present
+        if (BREACH not in present and not wildwood) or not BREACH_WALK:
+            return None
+        build = self.build
+        texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        if not any(remnant_walk.PICKUP_STAT in (s.get("supportStats") or {}) for s in skills):
+            skills = build.call("activeSkills", levelStats=[BREACH, flasks_mod.WILDWOOD],
+                                supportStats=[remnant_walk.PICKUP_STAT, EXTRA_REMNANT_STAT])["skills"]
+        moves, roll, speed, moves_how = fight_moves(build, number(getattr(self, "rolling_now", 0.0)))
+        name = BREACH if BREACH in present else flasks_mod.WILDWOOD
+        pickup, reveal, reach_how = remnant_reach(texts, skills, name, remnant_walk.BASE_PICKUP)
+        life = remnant_life(skills, name)
+        flames, _ = breach_flame_rate(skills, additional_remnant_chance(texts)) if BREACH in present else (0.0, "")
+        interval = 1 / flames if flames > 0 else 1 / REMNANT_SOURCES[flasks_mod.WILDWOOD][0]
+        args = (moves, roll, speed, pickup, reveal, life)
+        key = (round(interval, 2), round(moves, 2), round(roll["metres"], 1), round(speed, 1), round(pickup, 2),
+               round(life), name)
+        cached = getattr(self, "_breach_walk", None)
+        if cached and cached[0] == key:
+            return cached[1]
+        got = {s: collected_share(s, interval, *args) for s in (*BREACH_STRATEGIES, "none")}
+        strategy, why = "moves", "the fight's own moves (no walking time)"
+        if BREACH in present:
+            multiplier, _ = remnant_multiplier(texts)
+            shares, _ = recovery.flame_shares(texts)
+            purple = flames * multiplier * shares["purple"]
+            (s_m, _), (s_r, w_r) = got["moves"], got["route"]
+            st_m, st_r = purple_stacks(purple * s_m), purple_stacks(purple * s_r)
+            k = 0.35  # (an upper bound on one stack's damage: 7% x a doubled, 2.5x-effect flame)
+            if (1 - w_r) * (1 + k * st_r) > 1 + k * st_m:
+                strategy, why = self._breach_trial(st_m, st_r, w_r)
+            else:
+                why = (f"the fight's own moves: a collection walk every {remnant_walk.ROUTE_EVERY:g} s would give "
+                       f"{st_r:.2f} Purple stacks instead of {st_m:.2f} but walk {w_r:.0%} of the fight, which even at "
+                       f"{k:.0%} damage a stack loses")
+        share, walk = got[strategy]
+        bloom = None
+        if wildwood:
+            bloom_interval = 1 / REMNANT_SOURCES[flasks_mod.WILDWOOD][0]
+            bloom = collected_share(strategy, bloom_interval, *args)[0]
+        rows = [f"base pickup radius {base:g} m: {collected_share(strategy, interval, moves, roll, speed, pickup * base / remnant_walk.BASE_PICKUP, reveal, life)[0]:.0%}"
+                for base in remnant_walk.PICKUP_ROWS]
+        if strategy == "moves":
+            rows.append(f"rolls not aimed at the flames: {collected_share('moves', interval, *args, steer=False)[0]:.0%}")
+            rows.append(f"flames 5-8.5 m out (the lower spawn reading): "
+                        f"{collected_share('moves', interval, *args, ring=True)[0]:.0%}")
+        other = "route" if strategy == "moves" else "moves"
+        rows.append(f"{'a collection walk every %g s' % remnant_walk.ROUTE_EVERY if other == 'route' else 'the moves alone'}: "
+                    f"{got[other][0]:.0%} collected, {got[other][1]:.0%} of the fight walking")
+        rows.append("never collecting: 0%")
+        what = "flames" if BREACH in present else "Blooms"
+        label = "Into the Breach: flames collected*" if BREACH in present else "Wildwood's Gifts: Blooms collected*"
+        if strategy == "route":
+            play = (f"walk a route through the shown {what} every {remnant_walk.ROUTE_EVERY:g} s and back: {share:.0%} "
+                    f"collected for {walk:.0%} of the fight walking (without it: {got['moves'][0]:.0%} on your dodges alone)")
+        else:
+            play = (f"aim your dodge rolls at the nearest shown {what[:-1]}: {share:.0%} collected (without it: about "
+                    f"{collected_share('moves', interval, *args, steer=False)[0]:.0%}; a walk every "
+                    f"{remnant_walk.ROUTE_EVERY:g} s: {got['route'][0]:.0%} but {got['route'][1]:.0%} of the fight walking)")
+        note = {"label": label, "value": f"{share:.0%}" + (f" ({walk:.0%} of the fight walking)" if walk else ""),
+                "basis": (f"{what.title()} land anywhere within {remnant_walk.SPAWN_METRES:g} m of you (game text, HIGH), "
+                          f"one every {interval:.2f} s, lasting {life:g} s; 'Walking over a Remnant collects it'. Chosen: "
+                          f"{why}. {moves_how}; {reach_how}; simulated (scratch/research61's model, seeded): "
+                          f"{share:.0%}" + (f", Blooms {bloom:.0%}" if bloom is not None and BREACH in present else "")
+                          + ". Rows: " + "; ".join(rows)),
+                "confidence": "LOW (an UNVERIFIED base pickup radius; spawns spread evenly over the disc: UNVERIFIED)",
+                "play": play}
+        out = {"strategy": strategy, "share": share, "walk": walk if BREACH in present else 0.0,
+               "bloom": bloom, "note": note, "play": play}
+        self._breach_walk = (key, out)
+        build.remnant_collection = out  # (flasks.bloom_remnants reads the Blooms' share)
+        return out
+
+    def _breach_trial(self, st_moves: float, st_route: float, walk: float) -> tuple[str, str]:
+        """("moves" / "route", why) by PoB's DPS with each strategy's Purple stacks (and the route's walking as Speed MORE
+        -walk), on the previous pass's mods without this model's own."""
+        from builder.search import remnant_walk
+
+        build = self.build
+        objective = getattr(build, "objective", None)
+        if objective is None:
+            return "moves", "the fight's own moves (no objective to compare a collection walk with)"
+        pob = self.purple_pob()
+        base = [m for m in self.mods or [] if m.get("tag") not in (PURPLE_TAG, BREACH_WALK_TAG)]
+        scored = {}
+        for strategy, stacks, extra in (("moves", st_moves, []),
+                                        ("route", st_route, [models.raw_mod("Speed", "MORE", -100.0 * walk,
+                                                                            tag=BREACH_WALK_TAG)])):
+            mods = base + [models.raw_mod("Multiplier:PurpleFlamesCount", "BASE", stacks - pob, tag=PURPLE_TAG)] + extra
+            scored[strategy] = objective.dps(build.call("setAssumptions", mods=mods, fields=objective.fields)["stats"])
+        build.call("setAssumptions", mods=self.mods or [], fields=[])
+        best = max(scored, key=scored.get)
+        return best, (f"PoB's DPS with each: the fight's own moves {scored['moves']:,.0f} ({st_moves:.2f} stacks), a "
+                      f"collection walk every {remnant_walk.ROUTE_EVERY:g} s {scored['route']:,.0f} ({st_route:.2f} "
+                      f"stacks, {walk:.0%} of the fight walking)")
 
     def es_flask_income(self, income, texts: list[str], lowered: list[str]) -> float:
         """(MECHC23; AUDIT33 A33-1, an UNDERCOUNT for Energy Shield builds) Energy Shield from the Life flask under "Life

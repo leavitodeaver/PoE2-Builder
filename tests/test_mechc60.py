@@ -60,6 +60,7 @@ def test_build_11_purple_flames_reach_the_cap_with_its_support():
 
     hook = Assumptions.__new__(Assumptions)
     hook.build = Build()
+    hook.breach_collection = lambda skills: None  # (MECHC64: the share collected is test_mechc64's; every flame here)
     mods, notes = hook.purple_flames(skills)
     flames = 1 / 1.2 * 1.4 * 1.15  # (1 + 0.2 + 0.2) x 1.15
     assert assumptions.purple_stacks(flames) == 10.0
@@ -84,6 +85,7 @@ def test_remnant_supply_scales_a_supported_source_only():
     hook = Assumptions.__new__(Assumptions)
     hook.build = Build()
     hook.main_skill = lambda: None
+    hook.breach_collection = lambda skills: None  # (MECHC64: the share collected is test_mechc64's; every flame here)
     supply, used = hook.remnant_supply([skill("Frost Bomb", support=20, cooldownRecovery=1.0)], chance=0.0)
     assert supply == pytest.approx(REMNANT_SOURCES["Frost Bomb"][0] * 1.2)
     assert "+20% additional Remnants" in used[0]
@@ -210,4 +212,5 @@ def test_real_pob_gives_the_breach_level_stat_and_the_support_chance(engine):
     search.settle()
     note = next(n for n in search.assumptions.active if n["label"] == "Into the Breach: Purple Flame stacks*")
     assert "1.40 s" in note["basis"] and "+20% additional Remnants" in note["basis"]
-    assert note["value"].startswith(f"{assumptions.purple_stacks(1 / 1.4 * 1.2 / 3):.2f} of 10")
+    share = build.remnant_collection["share"]  # (MECHC64, R61-1: only the flames collected)
+    assert note["value"].startswith(f"{assumptions.purple_stacks(1 / 1.4 * 1.2 / 3 * share):.2f} of 10")

@@ -1527,6 +1527,7 @@ def test_explosive_transmutation_counts_every_remnant_source_the_build_has():
         a = Assumptions(Build())
         a.models = lambda skills: ([], [], {})
         a.ledger_conditions = lambda skills: ([], [])
+        a.breach_collection = lambda skills: None  # (MECHC64: the share collected is test_mechc64's; every flame here)
         mods, notes = a.wanted()
         return next(m["value"] for m in mods if m.get("key") == "triggerRate"), notes
 

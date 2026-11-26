@@ -1,0 +1,134 @@
+"""MECHC64: Into the Breach's flames and Wildwood's Gifts' Blooms collected only as the build's own movement allows
+(RESEARCH61 R61-1; builder/search/remnant_walk.py, assumptions.breach_collection; an OVERCOUNT before: every flame
+counted as collected with no walking)."""
+import pytest
+
+from builder.search import assumptions, remnant_walk
+from builder.search.assumptions import BREACH, Assumptions
+
+
+def test_pickup_lines_add_and_subtract_and_skip_conditions():
+    texts = ["Remnants can be collected from 50% further away", "Remnants can be collected from 20% further away",
+             "Remnants must be collected from 10% closer",
+             "Remnants can be collected from 30% further away if you have at least 100 Tribute", "Unrelated"]
+    pct, used, skipped = remnant_walk.pickup_percent(texts, support=25.0)
+    assert pct == pytest.approx(85.0) and len(used) == 3 and len(skipped) == 1
+
+
+def test_standing_still_collects_only_what_lands_in_reach():
+    """No moves: only flames spawning within the pickup radius, (r / 8.5)^2 of them (simulated: within noise)."""
+    for r in (1.0, 2.25):
+        got = remnant_walk.incidental_share(0.0, 5.8, r, 5.0, 1.21)
+        assert got == pytest.approx((r / 8.5) ** 2, abs=0.02)
+
+
+def test_more_moves_bigger_reach_and_aimed_rolls_collect_more():
+    base = remnant_walk.incidental_share(0.3, 5.8, 1.5, 5.0, 1.21)
+    assert remnant_walk.incidental_share(0.6, 5.8, 1.5, 5.0, 1.21) > base
+    assert remnant_walk.incidental_share(0.3, 5.8, 2.25, 7.5, 1.21) > base
+    assert remnant_walk.incidental_share(0.3, 5.8, 1.5, 5.0, 1.21, steer=False) < base
+    assert remnant_walk.incidental_share(0.3, 5.8, 1.5, 5.0, 1.21, ring=True) < base
+    assert 0.1 < base < 0.8
+
+
+def test_a_collection_walk_collects_most_for_a_large_share_of_the_fight():
+    """R61-1's table: a nearest-flame walk every 20 s and back, 82-88% collected for 35-40% of the fight walking."""
+    got, walk = remnant_walk.route_share(1.5, 3.7 * 1.25, 1.21)
+    assert 0.75 < got < 0.95 and 0.3 < walk < 0.45
+    assert assumptions.collected_share("none", 1.21, 0.3, {"metres": 5.8, "seconds": 0.75}, 4.6, 1.5, 5.0, 25.0) \
+        == (0.0, 0.0)
+
+
+class FakeBuild:
+    """A stand-in answering the calls breach_collection makes (the default worst-case boss)."""
+
+    def __init__(self, texts=(), speed=1.25):
+        self.texts = list(texts)
+        self.speed = speed
+
+    def call(self, method, **kw):
+        return {"sourceLines": {"lines": [{"text": t} for t in self.texts]},
+                "stats": {"MovementSpeedMod": self.speed, "enemySkillTime": 0},
+                "getConfig": {"input": {"purpleFlameStacks": 10}},
+                "activeSkills": {"skills": [{"name": BREACH, "disabled": False,
+                                             "levelStats": {"breach_flame_spawn_rate_ms": 1210}, "supportStats": {}}]}}[method]
+
+
+def hook_for(texts=()):
+    hook = Assumptions.__new__(Assumptions)
+    hook.build = FakeBuild(texts)
+    hook.mods = []
+    return hook
+
+
+def test_purple_stacks_count_only_the_flames_collected_on_the_fights_moves():
+    """A third Purple of one flame per 1.21 s: 2.2 stacks if every flame were collected (the old reading); now that x the
+    simulated share on the fight's own moves (no walking: the collection walk loses on DPS)."""
+    hook = hook_for()
+    skills = hook.build.call("activeSkills")["skills"]
+    walk = hook.breach_collection(skills)
+    assert walk["strategy"] == "moves" and walk["walk"] == 0.0 and 0.05 < walk["share"] < 0.9
+    mods, notes = hook.purple_flames(skills)
+    stacks = assumptions.purple_stacks(1 / 1.21 / 3 * walk["share"])
+    assert notes[0]["value"].startswith(f"{stacks:.2f} of 10") and stacks < assumptions.purple_stacks(1 / 1.21 / 3)
+    assert not any(m.get("tag") == assumptions.BREACH_WALK_TAG for m in mods)
+    assert notes[1]["label"] == "Into the Breach: flames collected*" and "Rows:" in notes[1]["basis"]
+    assert "without it" in notes[0]["play"]
+
+
+def test_pickup_range_lines_raise_the_share_collected():
+    skills = FakeBuild().call("activeSkills")["skills"]
+    plain = hook_for().breach_collection(skills)["share"]
+    wider = hook_for(["Remnants can be collected from 50% further away"]).breach_collection(skills)["share"]
+    assert wider > plain
+
+
+def test_remnant_supply_counts_only_the_flames_collected():
+    hook = hook_for()
+    hook.main_skill = lambda: None
+    hook.build.main_group = lambda: None
+    skills = hook.build.call("activeSkills")["skills"]
+    share = hook.breach_collection(skills)["share"]
+    supply, used = hook.remnant_supply(skills, chance=0.0)
+    assert supply == pytest.approx(1 / 1.21 * share) and "collected" in used[0]
+
+
+@pytest.fixture(scope="module")
+def engine():
+    import faulthandler
+
+    from builder.data import GameData
+
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump; run `uv run python -m builder.data dump`")
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()
+    yield PobEngine()
+    if enabled:
+        faulthandler.enable()
+
+
+def test_real_pob_into_the_breach_collects_a_share_and_the_stacks_follow(engine):
+    """Real PoB: a bare Into the Breach build collects a share of its flames (0-1, on the default boss's moves), the Purple
+    stacks follow it, and a "Remnants can be collected from 50% further away" line raises it."""
+    from test_engine_models import spark_with  # (tests/ is on sys.path under pytest)
+
+    search = spark_with(engine, [])
+    build = search.build
+    build.call("addSkillGroup", text="Into the Breach 20/0 1")
+    search.settle()
+    first = build.remnant_collection
+    note = next(n for n in search.assumptions.active if n["label"] == "Into the Breach: flames collected*")
+    print("PROBE collected", first["strategy"], first["share"], note["basis"])
+    assert first["strategy"] == "moves" and 0 < first["share"] < 1
+    ring = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Remnants can be collected from 50% further away"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    build._model_texts = (None, [])
+    search.settle()
+    print("PROBE wider", build.remnant_collection["share"])
+    assert build.remnant_collection["share"] > first["share"]

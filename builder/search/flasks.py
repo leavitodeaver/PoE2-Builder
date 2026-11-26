@@ -471,7 +471,7 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
 # Charms; Primal Blooms grant 5 Charges to all of your Mana Flasks; Wild Blooms grant 5 Charges to all of your Life Flasks"
 # (HIGH; the skill's ancient_gifts_*_charges_restored 5). One Bloom per breach_flame_spawn_rate_ms (1.4 s at level 1,
 # 1.21 s at 20; PoB's level stats via bridge.chargeGain). Which kind each Bloom is: no source gives the split, a third
-# each (LOW-MEDIUM, UNVERIFIED). Every Bloom collected (as assumptions.py's Remnants; a play note: walk to each; it clashes
+# each (LOW-MEDIUM, UNVERIFIED). (MECHC64: only the share collected, assumptions.bloom_collected, R61-1; before, every Bloom collected; it clashes
 # with standing still, labelled there). Whether "Ancient Blooms have N% increased effect" (remnant_effect_+%, 100 at level
 # 20) scales the 5: UNVERIFIED, leaning yes (RESEARCH26 R26-45 (c), MEDIUM-LOW: the game keeps
 # virtual_ancient_gifts_*_charges_restored beside the base 5s, and virtual stats hold values after modifiers; the code
@@ -499,14 +499,15 @@ def bloom_remnants(build, gain: "Charges", texts: list[str]) -> "Charges":
 
     multiplier, how = assumptions.remnant_multiplier(texts)
     chance = assumptions.additional_remnant_chance(texts)
-    skills = build.call("activeSkills", supportStats=[assumptions.EXTRA_REMNANT_STAT])["skills"]
+    skills = build.call("activeSkills", supportStats=[assumptions.EXTRA_REMNANT_STAT, "remnant_pickup_range_+%"])["skills"]
     scale, support = assumptions.support_remnant_scale(skills, WILDWOOD, chance)
-    if multiplier * scale == 1.0:
-        return gain
+    # (MECHC64, R61-1) only the Blooms the build collects: they land anywhere within 8.5 m of you (assumptions.bloom_collected)
+    collected, collected_how = assumptions.bloom_collected(build, skills, texts)
     parts = ([how] if how else []) + ([f"+{support:.0%} more from Harmonic Remnants II on Wildwood's Gifts"]
                                       if support > 0 else [])
-    return replace(gain, bloom_rate=gain.bloom_rate * multiplier * scale,
-                   bloom_how=f"x{multiplier * scale:.2f} as Remnants ({', '.join(parts)}; MEDIUM)")
+    return replace(gain, bloom_rate=gain.bloom_rate * multiplier * scale * collected,
+                   bloom_how=(f"x{multiplier * scale:.2f} as Remnants ({', '.join(parts)}; MEDIUM), " if parts else "")
+                   + collected_how)
 
 
 def bloom_fields(blooms: dict) -> dict:
@@ -530,7 +531,7 @@ def bloom_note(gain: Charges) -> str:
             + (f" ({gain.bloom_how})" if gain.bloom_how else "") + ", a third of them each kind (LOW-MEDIUM), "
             f"{gain.bloom_mana:g} charges each: {bloom_charges(gain, 'Mana'):.2f} charges/s to each Mana Flask, "
             f"{bloom_charges(gain, 'Life'):.2f} to each Life Flask, {bloom_charges(gain, 'Charm'):.2f} to each Charm, "
-            f"every Bloom collected (walk to each); {bloom_charges(gain, 'Mana', True):.2f} each if their "
+            f"{bloom_charges(gain, 'Mana', True):.2f} each if their "
             f"{gain.bloom_effect:g}% increased effect scales the charges (UNVERIFIED, leaning yes, MEDIUM-LOW: not counted)")
 
 

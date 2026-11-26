@@ -211,10 +211,13 @@ def test_ghost_dance_share_follows_the_closed_forms_at_the_ends_and_the_stock_be
     assert ghost_dance_share(0, 1.0) == 0.0 and ghost_dance_share(10.1, 0) == 0.0
 
 
-def test_blooms_take_the_remnant_multiplier_and_harmonic_remnants():
+def test_blooms_take_the_remnant_multiplier_and_harmonic_remnants(monkeypatch):
     """Wildwood's Gifts' Blooms are Remnants: +20% additional Remnants from a line and Harmonic Remnants II's 20% on
     the skill: x1.4; nothing, x1."""
+    from builder.search import assumptions
     from builder.search.assumptions import EXTRA_REMNANT_STAT
+
+    monkeypatch.setattr(assumptions, "bloom_collected", lambda build, skills, texts: (1.0, "all"))  # (MECHC64's share)
     from builder.search.flasks import Charges, bloom_remnants
 
     class Build:
@@ -243,13 +246,14 @@ def test_real_pob_blooms_take_an_additional_remnant_line(engine):
                          "Grants Skill: Level 20 Wildwood's Gifts"])
     build.call("equip", slot="Helmet", raw=mask, fields=[])
     raw = build.call("chargeGain")["blooms"]["rate"]
-    assert raw > 0 and Charges.of(build).bloom_rate == pytest.approx(raw)
+    first = Charges.of(build).bloom_rate  # (MECHC64: the share collected, assumptions.bloom_collected)
+    assert raw > 0 and 0 < first < raw
     amulet = chr(10).join(["Rarity: Rare", "Test Amulet", "Gold Amulet", "Item Level: 82", "Implicits: 0",
                            "20% chance to create an additional Remnant"])
     build.call("equip", slot="Amulet", raw=amulet, fields=[])
     build._model_texts = (None, [])  # (state.Build's per-commit text cache: a raw equip call isn't a commit)
     gain = Charges.of(build)
-    assert gain.bloom_rate == pytest.approx(raw * 1.2) and "additional Remnants" in gain.bloom_how
+    assert gain.bloom_rate == pytest.approx(first * 1.2) and "additional Remnants" in gain.bloom_how
 
 
 def test_infusion_simulation_ends_at_once_on_a_collapsed_use_rate():

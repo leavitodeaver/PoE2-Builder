@@ -3032,8 +3032,10 @@ def test_into_the_breach_reports_its_flames_leech_and_the_build_counts_it(engine
     search.settle()
     life = build.call("stats", fields=["Life"])["Life"]
     got = build.recovery_sources.get("LifeFlameLeechRecovery", 0.0)
-    print("PROBE flame life/s", got, "life", life)
-    assert got == pytest.approx(min(0.82645 / 3 * breach["remnantGain"]["FlameLife"] / 100 * life,
+    share = build.remnant_collection["share"]  # (MECHC64, R61-1: only the flames collected)
+    print("PROBE flame life/s", got, "life", life, "collected", share)
+    assert 0 < share < 1
+    assert got == pytest.approx(min(0.82645 / 3 * share * breach["remnantGain"]["FlameLife"] / 100 * life,
                                     build.call("stats", fields=["MaxLifeLeechRate"])["MaxLifeLeechRate"]), rel=0.05)
     assert "LifeFlameLeechRecovery" in recovery.FIELDS["Life"]
 
@@ -3052,8 +3054,9 @@ def test_into_the_breach_purple_flames_count_the_builds_own_stacks_not_pobs_defa
     search.settle()
     note = next(n for n in search.assumptions.active if n["label"] == "Into the Breach: Purple Flame stacks*")
     ours = build.call("stats", fields=["CombinedDPS"])["CombinedDPS"]
-    print("PROBE purple", bare, pob_default, ours, note["value"])
-    assert note["value"].startswith(f"{assumptions.purple_stacks(0.82645 / 3):.2f} of 10")
+    share = build.remnant_collection["share"]  # (MECHC64, R61-1: only the flames collected)
+    print("PROBE purple", bare, pob_default, ours, note["value"], share)
+    assert note["value"].startswith(f"{assumptions.purple_stacks(0.82645 / 3 * share):.2f} of 10")
     assert bare < ours < pob_default
     for value in (0, 10, 4):  # (the line moves PoB's count from whatever the config holds to ours)
         build.set_config({"purpleFlameStacks": value})
