@@ -763,16 +763,19 @@ def still_far(config: dict) -> bool:
 # - within the pickup radius + the 1.5 m spread: collected where you stand (melee), no walking;
 # - standing still beyond it (PoB's conditionStationary): none collected (the search's choose_stationary weighs that
 #   against moving, as for the boss-spot Infusions);
-# - moving beyond it: a walk in and back to the boss, once per Remnant life (every one standing collected each visit),
+# - moving beyond it: a play strategy, CHOSEN by the full score (the manager 26 Nov 11:47; inner.choose_remnant_walk,
+#   as the curse lapse): walk in and back to the boss once per Remnant life (every one standing collected each visit),
 #   or once per Remnant where they come slower: all collected, the walking (2 x the gap / the build's run speed, a
-#   second at the visits' rate) taken off every skill's use rate as a Speed MORE (as Into the Breach's route walk).
-# Rows: pickup radius 1.0 / 2.25 m; never collecting. POE2_TARGET_WALK=0 is the old reading (every one collected, no
-# walking).
+#   second at the visits' rate) taken off every skill's use rate as a Speed MORE (as Into the Breach's route walk); or
+#   leave them (TARGET_SKIP on the objective): none collected, no walking. The play guide gives both DPS.
+# Rows: the pickup radius rows (remnant_walk.PICKUP_ROWS); the other strategy. POE2_TARGET_WALK=0 is the old reading
+# (every one collected, no walking).
 TARGET_REMNANTS = ("Life Remnants", "Mana Remnants", KALGUUR, "Sanguine Revelry")
 TARGET_SPREAD = 1.5  # metres around the target (Rip's radius; MEDIUM)
 TARGET_LIFE = 8.0  # seconds (base_remnant_duration_ms 8000; R64-9 HIGH)
 TARGET_WALK = os.environ.get("POE2_TARGET_WALK", "1") != "0"
 TARGET_WALK_TAG = "TargetRemnantWalk"
+TARGET_SKIP = "remnant_skip"  # (the objective's flag: leave the Remnants made at the boss; inner.choose_remnant_walk)
 
 
 def target_walk(distance: float, pickup: float, speed: float, rate: float, life: float,
@@ -9554,19 +9557,33 @@ class Assumptions:
         life = min([v for v in lives if v > 0] or [TARGET_LIFE])
         speed = BASE_RUN * (number(build.call("stats", fields=["MovementSpeedMod"]).get("MovementSpeedMod")) or 1.0)
         rate = self.remnant_supply(skills, skip=tuple(n for n in REMNANT_SOURCES if n not in names), collect=False)[0]
+        skip = bool(getattr(getattr(build, "objective", None), TARGET_SKIP, False))
         key = (round(distance, 2), stationary, round(pickup, 2), round(speed, 2), round(life, 2), tuple(names),
-               round(rate, 4))
+               round(rate, 4), skip)
         cached = getattr(self, "_target_walk", None)
         if cached and cached[0] == key:
+            build.target_walk_offered = cached[1]["offered"]
             return cached[1]
         share, walk, how = target_walk(distance, pickup, speed, rate, life, stationary)
+        offered = walk > 0  # (a moving build beyond reach: walk in or leave them, the search's choice)
+        walk_how = how
+        if offered and skip:
+            share, walk, how = 0.0, 0.0, (f"you leave them (the search's choice on the full score: walking in would "
+                                          f"collect them all for {walk:.1%} of the fight; {walk_how})")
+        build.target_walk_offered = offered
         alt = [f"base pickup radius {base:g} m: {target_walk(distance, pickup * base / remnant_walk.BASE_PICKUP, speed, rate, life, stationary)[0]:.0%} collected, "
                f"{target_walk(distance, pickup * base / remnant_walk.BASE_PICKUP, speed, rate, life, stationary)[1]:.1%} walking"
                for base in remnant_walk.PICKUP_ROWS]
         what = ", ".join(names)
+        if offered:
+            alt.append("leaving them: 0%, no walking" if not skip else f"walking in: 100%, {walk_how}")
         if walk > 0:
             play = (f"walk in to the {what} at the boss about every {max(life, 1 / rate) if rate > 0 else life:.0f} s: "
-                    f"all collected for {walk:.1%} of the fight walking (without it: none collected, no walking)")
+                    f"all collected for {walk:.1%} of the fight walking (without it: none collected, no walking; the "
+                    "DPS both ways in the play notes)")
+        elif offered:
+            play = (f"leave the {what} at the boss: walking in for them costs more than their recovery gives this "
+                    "build (the DPS both ways in the play notes)")
         elif share > 0:
             play = f"fight within {pickup + TARGET_SPREAD:.1f} m of the boss to collect the {what} as they appear"
         else:
@@ -9574,13 +9591,13 @@ class Assumptions:
                     "to collect them")
         note = {"label": "Remnants made at the boss: collected*",
                 "value": f"{share:.0%}" + (f" ({walk:.1%} of the fight walking)" if walk else ""),
-                "basis": (f"{what} appear near the target (MEDIUM, R64-9: the game's convention, Rip's 1.5 m radius), "
+                "basis": (f"{what} appear near the target (MEDIUM, R64-9 / R65-20: near the enemy hit), "
                           f"{rate:.3f} a second, each lasting {life:g} s; 'Walking over a Remnant collects it'. {how}. "
-                          f"{reach_how}. Rows: " + "; ".join(alt + ["never collecting: 0%, no walking"])),
-                "confidence": "LOW-MEDIUM (where they appear: MEDIUM; the base pickup radius UNVERIFIED until the "
-                              "in-game test)",
+                          f"{reach_how}. Rows: " + "; ".join(alt + (["never collecting: 0%, no walking"]
+                                                                       if not offered else []))),
+                "confidence": "MEDIUM (where they appear and the base pickup radius: MEDIUM, R65-20 / R66-1)",
                 "play": play}
-        out = {"share": share, "walk": walk, "how": how, "note": note}
+        out = {"share": share, "walk": walk, "how": how, "note": note, "offered": offered}
         self._target_walk = (key, out)
         return out
 

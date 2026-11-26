@@ -560,6 +560,7 @@ class Search:
             "extra_stats": dict(self.build.extra_stats), "recovery_sources": dict(self.build.recovery_sources),
             "character_runes": [[k, list(v)] for k, v in sorted(self.build.character_runes.items())],
             "curse_lapse": sorted(getattr(self.build.objective, "curse_lapse", None) or ()),  # (choose_curse_lapse)
+            "remnant_skip": bool(getattr(self.build.objective, "remnant_skip", False)),  # (choose_remnant_walk)
             "infused": self.assumptions.infused, "infused_skipped": self.assumptions.infused_skipped,
             "problems": self.problems,
             "unfinished": unfinished.rows(self.build),  # (SEARCHD1 hook: what a deadline cut, carried with the line)
@@ -624,6 +625,7 @@ class Search:
         self.build.character_runes = {k: (v[0], v[1]) for k, v in state.get("character_runes") or []}  # (XML: the slots)
         if state.get("curse_lapse"):  # (models.CURSE_LAPSE = "curse_lapse": choose_curse_lapse's choice)
             self.build.objective.curse_lapse = set(state["curse_lapse"])
+        self.build.objective.remnant_skip = bool(state.get("remnant_skip"))  # (choose_remnant_walk's choice)
         self.assumptions.infused = state.get("infused")  # (the Infused set the XML calculates, at its share)
         self.assumptions.infused_skipped = dict(state.get("infused_skipped") or {})
         self.assumptions.reinstall()
@@ -1413,8 +1415,47 @@ class Search:
         changed = self.choose_stationary() or changed
         changed = self.choose_moving() or changed or self.conditions.moving != moving
         changed = self.choose_curse_lapse() or changed
+        changed = self.choose_remnant_walk() or changed
         self.weigh_life()
         return changed
+
+    def choose_remnant_walk(self) -> bool:
+        """(MECHC67, the manager 26 Nov 11:47; assumptions.TARGET_REMNANTS' note) For a moving build beyond reach of the
+        Remnants its hits make at the boss, walking in for them (their recovery, for the walking time's DPS) or leaving
+        them is a play strategy: both tried, the higher full score kept (defence floors included), ties to walking in;
+        the play note gives both DPS. True if the choice changed."""
+        from builder.search import assumptions as assumptions_module
+
+        attr = getattr(assumptions_module, "TARGET_SKIP", None)
+        if attr is None:
+            return False
+        objective = self.build.objective
+        before = bool(getattr(objective, attr, False))
+        self.play_notes.pop(attr, None)
+        if not getattr(self.build, "target_walk_offered", False):
+            if before:  # (no longer offered: back to the default)
+                setattr(objective, attr, False)
+                self.settle()
+                return True
+            return False
+        kept, kept_dps = self.build.score, objective.dps(self.build.stats)
+        setattr(objective, attr, not before)
+        self.settle()
+        trial, trial_dps = self.build.score, objective.dps(self.build.stats)
+        better = trial > kept + EPSILON  # (ties keep the current choice)
+        if not better:
+            setattr(objective, attr, before)
+            self.settle()
+        chosen = (not before) if better else before
+        walk_dps, skip_dps = (trial_dps, kept_dps) if before else (kept_dps, trial_dps)
+        self.play_notes[attr] = {
+            "label": ("Leave the Remnants made at the boss" if chosen else "Walk in for the Remnants made at the boss"),
+            "value": f"{(skip_dps if chosen else walk_dps):,.0f} DPS",
+            "basis": (f"walking in for them: {walk_dps:,.0f} DPS with their recovery; leaving them: {skip_dps:,.0f} DPS "
+                      "without it (the search's choice on the full score, defence floors included; see 'Remnants made "
+                      "at the boss: collected')"),
+            "confidence": "theory"}
+        return chosen != before
 
     def choose_curse_lapse(self) -> bool:
         """Letting a hand-cast curse run out before each recast is a play strategy (MECH75's model, models.CURSE_LAPSE;

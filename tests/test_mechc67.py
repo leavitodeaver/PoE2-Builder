@@ -98,3 +98,34 @@ def test_the_remnant_pickup_base_is_the_users_measured_2_6_m():
 
     assert remnant_walk.BASE_PICKUP == 2.6 and remnant_walk.PICKUP_ROWS == (2.4, 2.8, 3.0)
 
+
+def test_walking_in_for_remnants_at_the_boss_is_chosen_by_the_full_score():
+    """The manager 26 Nov 11:47: walk in or leave them, whichever scores higher (floors included), both DPS in the play
+    note; not offered: back to walking in."""
+    from types import SimpleNamespace
+
+    from builder.search import assumptions
+    from builder.search.inner import Search
+
+    def search(scores, offered=True):
+        objective = SimpleNamespace(dps=lambda stats: stats["dps"])
+        build = SimpleNamespace(objective=objective, target_walk_offered=offered, score=0.0, stats={})
+        s = SimpleNamespace(build=build, play_notes={})
+
+        def settle():
+            skip = bool(getattr(objective, assumptions.TARGET_SKIP, False))
+            build.score, build.stats = scores[skip], {"dps": scores[skip] * 10}
+        s.settle = settle
+        settle()
+        return s
+
+    s = search({False: 100.0, True: 120.0})  # (the walking costs more than the recovery gives)
+    assert Search.choose_remnant_walk(s) is True and getattr(s.build.objective, assumptions.TARGET_SKIP) is True
+    note = s.play_notes[assumptions.TARGET_SKIP]
+    assert note["label"].startswith("Leave") and "1,000 DPS" in note["basis"] and "1,200 DPS" in note["basis"]
+    s = search({False: 130.0, True: 120.0})  # (their recovery lifts the score: walk in)
+    assert Search.choose_remnant_walk(s) is False and not getattr(s.build.objective, assumptions.TARGET_SKIP, False)
+    assert s.play_notes[assumptions.TARGET_SKIP]["label"].startswith("Walk in")
+    s = search({False: 100.0, True: 120.0}, offered=False)
+    setattr(s.build.objective, assumptions.TARGET_SKIP, True)
+    assert Search.choose_remnant_walk(s) is True and getattr(s.build.objective, assumptions.TARGET_SKIP) is False
