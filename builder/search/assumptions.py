@@ -7854,6 +7854,9 @@ class Assumptions:
         if any(s.get("name") == models.PLAGUE_BEARER and not s.get("disabled") for s in skills):
             pb_mods, pb_notes = self.plague_bearer(mods, main)  # (GEM46: Plague Bearer's nova released full, PoB 0)
             mods, notes = mods + pb_mods, notes + pb_notes
+        if any(s.get("name") == models.VINE_ARROW and not s.get("disabled") for s in skills):
+            vine_mods, vine_notes = self.vine_plant(main)  # (GEM46, R63-2: the Poisoned plant's vines, PoB 0)
+            mods, notes = mods + vine_mods, notes + vine_notes
         boost_mods, boost_notes = self.kalguur_boost(skills, main)  # (MECHC51: FIST_OF_KALGUUR's note)
         mods, notes = mods + boost_mods, notes + boost_notes
         r_mods, r_notes = self.kalguur_rune(boost_mods, main, skills)  # (MECHB53: its runes' Aftershock, always rated)
@@ -8076,6 +8079,60 @@ class Assumptions:
         return models.plague_bearer_model(models.Skill.of(buff), nova_skill, poison, group=buff["group"], radius=radius,
                                           area_in=area_in, distance=distance, boss_radius=boss_radius,
                                           at_target=at_target, forbidden=set(build.ctx.request.forbid_ledger_entries))
+
+    def vine_plant(self, main: str | None) -> tuple[list[dict], list[dict]]:
+        """(GEM46, R63-2) Vine Arrow's plant Poisoned by the build's clouds (models.vine_plant_model): Vine Arrow's plants
+        a second (its Speed as the main skill, else the search's chosen presses), their duration and Limit; each Gas
+        Arrow / Gas Grenade group's one cloud Poison (its Poison Cloud set's PoisonDPS per stack, setRates) and how much
+        of the fight a cloud stands (clouds a second x a cloud's life)."""
+        build = self.build
+        groups = [g for g in build.groups() if g.get("enabled", True)]
+        vine_group = next((g for g in groups if any(k["name"] == models.VINE_ARROW for k in g["skills"])), None)
+        if vine_group is None:
+            return [], []
+        main_group = build.main_group() or {}
+        choices = models.press_choices(build)
+        raw = build.call("activeSkills", levelStats=[models.VINE_ARROW])["skills"]
+        vine = next((s for s in raw if s["name"] == models.VINE_ARROW and s.get("group") == vine_group["index"]), None)
+        if vine is None:
+            return [], []
+        stats = vine.get("levelStats") or {}
+
+        def uses(group: dict, name: str) -> tuple[float, dict]:
+            position = next((i for i, k in enumerate(group["skills"], start=1) if k["name"] == name), 1)
+            row = (build.call("useRates", indices=[group["index"]], actives=[position])["rates"] or [{}])[0]
+            if group["index"] == main_group.get("index"):
+                return number(build.call("stats", fields=["Speed"]).get("Speed")), row
+            # (a pressed side group: the press model's rate, its Full DPS scale x PoB's nonstop speed; the search's
+            # chosen rate where it set one)
+            chosen = models.press_choice(row, choices)
+            if chosen is not None:
+                return number(chosen), row
+            scale = (getattr(build.objective, "press_scales", None) or {}).get(name)
+            return (number(scale) * number(row.get("speed")) if group.get("fullDPS") and scale is not None else 0.0), row
+        plants, vine_row = uses(vine_group, models.VINE_ARROW)
+        plant_seconds = number(vine_row.get("duration")) or 8.0
+        clouds = []
+        for group in groups:
+            name = next((k["name"] for k in group["skills"] if k["name"] in models.VINE_CLOUDS), None)
+            if name is None:
+                continue
+            rate, row = uses(group, name)
+            position = next(i for i, k in enumerate(group["skills"], start=1) if k["name"] == name)
+            sets = build.call("setRates", index=group["index"], active=position)["sets"]
+            cloud = next((s for s in sets if s.get("label") == "Poison Cloud"), {})
+            limit, seconds = self.set_limit_and_duration(group, sets, models.LIMIT_SET[name],
+                                                         *((models.GAS_CLOUD_LIMIT, models.GAS_CLOUD_SECONDS)
+                                                           if name == models.GAS_ARROW
+                                                           else models.GAS_GRENADE_CLOUD[name]))
+            stacks = min(number(cloud.get("PoisonStackPotential")) * number(cloud.get("PoisonStacksMax")),
+                         number(cloud.get("PoisonStacksMax"))) or 1.0
+            one = number(cloud.get("PoisonDPS")) / stacks
+            clouds.append((name, one, rate * models.gas_cloud_life(rate, limit, seconds)))
+        poison_limit = number(build.call("stats", fields=["PoisonStacksMax"]).get("PoisonStacksMax")) or 1.0
+        return models.vine_plant_model(number(stats.get(models.VINE_STORED)), number(stats.get(models.VINE_LIMIT)) or 1.0,
+                                       plants, plant_seconds, clouds, poison_limit=poison_limit,
+                                       forbidden=set(build.ctx.request.forbid_ledger_entries))
 
     def ward_paid(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Runic Ward pays for the Ward-cost skills (MECHB13, models.ward_plan): every Ward-cost skill the build uses

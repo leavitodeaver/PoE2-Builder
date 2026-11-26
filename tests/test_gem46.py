@@ -111,3 +111,24 @@ def test_plague_bearer_nothing_stored_or_out_of_reach_deals_nothing():
     assert any(m.get("key") == "PhysicalMin" and m["value"] == 15257 for m in mods)
     _, notes = models.plague_bearer_model(buff, nova, 10_000.0, forbidden={models.PLAGUE_ENTRY})
     assert notes[0]["value"] == "not counted"
+
+
+def test_vine_plant_counts_half_a_cloud_poison_per_plant_while_a_cloud_covers_it():
+    # (R63-2: 50% of ONE cloud Poison's DPS, a plant by the boss, the cloud over it 80% of the fight)
+    mods, notes = models.vine_plant_model(-50, 1, 0.25, 8.0, [("Gas Arrow", 1000.0, 0.8)], poison_limit=3)
+    assert models.added_total(mods) == pytest.approx(0.5 * 1000 * 1 * 0.8)
+    assert notes[0]["entry"] == models.VINE_ENTRY and "+1,200" in notes[0]["basis"]  # (the Poison-limit row: x3)
+    # (Q20: -40, 60%; two plants a Limit of 2 kept up by 0.25 presses a second of 8 s)
+    mods, _ = models.vine_plant_model(-40, 2, 0.25, 8.0, [("Gas Grenade", 1000.0, 1.5)])
+    assert models.added_total(mods) == pytest.approx(0.6 * 1000 * 2 * 1.0)
+    # (fewer presses than the Limit allows: plants a second x 8 s)
+    mods, _ = models.vine_plant_model(-50, 3, 0.125, 8.0, [("Gas Arrow", 1000.0, 1.0)])
+    assert models.added_total(mods) == pytest.approx(0.5 * 1000 * 1.0)
+
+
+def test_vine_plant_without_a_cloud_or_a_plant_deals_nothing():
+    mods, notes = models.vine_plant_model(-50, 1, 0.25, 8.0, [])
+    assert mods == [] and notes[0]["value"] == "0" and "no Poison Cloud" in notes[0]["basis"]
+    mods, notes = models.vine_plant_model(-50, 1, 0.0, 8.0, [("Gas Arrow", 1000.0, 1.0)])
+    assert mods == [] and "no plant" in notes[0]["basis"]
+    assert models.vine_plant_model(-50, 1, 0.25, 8.0, [("Gas Arrow", 1000.0, 1.0)], forbidden={models.VINE_ENTRY}) == ([], [])

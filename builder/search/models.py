@@ -13692,6 +13692,63 @@ def added_total(mods: list[dict]) -> float:
     return sum(m["value"] for m in mods if m.get("kind") == "Derived" and m.get("fn") in ADDED_FNS) / 100
 
 
+# Vine Arrow's Poisoned plant (GEM46; RESEARCH63 R63-2, research/vine-arrow-poisoned-plant-r63.md; an UNDERCOUNT: PoB
+# maps nothing to the stat). The game (26650308, vine_arrow/statset_1.csd): "[Poison|Poisoning] the plant causes it to
+# deal additional [Chaos] Damage per second equal to {0}% of [Poison] Damage per second" from
+# poison_vine_arrow_vine_stored_poison_damage_+%_final, -50 on the Vines set (+0.5 a quality point): 100 + it = 50%
+# (60% at Q20). No burst: continuous, dealt by the vines while the plant is Poisoned (HIGH); the vines reach enemies
+# within 2.4 m of the plant (the play: plant it at the boss). The plant is Poisoned by your Poison only from non-hit
+# sources (0.1.1c: plants take no damage from hits; 0.3.1: "can now only take poison damage from allies"), above all a
+# Poison Cloud standing over it (R62-6: every cloud re-applies Poison to what stands in it; MEDIUM-LOW). So:
+# added DPS = k x P x n x c, k the stat's share; P ONE cloud Poison's DPS (PoB's Poison Cloud set PoisonDPS per stack:
+# the build's Poison modifiers and the boss's Chaos resistance in, which the vines' Chaos damage meets as well; the
+# plant's own resistances unknown: none); n the plants by the boss, min(the build's plant Limit
+# (number_of_vine_arrow_pod_allowed), plants a second x their 8 s duration) (the search's chosen Vine Arrow presses, or
+# its Speed as the main skill: CLAUDE.md, the build's own rate); c the share of the fight a cloud stands over them, min(1,
+# clouds a second x a cloud's life) for the build's Gas Arrow / Gas Grenade (main, or pressed at the search's rate;
+# the best one). Headline: one Poison on the plant (R63-2: "only 1 stack", Dec 2024, hedged); rows: up to the build's
+# Poison limit, scaled again by the vines' own modifiers (UNVERIFIED), capped at the visual maximum (UNVERIFIED). No cloud
+# source: 0, with a note (CLAUDE.md: no flat rate). Not read (named): other cloud sources (the Sniper's, Decompose,
+# cloud supports), which would Poison the plant the same way. Counted as an added source (models.added_input, fixed at
+# the resolve). MEDIUM-LOW.
+VINE_ARROW = "Vine Arrow"
+VINE_STORED = "poison_vine_arrow_vine_stored_poison_damage_+%_final"
+VINE_LIMIT = "number_of_vine_arrow_pod_allowed"
+VINE_ENTRY = "model-gem46-vine-arrow-poisoned-plant"
+VINE_CLOUDS = {"Gas Arrow": GAS_CLOUD_SECONDS, "Gas Grenade": GAS_GRENADE_CLOUD["Gas Grenade"][1]}
+
+
+def vine_plant_model(stored: float, limit: float, plants: float, plant_seconds: float, clouds: list[tuple[str, float, float]],
+                     *, poison_limit: float = 1.0, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """Vine Arrow's plant Poisoned by your clouds (see above). `stored` the stat (-50), `limit` the plant Limit, `plants`
+    plants made a second, `plant_seconds` their duration; `clouds` [(skill, one Poison's DPS, clouds a second x a cloud's
+    life)] for the build's cloud skills; `poison_limit` the build's Poison limit (the row)."""
+    label = f"{VINE_ARROW}'s Poisoned plant*"
+    if VINE_ENTRY in forbidden:
+        return [], []
+    k = max(0.0, 100 + stored) / 100
+    n = min(max(limit, 1.0), max(plants, 0.0) * max(plant_seconds, 0.0))
+    live = [(name, p, min(1.0, max(c, 0.0))) for name, p, c in clouds if p > 0 and c > 0]
+    if not live or n <= 0 or k <= 0:
+        why = ("no Poison Cloud skill in the build (Gas Arrow / Gas Grenade read; the Sniper's, Decompose and cloud "
+               "supports not read): nothing Poisons the plant (hits can't since 0.1.1c / 0.3.1)" if not live else
+               f"{VINE_ARROW} makes no plant at the boss (no presses chosen)")
+        return [], [{"label": label, "value": "0", "confidence": "MEDIUM-LOW", "entry": VINE_ENTRY, "basis": why,
+                     "play": "drop Vine Arrow in your Poison cloud at the boss: the Poisoned plant's vines deal "
+                             f"{k:.0%} of the Poison's damage again"}]
+    name, p, cover = max(live, key=lambda x: x[1] * x[2])
+    dps = k * p * n * cover
+    return [added_input("VinePlant", dps)], [{
+        "label": label, "value": f"+{dps:,.0f} DPS", "confidence": "MEDIUM-LOW", "entry": VINE_ENTRY,
+        "basis": (f"the vines deal {k:.0%} of the plant's Poison DPS again while it is Poisoned (RESEARCH63 R63-2, HIGH); "
+                  f"{name}'s cloud Poisons it (MEDIUM-LOW: plants take only allied Poison, not hits): one Poison "
+                  f"{p:,.0f} DPS (PoB's, the boss's Chaos resistance in), {n:.2f} plants by the boss (Limit {limit:g}), a "
+                  f"cloud over them {cover:.0%} of the fight. Rows: up to the Poison limit ({poison_limit:g}) on the plant "
+                  f"+{dps * max(poison_limit, 1.0):,.0f}; scaled again by the vines' modifiers (UNVERIFIED); a cap at the "
+                  "visual maximum (UNVERIFIED)"),
+        "play": f"drop Vine Arrow inside your {name} cloud at the boss and keep the cloud over it"}]
+
+
 # Warbringer's Ancestral Spirits (MECHB29; NOTES2 H3-2, an UNDERCOUNT). Answered Call (tree node 39411): "Trigger Ancestral
 # Spirits when you Summon a Totem"; ActiveSkills ancestral_spirits: "Triggered each time you summon a Totem, summoning an
 # Ancestral Spirit Minion to fight for you. If the Totem dies then the Ancestral Spirit triggered by it's summoning will

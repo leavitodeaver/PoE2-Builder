@@ -25,3 +25,28 @@
             "https://poe2db.tw/us/Plague_Bearer", "patch notes 0.2.0, 0.2.0g, 0.4.0b (grep_notes --history 'Plague Bearer')"]
   test_in_game: "Not asked: whether the nova's hit is scaled by damage modifiers stays a RESEARCH question (row)."
   status: proposed
+
+- id: model-gem46-vine-arrow-poisoned-plant
+  title: "Vine Arrow's plant Poisoned by your Poison clouds: its vines deal 50% (60% at Q20) of that Poison's DPS again"
+  kind: model
+  model: vine_plant
+  stats: ["poison_vine_arrow_vine_stored_poison_damage_+%_final"]
+  skill: [Vine Arrow]
+  confidence: MEDIUM-LOW
+  notes: >-
+    RESEARCH63 R63-2 (research/vine-arrow-poisoned-plant-r63.md): "[Poison|Poisoning] the plant causes it to deal
+    additional [Chaos] Damage per second equal to {0}% of [Poison] Damage per second" (vine_arrow/statset_1.csd, 26650308;
+    -50 on the Vines set, +0.5 a quality point): continuous, no burst (HIGH). The plant takes only allied Poison, not
+    hits (0.1.1c, 0.3.1), so a Poison Cloud standing over it Poisons it (MEDIUM-LOW). models.vine_plant_model: k x one
+    cloud Poison's DPS (PoB's Poison Cloud set, per stack) x the plants by the boss (min(Limit, plants a second x their
+    duration)) x the share of the fight a cloud covers them (clouds a second x a cloud's life), for the build's Gas Arrow
+    / Gas Grenade; an added source. No cloud source: 0 with a note. Rows: up to the Poison limit on the plant; scaled again
+    by the vines' modifiers; a cap at the visual maximum (all UNVERIFIED). Not read: the Sniper's clouds, Decompose, cloud
+    supports. PoB maps nothing to the stat (act_dex.lua 10185-10345). Probe POE2T9722 (scratch/gem46/probe_vine.log; a level-90
+    Gas Arrow skeleton + Vine Arrow 20 in Full DPS): one cloud Poison 41 DPS, the cloud over the plant all fight; pressed
+    once per its 8 s plant (the press model's rate): 1 plant, 59.0 -> 78.1 (+21); pressed 0.25 a second by hand: 2 plants,
+    57.6 -> 95.8 (+41).
+  sources: ["builder/search/models.py (vine_plant_model)", "builder/search/assumptions.py (Assumptions.vine_plant)",
+            "research/vine-arrow-poisoned-plant-r63.md"]
+  test_in_game: "R63-2's morning question only if a returned build rides on it."
+  status: proposed
