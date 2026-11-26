@@ -2166,7 +2166,11 @@ class Gear:
           NATURAL_SOCKET_PREMIUM and the item + NATURAL_SOCKET_FLAT (R51-5, LOW-MEDIUM);
         - "corrupted": socketLimit, that copy Vaal-corrupted for the socket: (the copy + a Vaal Orb) / CORRUPT_SOCKET_CHANCE
           (MEDIUM-LOW odds; the upper bound, no resale of a miss). The item is Corrupted after: no rune NOT_IN_SEALED can
-          go in (RuneCatalog.candidates reads the line), and none already chosen may be one (the route is skipped).
+          go in (RuneCatalog.candidates reads the line). Its bound runes go in BEFORE the Vaal Orb, so one of them may be
+          NOT_IN_SEALED (SEARCHC7; before, such an item never got the route: an UNDERCOUNT): 0.5.4 blocks only socketing
+          INTO a Corrupted item ("can no longer be socketed into Augment Sockets on Corrupted or Sanctified items"), and
+          the user's listing (24 Nov, memory mod-coexistence-rules) is a corrupted staff holding Passion of Aldur;
+          legality.check reads the route's order the same way. The route's note says the order.
         Rares and normal items only (a unique's own sockets: own_sockets; its corruption is cultivated.py's); not in SSF
         (nothing is priced) nor for an unpriced item. Each route's sockets are filled from scratch (socketed with the
         route's count) and the route is kept when its score, less lam x its extra price, beats the item as filled."""
@@ -2182,11 +2186,14 @@ class Gear:
                    f"buy a copy that dropped with {base['socketLimit'] - 1} sockets (one more than an Artificer's Orb "
                    f"gives; priced at the item x{NATURAL_SOCKET_PREMIUM:g} or + {NATURAL_SOCKET_FLAT:g} div, the higher: "
                    f"R51-5's trade pairs, LOW-MEDIUM)")]
-        if vaal is not None and not any(n in NOT_IN_SEALED for n in filled.bound):
+        if vaal is not None:
+            sealed = [n for n in filled.bound if n in NOT_IN_SEALED]
             routes.append(("corrupted", base["socketLimit"], (natural + vaal) / CORRUPT_SOCKET_CHANCE,
                            f"that {base['socketLimit'] - 1}-socket copy corrupted with a Vaal Orb for one more socket "
                            f"(about {CORRUPT_SOCKET_CHANCE:.0%} a try, MEDIUM-LOW; a miss costs the copy: "
-                           f"(copy + Vaal Orb) / {CORRUPT_SOCKET_CHANCE:g})"))
+                           f"(copy + Vaal Orb) / {CORRUPT_SOCKET_CHANCE:g})"
+                           + (f". Socket {', '.join(sealed)} BEFORE the Vaal Orb: it can't go into a Corrupted item "
+                              f"(0.5.4)" if sealed else "")))
         best, best_value = filled, self.adjusted(build.item_deltas([{"slot": slot, "raw": filled.raw}])[0][0], filled)
         for route, sockets, price, note in routes:
             if clock.now() > deadline or price > self.left_for(slot) + 1e-9:

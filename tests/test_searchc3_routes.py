@@ -606,6 +606,25 @@ def test_a_corrupted_socket_keeps_the_horror_items_dps_factor_and_says_the_order
         assert any(f"Use the {HORROR} BEFORE the Vaal Orb" in row for row in out.craft_route)
 
 
+def test_a_bound_rune_kept_out_of_corrupted_items_still_gets_the_corrupted_socket_route(engine, monkeypatch):
+    """(SEARCHC7) Serle's Triumph (NOT_IN_SEALED, socket-bound) socketed before the Vaal Orb stays (0.5.4 blocks only
+    socketing INTO a Corrupted item; legality reads the route's order so): the corrupted route is tried, its note says the
+    order, and the copy keeps the bound rune first. Before, any such bound rune skipped the route (an UNDERCOUNT)."""
+    ctx, gear, base, level, chosen, _ = horror_full_case(engine)
+    ctx.payload["cultivation_prices"] = {"vaal": 0.01}
+    raw = with_runes(rare_text("Gloves", base, level, chosen), [SERLE])
+    filled = ItemOption("Rare Gloves", base["name"], "Gloves", None, raw, False, 5.0, "x", 1, rare=True,
+                        runes=(SERLE,), bound=(SERLE,), craft_route=("route",))
+    tried: list = []
+    real = gear.socketed
+    monkeypatch.setattr(gear, "socketed", lambda slot, option, *a, **k: tried.append(option) or real(slot, option, *a, **k))
+    gear.extra_socket_trial("Gloves", filled, base, socket_count(base, False), clock.now() + 120)
+    corrupted = [o for o in tried if "Corrupted" in o.raw]
+    assert corrupted, "the corrupted route was tried"
+    assert all(o.runes[:1] == (SERLE,) for o in corrupted)
+    assert any(f"Socket {SERLE} BEFORE the Vaal Orb" in row for o in corrupted for row in o.craft_route)
+
+
 def astrid_case(engine):
     from builder.search.gear import affix_limits
 
