@@ -94,12 +94,40 @@ PRESS_RATES = (0.0, 0.25, 0.5, 1.0, 2.0)
 # barrage_model (its 0.7 s cast in the cycle), Inevitable Agony's press, repulsion_wave, the minion Commands (COMMANDS)
 # and djinn Commands (DJINN_COMMANDS), Dark / Abyssal Pact's casts, Incinerate's channel; and every press a model put on
 # build.item_presses): curses (AppliesCurse), Marks, Warcries, the named skills (upkeep_charged_elsewhere), the
-# models' own presses, and persistent / triggered skills (not buttons). Totems are left out too: no model found
-# that charges a totem's placement time (UNVERIFIED; left as before, a question for MECH-B). POE2_SEARCH_UPKEEP=0: off.
+# models' own presses, and persistent / triggered skills (not buttons). POE2_SEARCH_UPKEEP=0: off.
+# (SEARCH42, AUDIT40 A40-52: SEARCH41 left totems out on an UNVERIFIED reading, the same overcount as Thunderstorm's) A
+# side totem is charged too: no model charges its placement (checked: models.py / assumptions.py / conditions.py on
+# e2a9f00e and on origin/main b9c941b2 and mech2 for "placement", "place_time", "TotemPlacement", "placing", "busy":
+# totem_count_model and the "Totems other than Spell Totem" note say "placing them isn't taken from your time", the
+# Splinter model's place_time is the totem's own cycle, totem_model charges a Spell Totem's charges, not time; the
+# TotemPlacementSpeed lines are speed mods only; MECHB69's totem question still open with MECH-B). Its use: one totem
+# kept placed (as totem_deaths and totem_count_model take each side totem skill: KeywordPopups Totem, the shared
+# limit), re-placed as it expires: once per its totem duration (useRates totemDuration, PoB's TotemDuration with the
+# build's modifiers), each placement the player's PoB TotemPlacementTime (useRates totemPlacementTime: the base
+# placement time with the build's placement and action speed; CalcOffence 1918-1925). A main-group totem is the damage
+# itself, never charged here; a side totem with no duration or placement time read: not charged, as before.
 UPKEEP_PRESS = os.environ.get("POE2_SEARCH_UPKEEP", "1") != "0"
-UPKEEP_TYPES_CHARGED = frozenset({"AppliesCurse", "Mark", "Warcry", "SummonsTotem", "Totem"})
+UPKEEP_TYPES_CHARGED = frozenset({"AppliesCurse", "Mark", "Warcry"})
 UPKEEP_MOST = 0.9  # the most of the fight upkeep may take (as models.WARCRY_PRESS_MOST)
 DISTANCE_SETTLES = 4  # (SEARCH41) settle rounds per boss-distance candidate at most (Search.choose_distance)
+
+
+def totem_row(row: dict) -> bool:
+    """A useRates row whose skill the player places as a totem (the bridge read a TotemPlacementTime for it)."""
+    return number(row.get("totemPlacementTime")) > 0
+
+
+def upkeep_use(row: dict) -> tuple[float, str, float]:
+    """(uses a second, how, the player's seconds a use) of a kept-up side skill (UPKEEP_PRESS's note): a totem placed
+    once per its totem duration, each placement its TotemPlacementTime; else press_use_rate with no chosen rate (on its
+    cooldown, else once per its duration) and press_action's seconds."""
+    if totem_row(row):
+        lasts, place = number(row.get("totemDuration")), number(row.get("totemPlacementTime"))
+        if lasts <= 0:
+            return 0.0, "no totem duration read: not charged", 0.0
+        return 1.0 / lasts, f"once per its {lasts:.2f} s totem duration (one totem kept placed)", place
+    uses, how, _ = press_use_rate(row, None)
+    return uses, how, press_action(row)
 
 
 def upkeep_charged_elsewhere() -> frozenset[str]:
@@ -721,7 +749,10 @@ class Search:
         for row in build.call("useRates", indices=sorted(where))["rates"]:
             if row.get("index") not in where or number(row.get("speed")) <= 0:
                 continue
-            if number(row.get("cooldown")) <= 0 and number(row.get("duration")) <= 0:
+            if totem_row(row):
+                if number(row.get("totemDuration")) <= 0:
+                    continue  # (a totem with no duration read: no data sets how often it is placed)
+            elif number(row.get("cooldown")) <= 0 and number(row.get("duration")) <= 0:
                 continue  # (no data sets its use: the press round's choice, press_candidates)
             label = str(row.get("name") or "")
             name = next((n for n in where[row["index"]]
@@ -763,8 +794,7 @@ class Search:
                 score, dps = self._rescore(), build.objective.dps(build.stats)
                 build.set_group(index=row["index"], enabled=True)
                 if score < base - EPSILON:
-                    uses, how, _ = press_use_rate(row, None)
-                    seconds = press_action(row)
+                    uses, how, seconds = upkeep_use(row)
                     if uses > 0 and seconds > 0:
                         self.upkeep_rows[name] = {"row": row, "uses": uses, "seconds": seconds, "how": how, "without": dps}
             # (the guide's "without it": the skill off with the OTHER kept-up skills' casts still charged)

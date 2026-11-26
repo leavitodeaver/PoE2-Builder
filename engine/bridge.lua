@@ -5482,6 +5482,10 @@ function bridge.useRates(args)
 				-- (MECHB40: models.tawhoa_model) a totem skill's totem's Life with the build's modifiers (PoB's TotemLife,
 				-- CalcOffence 1944-1945: the ally life table x the totem's multiplier x TotemLife inc / more)
 				totemLife = type(output.TotemLife) == "number" and jsonNumber(output.TotemLife) or nil,
+				-- (SEARCH42, AUDIT40 A40-52: inner.upkeep_candidates) the player's time to place one totem: PoB's
+				-- TotemPlacementTime (CalcOffence 1918-1925: 1 / (the base Totem / Ballista placement time's speed x
+				-- TotemPlacementSpeed inc / more x ActionSpeedMod))
+				totemPlacementTime = type(output.TotemPlacementTime) == "number" and jsonNumber(output.TotemPlacementTime) or nil,
 				-- (MECHB39: models.duration_press_rate) a Projectile skill's Duration is its projectiles' life, not a
 				-- thing kept up: pressing again adds projectiles
 				projectile = (skill.skillTypes and skill.skillTypes[SkillType.Projectile]) and true or nil,
