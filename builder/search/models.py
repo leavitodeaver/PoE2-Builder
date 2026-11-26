@@ -8097,7 +8097,7 @@ def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | No
               "stays")
     cap = number(bomb.level_stats.get(FROST_BOMB_LEVEL_STAT))
     if 0 < cap < 100 and boss_level > cap:
-        return [raw_mod("DebuffEffect", "MORE", -100, FROST_BOMB)], [{
+        return [raw_mod("DebuffEffect", "MORE", -100, FROST_BOMB, tag=FROST_BOMB_ENTRY)], [{
             "label": label, "value": "none", "confidence": "HIGH", "entry": FROST_BOMB_ENTRY,
             "basis": (f"Frost Bomb at this gem level cannot apply Exposure to enemies above level {cap:g}; the boss is "
                       f"level {boss_level} (PoB applies it at every level). Gem level 18 lifts the cap"),
@@ -8120,7 +8120,48 @@ def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | No
             "entry": FROST_BOMB_ENTRY, "basis": basis, "play": play}
     if abs(factor - 1.0) < 1e-9:
         return [], [note]
-    return [raw_mod("DebuffEffect", "MORE", 100 * (factor - 1), FROST_BOMB)], [note]
+    return [raw_mod("DebuffEffect", "MORE", 100 * (factor - 1), FROST_BOMB, tag=FROST_BOMB_ENTRY)], [note]
+
+
+# (GEM48; the GEM48 brief's item 2, example build 7: more Frost Bomb Exposure gave LESS damage) Where the orb goes is the
+# player's choice. A main hit that treats the boss's Elemental Resistances as inverted (Rakiata's Flow's
+# support stat, mapped to HitsInvertEleResChance at SkillStatMap.lua 966; item lines "Hits have N% chance to treat Enemy
+# Monster Elemental Resistance values as inverted", ModParser 2631 / 3792) gains from the boss's resistance: PoB inverts
+# the resistance after Exposure lowers it (CalcOffence 4133 calcResistForType, then 4180-4207's invert / penetration;
+# Exposure reaches the boss as enemy <Element>Resist BASE -magnitude, CalcPerform 3426). So on b07's Comet (100% inverted
+# by Rakiata's Flow) the 45% preset boss pays x1.45 without Frost Bomb, x1.35 with PoB's 20% (halved on a Unique: -10),
+# x1.27 with the model's 36% (POE2T9769 / 9770, scratch/gem48/probe_b07exp.log). That order (Exposure before the
+# inversion) is PoB's code alone: the game files hold no "inverted" definition (checked: KeywordPopups 26650308 has none;
+# poe2db's Rakiata's Flow page gives only the gem text; poe2wiki was unreadable; the patch notes have no "invert" entry
+# on resistances): UNVERIFIED, a RESEARCH question. A player whose Exposure costs damage casts the orb away from the
+# boss (at their own feet: its Remnant still made; its Detonation's Chill on the boss lost, which no condition reads
+# from Frost Bomb today), so when Frost Bomb's own hits aren't
+# scored (not the main skill, not in Full DPS) Assumptions.frost_bomb_spot scores both spots, Exposure on the boss and
+# none, and keeps the better one (a play strategy, the no-flat-rates rule's "the search picks a source on purpose").
+# Frost Bomb's Remnant at the boss (MECHC33's BOSS_SPOT_INFUSIONS) isn't moved to the player's feet by the away choice:
+# an undercount at most, routed to MECH-C.
+FROST_BOMB_SPOT_LABEL = "Frost Bomb: where to cast it*"
+
+
+def frost_bomb_away_mods() -> list[dict]:
+    """Frost Bomb's Exposure kept off the boss (the orb cast away from it): none of its Debuff."""
+    return [raw_mod("DebuffEffect", "MORE", -100, FROST_BOMB, tag=FROST_BOMB_ENTRY)]
+
+
+def frost_bomb_spot_note(at_boss: float, away: float, chosen: str) -> dict:
+    """The play-strategy note for Assumptions.frost_bomb_spot: the objective's DPS at each spot."""
+    away_better = chosen == "away"
+    return {"label": FROST_BOMB_SPOT_LABEL, "value": "away from the boss" if away_better else "at the boss",
+            "confidence": "MEDIUM", "entry": FROST_BOMB_ENTRY,
+            "basis": (f"Scored both ways: its Exposure on the boss {at_boss:,.0f} DPS, the orb cast away from the boss (no "
+                      f"Exposure from it) {away:,.0f} DPS. " + (
+                          "Your main hit treats the boss's Elemental Resistances as inverted, so lowering them costs "
+                          "damage (PoB inverts the resistance after Exposure: UNVERIFIED in the game's own text)"
+                          if away_better else "Its Exposure on the boss pays")),
+            "play": (("Cast Frost Bomb at your own feet, away from the boss: its Exposure would lower the boss's "
+                      "resistance, which your inverted hits turn into damage. ") if away_better else
+                     "Cast Frost Bomb at the boss. ") + (
+                f"Without its Exposure on the boss: {away:,.0f} DPS; with it: {at_boss:,.0f} DPS.")}
 
 
 def frost_bomb_groups(skills: list[Skill]) -> set[int]:

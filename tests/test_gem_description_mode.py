@@ -551,7 +551,7 @@ def test_frost_bombs_exposure_stops_above_its_level_cap_and_follows_its_casts():
     main = Skill("Frostbolt", 1, spell=True)
     groups = {2: {"index": 2, "name": "Frost Bomb", "speed": 1 / 6, "_press": None}}
     mods, notes = models.frost_bomb_exposure_model([main, low], {"Speed": 2.0}, main, groups, boss_level=82)
-    assert mods == [models.raw_mod("DebuffEffect", "MORE", -100, "Frost Bomb")] and notes[0]["value"] == "none"
+    assert mods == [models.raw_mod("DebuffEffect", "MORE", -100, "Frost Bomb", tag=models.FROST_BOMB_ENTRY)] and notes[0]["value"] == "none"
     high = Skill("Frost Bomb", 2, spell=True, level_stats={models.FROST_BOMB_LEVEL_STAT: 100})
     mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, groups, boss_level=82)
     # on its 6 s cooldown: 12 s a cast covers it; GEM14: a pulse every 0.5 s (LOW) is 8 small pulses, 20 + 16 = 36%,

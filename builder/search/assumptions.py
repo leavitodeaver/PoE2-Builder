@@ -4230,6 +4230,7 @@ class Assumptions:
                                                       self.mods, build.call("getConfig")["input"], side_groups,
                                                       [e["text"] for e in source_lines],  # (GEM11: Salvo's Seal lines)
                                                       enemy_level(build))  # (GEM13: Frost Bomb's level cap)
+        stat_mods, stat_notes = self.frost_bomb_spot(found, main, stat_mods, stat_notes, forbidden)  # (GEM48)
         stat_mods = stat_mods + models.cry_stage_floor(stat_mods, forbidden)  # (GEM17: PoB's stages box reads 10)
         stat_notes = stat_notes + sacrifice_life(build, found, main, stats)[1]  # (GEM30: Life Sacrificed on use)
         rep_mods, rep_notes = models.repeat_interval_model(found, main, stats, build.call("getConfig")["input"], forbidden)
@@ -9539,6 +9540,35 @@ class Assumptions:
         if walk:
             notes.append(walk["note"])
         return mods, notes
+
+    def frost_bomb_spot(self, found: list, main, mods: list[dict], notes: list[dict],
+                        forbidden: set[str]) -> tuple[list[dict], list[dict]]:
+        """(GEM48; models.FROST_BOMB_SPOT_LABEL's comment) Frost Bomb cast at the boss (its Exposure model's mods) or away
+        from it (none of its Exposure), whichever the objective scores higher, when its own hits aren't scored (not the
+        main skill, its group not in Full DPS); `mods` / `notes` with its Exposure mods swapped and the note added. PoB's
+        DPS of each, on the previous pass's mods without the Exposure model's own."""
+        bomb = next((s for s in found if s.name == models.FROST_BOMB), None)
+        build = self.build
+        objective = getattr(build, "objective", None)
+        if bomb is None or models.FROST_BOMB_ENTRY in forbidden or objective is None or (
+                main is not None and bomb.group == main.group):
+            return mods, notes
+        group = next((g for g in build.groups() if g["index"] == bomb.group), None)
+        if group is None or not group["enabled"] or group.get("fullDPS"):
+            return mods, notes
+        own = [m for m in mods if m.get("tag") == models.FROST_BOMB_ENTRY]
+        if any(m.get("name") == "DebuffEffect" and number(m.get("value")) <= -100 for m in own):
+            return mods, notes  # (none on the boss already: its level cap)
+        base = [m for m in self.mods or [] if m.get("tag") != models.FROST_BOMB_ENTRY]
+        scored = {}
+        for spot, extra in (("boss", own), ("away", models.frost_bomb_away_mods())):
+            scored[spot] = objective.dps(build.call("setAssumptions", mods=base + extra, fields=objective.fields)["stats"])
+        build.call("setAssumptions", mods=self.mods or [], fields=[])
+        chosen = "away" if scored["away"] > scored["boss"] * (1 + 1e-9) else "boss"
+        if chosen == "away":  # (its Exposure note's "cast it near the boss" no longer holds: the spot note replaces it)
+            mods = [m for m in mods if m.get("tag") != models.FROST_BOMB_ENTRY] + models.frost_bomb_away_mods()
+            notes = [n for n in notes if n.get("entry") != models.FROST_BOMB_ENTRY]
+        return mods, notes + [models.frost_bomb_spot_note(scored["boss"], scored["away"], chosen)]
 
     def purple_pob(self) -> float:
         """PoB's own Purple Flame stacks (its purpleFlameStacks config, 10 by default: ConfigOptions 474)."""
