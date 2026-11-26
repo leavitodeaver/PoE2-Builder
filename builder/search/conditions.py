@@ -5703,7 +5703,7 @@ def her_declaration(groups: list[dict], gems: dict, texts: list[str], stats: dic
                 f"enters your Presence ({how}): {up:.0%} of the fight (entries taken as random in time, the lower "
                 f"reading); rows (MECHC55, RESEARCH49 R49-3, MEDIUM-HIGH: 4 s on each ENTRY, not all fight): fed on "
                 f"purpose, rolling out and back in every {duration:g} s: 100%; never leaving the boss in your Presence: "
-                "~0%. The boss's own leaps and forced moves add entries not counted (LOW)")
+                "~0%. The boss's own leaps aren't counted; its forced moves are, in the entries (models.presence_forced_moves)")
 
 
 # Dazed (MECH70; plans/term-dazed-enemies.md, an UNDERCOUNT before: nothing set PoB's conditionEnemyDazed box, so every
