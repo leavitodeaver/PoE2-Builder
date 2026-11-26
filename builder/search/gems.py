@@ -168,14 +168,18 @@ FILL_KINDS = ("main",) if os.environ.get("POE2_SEARCH_FILL", "1") != "0" else ()
 # (SEARCH40; the manager's 24 Nov 17:01 ruling on SEARCH39's step 3) With POE2_SEARCH_SIDE_FILL=1 the side groups join the
 # finalize fill: fill_open's REAL trials (commit + resolve: a side group's buff or debuff counts only then), FILL_SIDE_TRIALS
 # a socket, within the same fill time, each kept only if the score rises (Spirit counted: a support that leaves Spirit
-# short is a hard limit in the score). OFF until a gate set (>= 3 seeds) measures it. The 21 Nov ruling that turned
+# short is a hard limit in the score). ON by default since SEARCH41 (the manager, 26 Nov 04:50): SEARCH40's 2b75d gate set
+# (--cpu 600 s, 3 seeds an arm) read ON median 41,294 vs OFF 29,584 (x1.40), the fill's own gain in each ON run +0.013 /
+# +0.053 / +0.049 ln (kept only if the score rises), and seed 1's lower ON run parted from OFF in the first probe round,
+# before finalize (the only place the switch acts): the --cpu clock's load noise, not the fill. "0" turns it off. The
+# 21 Nov ruling that turned
 # POE2_SEARCH_SIDE_SUPPORTS off rested on what-ifs that read 0, so it doesn't bind real trials
 SIDE_FILL_SWITCH = "POE2_SEARCH_SIDE_FILL"
 
 
 def fill_kinds() -> tuple[str, ...]:
     """The groups finalize's fill covers: FILL_KINDS, and the side groups with SIDE_FILL_SWITCH on (read at call time)."""
-    return FILL_KINDS + ("side",) if FILL_KINDS and os.environ.get(SIDE_FILL_SWITCH, "0") == "1" else FILL_KINDS
+    return FILL_KINDS + ("side",) if FILL_KINDS and os.environ.get(SIDE_FILL_SWITCH, "1") != "0" else FILL_KINDS
 
 
 SIDE_GAP = ("not tried: a side group's support what-ifs all read 0 (its buff or debuff counts only after a resolve), so "

@@ -177,13 +177,14 @@ def test_no_feeder_when_it_doesnt_score_higher_or_doesnt_fit():
 
 
 
-def test_the_side_fill_is_off_by_default_and_joins_finalizes_fill_when_on(monkeypatch):
-    """(Item 3, the manager's 24 Nov 17:01 ruling) Side groups get fill_open's real trials only with the switch on."""
+def test_the_side_fill_is_on_by_default_and_off_with_its_switch(monkeypatch):
+    """(Item 3; ON by default since the manager's 26 Nov 04:50) Side groups get fill_open's real trials unless the switch
+    is "0"."""
     from builder.search import gems
 
-    monkeypatch.delenv(gems.SIDE_FILL_SWITCH, raising=False)
+    monkeypatch.setenv(gems.SIDE_FILL_SWITCH, "0")
     assert gems.fill_kinds() == gems.FILL_KINDS == ("main",)
-    monkeypatch.setenv(gems.SIDE_FILL_SWITCH, "1")
+    monkeypatch.delenv(gems.SIDE_FILL_SWITCH, raising=False)
     assert gems.fill_kinds() == ("main", "side")
 
 
