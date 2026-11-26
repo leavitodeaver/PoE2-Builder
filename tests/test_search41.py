@@ -67,6 +67,9 @@ def test_skills_whose_cast_time_another_model_charges_are_left_out_of_upkeep():
 
     names = upkeep_charged_elsewhere()
     assert {"Ferocious Roar", "Parry", "Raise Shield", "Pounce", "Snap", "Frost Bomb"} <= names
+    # (turn 2: the models that charge a cast inside their own factor; POE2T7559 charged b01's Barrage twice before)
+    assert {"Barrage", "Inevitable Agony", "Repulsion", "Dark Pact", "Incinerate", "Enrage", "Eternal Hunt",
+            "Kelari's Brutality"} <= names
     assert "Thunderstorm" not in names
     assert {"AppliesCurse", "Mark", "Warcry"} <= UPKEEP_TYPES_CHARGED
 

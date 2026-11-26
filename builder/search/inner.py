@@ -88,8 +88,13 @@ PRESS_RATES = (0.0, 0.25, 0.5, 1.0, 2.0)
 # line in models.py / assumptions.py on d374dcae: curse_model, mark_model, roar_model, warcry_press_model, parry_model,
 # raised_model, varashta_blessing_model, annihilation_model, trail_of_caltrops / void_illusion (dodge rolls),
 # remnant_presses, Kaom's embodiment, heavy_stunned_self, living_bomb / untether mains; glory_busy; press_model for
-# pressed Full DPS groups; press_busy for chosen rates): curses (AppliesCurse), Marks, Warcries, the named skills
-# (upkeep_charged_elsewhere), and persistent / triggered skills (not buttons). Totems are left out too: no model found
+# pressed Full DPS groups; press_busy for chosen rates; AND (SEARCH41 turn 2, after probe POE2T7559 charged b01's Barrage
+# twice) the models that put a skill's cast inside their own factor or rate, found by a search of models.py /
+# assumptions.py / conditions.py for "main skill's time", "cast in the cycle", "costs the main skill" and the like:
+# barrage_model (its 0.7 s cast in the cycle), Inevitable Agony's press, repulsion_wave, the minion Commands (COMMANDS)
+# and djinn Commands (DJINN_COMMANDS), Dark / Abyssal Pact's casts, Incinerate's channel; and every press a model put on
+# build.item_presses): curses (AppliesCurse), Marks, Warcries, the named skills (upkeep_charged_elsewhere), the
+# models' own presses, and persistent / triggered skills (not buttons). Totems are left out too: no model found
 # that charges a totem's placement time (UNVERIFIED; left as before, a question for MECH-B). POE2_SEARCH_UPKEEP=0: off.
 UPKEEP_PRESS = os.environ.get("POE2_SEARCH_UPKEEP", "1") != "0"
 UPKEEP_TYPES_CHARGED = frozenset({"AppliesCurse", "Mark", "Warcry", "SummonsTotem", "Totem"})
@@ -99,10 +104,12 @@ DISTANCE_SETTLES = 4  # (SEARCH41) settle rounds per boss-distance candidate at 
 
 def upkeep_charged_elsewhere() -> frozenset[str]:
     """The skills whose cast time a model of their own charges (UPKEEP_PRESS's note)."""
-    from builder.search import assumptions as a, models as m
+    from builder.search import assumptions as a, conditions as c, models as m
 
+    commands = {command for rows in m.COMMANDS.values() for command, *_ in rows} | {d.name for d in m.DJINN_COMMANDS}
     return frozenset({m.FEROCIOUS_ROAR, m.TRAIL_OF_CALTROPS, m.VOID_ILLUSION, m.VARASHTA, m.RAISE_SHIELD, m.ANNIHILATION,
-                      *m.PARRY_SKILLS, *m.MARK_CARRIERS, *GLORY_SKILLS, *a.PRESSED_SOURCES})
+                      m.BARRAGE, m.INEVITABLE_AGONY, m.REPULSION, *m.PACTS, c.INCINERATE,
+                      *m.PARRY_SKILLS, *m.MARK_CARRIERS, *GLORY_SKILLS, *a.PRESSED_SOURCES, *commands})
 PRESS_ROUND = os.environ.get("POE2_SEARCH_PRESS", "1") != "0"
 # (SEARCH25, A36-14) a granted pressed skill tried in Full DPS on the finished build (Search.include_granted)
 GRANTED_PRESS = os.environ.get("POE2_SEARCH_GRANTED_PRESS", "1") != "0"
@@ -691,6 +698,8 @@ class Search:
         result = build.call("groups")
         main = result["mainSocketGroup"]
         buttons, choices = set(self.gems.buttons()), press_choices(build)
+        # (a press a model counts and charges itself: models.ITEM_PRESSES, e.g. the Commands djinn_commands_model presses)
+        own = set(getattr(build, gems_module.ITEM_PRESSES, None) or {})
         known = getattr(build.ctx, "any_gems", None) or {}
         granted = getattr(build.ctx, "all_gems", None)
         where: dict[int, list[str]] = {}
@@ -702,7 +711,7 @@ class Search:
                 continue
             if group.get("enabled") is False or (group.get("fullDPS") and pressed_group(group, build.ctx.gems, granted)):
                 continue  # (off, or a pressed Full DPS group: press_model charges it)
-            keep = [n for n in names if n in buttons and n not in choices and n not in upkeep_charged_elsewhere()
+            keep = [n for n in names if n in buttons and n not in choices and n not in own and n not in upkeep_charged_elsewhere()
                     and not set((known.get(n) or {}).get("skillTypes") or ()) & UPKEEP_TYPES_CHARGED]
             if keep:
                 where[group["index"]] = keep
