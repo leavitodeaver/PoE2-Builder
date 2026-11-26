@@ -59,3 +59,11 @@ def test_cov60b_rows_left_open_stay_open():
                         ("number_of_triskelion_cascades_for_next_skill", "Triskelion Cascade"),
                         ("number_of_poison_cloud_allowed", "Decompose")):
         assert coverage.stat_covered(covered, stat, skill) is None, stat
+
+
+def test_cov60b_caltrops_generic_trigger_flag_is_read_by_its_support_model():
+    covered = coverage.stat_entries()
+    assert coverage.stat_covered(covered, "triggered_by_generic_ongoing_trigger", "Caltrops") == (
+        "model", "model-gem28-caltrops-support")
+    assert coverage.stat_covered(covered, "triggered_by_generic_ongoing_trigger", "SupportMetaCastOnCritPlayer") == (
+        "model", "model-gem24-link-generic-ongoing-trigger")

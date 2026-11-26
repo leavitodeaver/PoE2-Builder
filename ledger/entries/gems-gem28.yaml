@@ -4,7 +4,9 @@
   title: "Caltrops support: Caltrops landing under the boss from the supported spear's hits (PoB: one a use wherever they land, an OVERCOUNT)"
   kind: model
   model: caltrops_support
-  stats: ["trigger_caltrops_at_end_of_projectile_flight"]
+  # (COV60: + the triggered Caltrops' own triggered_by_generic_ongoing_trigger flag, its rate this model's; GEM24's
+  # model-gem24-link-generic-ongoing-trigger holds the same stat for the Energy meta gems, a disjoint skill list)
+  stats: ["trigger_caltrops_at_end_of_projectile_flight", "triggered_by_generic_ongoing_trigger"]
   skill: [Caltrops]
   confidence: LOW
   notes: >-
