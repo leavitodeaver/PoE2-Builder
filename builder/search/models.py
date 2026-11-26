@@ -10219,6 +10219,29 @@ DETONATED_BY = {"Earthshatter": ("Warcry", "a Warcry is used near them or a Deto
 DETONATORS_TOO = {"Earthshatter"}
 
 
+# A set-off part lands where its spike was left, not where the boss is when it is set off (GEM47; MECHD9's "boss stands
+# still" survey, scratch/mechd9/survey.md in MECH-D's folder: example build 13, Earthshatter 2.51M, ~70% of its hit DPS
+# from spikes set off later: an OVERCOUNT of ~15-27% vs the Arbiter of Ash; the manager's READER RULE, 26 Nov 06:30).
+# Earthshatter "thrusts a spike from the ground" where its fissure ends, at the boss (GEM19's reading), and the spike's
+# Explosion hits only what stands in its area when a Warcry or Detonator sets it off. Set-offs come every 1 / d s (d the
+# build's Warcry + Detonator uses a second, as detonated_share), so a spike set off waits uniformly over W = min(1 / d,
+# the spike's duration); the chance the boss is still inside the spike's area after a wait t is bosses.still_there(R, t),
+# and its mean over a uniform wait on [0, W] is exactly bosses.stay_share(R, W) ((1 - e^(-kW)) / (kW), k the moves a
+# second that take it out of reach), the headline. R: PoB's Explosion radius (setRates' AreaOfEffectRadius, tenths of a
+# metre; DETONATED_STAY_RADIUS where PoB gives none). Rows: the boss standing still (before GEM47), every move its mean
+# length (stay_share's "fixed"). Only Earthshatter reads it so far (DETONATED_STAY); the survey's other detonated parts
+# (Storm Lance, Rapid Assault, Forge Hammer, Gas Grenade) next.
+DETONATED_STAY = {"Earthshatter"}
+DETONATED_STAY_RADIUS = 1.5  # (metres: MECHD9's survey estimate for Earthshatter's spikes, used only without PoB's radius)
+
+
+def detonated_wait(detonations: float, seconds: float) -> float:
+    """The window W a set-off part's wait is uniform over (DETONATED_STAY's note): min(1 / d, the part's duration)."""
+    if detonations <= 0:
+        return 0.0
+    return min(1.0 / detonations, max(seconds, 0.0))
+
+
 def detonated_share(skill: str, uses: float, detonations: float, limit: float | None = None,
                     seconds: float | None = None) -> float:
     """The share of a DETONATED_SETS skill's spears another skill detonates (see above); (GEM38) `limit` / `seconds` the
@@ -10235,8 +10258,10 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                         how: str, forbidden: set[str] = frozenset(),
                         per_spike: float = 0.0, previous: list[dict] | None = None,
                         share: float | None = None, limit: float | None = None,
-                        seconds: float | None = None, aftershock: float = 1.0) -> tuple[list[dict], list[dict]]:
-    """(GEM36: `share`, when given, the share set off, in place of the Detonators-only detonated_share: Gas Grenade's
+                        seconds: float | None = None, aftershock: float = 1.0,
+                        stay: tuple[float, float, str] | None = None) -> tuple[list[dict], list[dict]]:
+    """(GEM47: `stay`, when given, (the headline share of the set-off parts that still find the boss, the fixed-move
+    row's, how): bosses.stay_share over the parts' wait, DETONATED_STAY's note) (GEM36: `share`, when given, the share set off, in place of the Detonators-only detonated_share: Gas Grenade's
     Ignite route, R48-5) Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
     bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second,
     `per_spike` Earthshatter's "% more Damage with Hits for each Spike" (GEM20, spike_standing); `aftershock` (GEM40)
@@ -10261,7 +10286,10 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     spikes_more = 1.0 + per_spike / 100.0 * standing
     shock = max(1.0, number(aftershock) or 1.0)  # (GEM40: the Aftershocks repeat the plain part only)
     det_own = det / shock
-    total = (plain + det_own * s) * spikes_more
+    there, there_fixed, there_how = stay if stay is not None else (1.0, 1.0, "")
+    there = min(1.0, max(0.0, number(there)))
+    still_total = (plain + det_own * s) * spikes_more  # (GEM47: the boss standing still, the old reading: a row)
+    total = (plain + det_own * s * there) * spikes_more
     factor = total / dps[scored]
     steer = scored == det_label and s <= 0
     if steer:
@@ -10277,7 +10305,7 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                   + ("set it off*" if main.name in DETONATED_BY or main.name in DETONATED_TEXT else "Detonate it*")), "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": entry,
         "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
-        "set_shares": {plain_label: 1.0, det_label: s},  # (GEM22: strongest_ailment_model)
+        "set_shares": {plain_label: 1.0, det_label: s * there},  # (GEM22: strongest_ailment_model; GEM47: x there)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {det_label} "
                   f"{det:,.0f}). The game sets the {det_label} off only when {by_note}: {s:.0%} of "
                   f"them ({how}), so {plain_label} + {det_label} x {s:.0%} = {total:,.0f} DPS"
@@ -10287,6 +10315,10 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                      f"{det_label} is taken at {det_own:,.0f} (GEM40, MEDIUM: KeywordPopups Aftershock, \"the same damage "
                      f"as the initial impact, in the same area\"; the row with them on it too: "
                      f"{(plain + det * s) * spikes_more:,.0f})" if shock > 1.0 else "")
+                  + (f"; a {word[:-1]} set off later finds the boss still inside its area {there:.0%} of the time "
+                     f"({there_how}; GEM47, MECHD9's reader rule, LOW): the {det_label} x {there:.0%}. Rows: the boss "
+                     f"standing still {still_total:,.0f}; every move its mean length "
+                     f"{(plain + det_own * s * there_fixed) * spikes_more:,.0f}" if stay is not None and s > 0 else "")
                   + (f"; its quality's {per_spike:g}% more Damage with Hits for each Spike, {standing:.1f} spikes standing "
                      f"on average (RESEARCH30 R30-5 (2), UNVERIFIED, MEDIUM-LOW: the spikes standing when the hit lands, "
                      f"every hit of the skill): x{spikes_more:.3f} (the row: 0 spikes, x1, "

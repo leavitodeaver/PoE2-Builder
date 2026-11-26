@@ -5810,11 +5810,23 @@ class Assumptions:
                                                              every_use=("Impact",), burning=True,
                                                              skill=main.name,
                                                              base_seconds=models.GAS_GRENADE_CLOUD[main.name][1])
+            det_stay = None
+            if main.name in models.DETONATED_STAY and det_rate > 0:  # (GEM47: MECHD9's reader rule, the boss moves off)
+                from builder.search import bosses
+                _, det_label, _, base_seconds, _ = models.DETONATED_SETS[main.name]
+                radius = number(next((x for x in sets if x.get("label") == det_label), {}).get("AreaOfEffectRadius")) / 10
+                radius = radius if radius > 0 else models.DETONATED_STAY_RADIUS
+                wait = models.detonated_wait(det_rate, det_seconds or base_seconds)
+                there, there_how = bosses.stay_share(stats, radius, wait)
+                there_fixed, _ = bosses.stay_share(stats, radius, wait, moves="fixed")
+                det_stay = (there, there_fixed, f"set off within {wait:.1f} s of landing (one every "
+                            f"{1 / det_rate:.1f} s, its {det_seconds or base_seconds:g} s life the cap), its "
+                            f"{radius:.1f} m area: {there_how}")
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden, per_spike,
                                                              previous=self.mods, share=det_share,
                                                              limit=det_limit, seconds=det_seconds,
-                                                             aftershock=slam_hits)
+                                                             aftershock=slam_hits, stay=det_stay)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
             det_split = (models.detonated_share(main.name, number(stats.get("Speed")), det_rate, det_limit, det_seconds)
                          if det_share is None

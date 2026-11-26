@@ -33,3 +33,21 @@ def test_sunders_shockwave_takes_nothing_on_a_lone_boss():
         assert [(m["line"], m["scale"], m.get("statSets")) for m in mods if "less" in m["line"]] == [
             ("1% less Damage", 100, ["Shockwave"])], scored
         assert any(n["entry"] == "gem-gem47-sunder-shockwave-other-enemies" for n in notes)
+
+
+def test_earthshatters_spikes_set_off_later_miss_a_boss_that_moved():
+    # (MECHD9's reader rule: the Explosion x the share of a set-off spike's wait the boss is still in its area)
+    from builder.search import bosses
+    assert models.detonated_wait(0.5, 6.0) == 2.0 and models.detonated_wait(0.1, 6.0) == 6.0
+    assert models.detonated_wait(0.0, 6.0) == 0.0
+    there, how = bosses.stay_share({"_boss": "Arbiter of Ash"}, 1.5, 2.0)
+    assert 0 < there < 1 and "Arbiter of Ash" in how
+    skill = models.Skill("Earthshatter", group=1, attack=True)
+    skill.stat_set = "Slam"
+    sets = [{"label": "Slam", "TotalDPS": 100.0}, {"label": "Explosion", "TotalDPS": 300.0}]
+    still, _ = models.detonated_set_model(skill, "Slam", sets, 1.0, 1.0, "a Warcry a second")
+    moved, notes = models.detonated_set_model(skill, "Slam", sets, 1.0, 1.0, "a Warcry a second",
+                                              stay=(0.5, 0.8, "the boss moves"))
+    factor = lambda mods: 1 + mods[0]["value"] / 100 if mods else 1.0
+    assert factor(moved) < factor(still)
+    assert "standing still" in notes[0]["basis"] and notes[0]["set_shares"]["Explosion"] < 1.0
