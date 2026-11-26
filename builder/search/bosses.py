@@ -46,6 +46,10 @@ class Kills(NamedTuple):
     life: float = 0.0
     life_rows: tuple = ()
     wave: int = 1  # (MECHD7) adds a summon makes; 1 = one, or the lower bound where the size is unknown (said in `what`)
+    # (MECHD9, the manager's 26 Nov brief item 2; R61-15) where the adds die relative to the boss: ((metres from the
+    # boss's centre, share of the adds dying within it), ...) ascending, from video; () = not known (readers: 0)
+    near: tuple = ()
+    near_how: str = ""
 
 
 class Boss(NamedTuple):
@@ -91,6 +95,11 @@ class Boss(NamedTuple):
     # (MECHD7; PLANS6's kw-culling-strike.md, the manager 03:48 21 Nov) whether Culling Strike can kill it: False gates
     # every culling model to 0 (cull_threshold). True for all 12 (the comment above cull_threshold).
     cullable: bool = True
+    # (MECHD9; MECH112's idea) the monster level the boss is meant at. Every preset is at 82: PoB's Pinnacle level
+    # (ConfigOptions.lua's enemyLevel tooltip: "The default and minimum level for pinnacle bosses and uber pinnacle
+    # bosses is 82") and the manager's 26 Nov decision (poe2wiki's pinnacle area levels 80-82). No reader yet: the
+    # engine's level stays PoB's own (assumptions.py's LedgerEnemyLevel reports it). Per-boss levels: not set.
+    level: int = 82
 
 
 POB_POISE = 938  # PoB's Pinnacle preset's threshold multiplier (+838%; RESEARCH18 #91)
@@ -387,6 +396,102 @@ def moving_ceiling(stats: dict | None = None) -> tuple[float, str]:
                    "(an upper bound: each used off cooldown, 0.5 s of travel each, UNVERIFIED; walking is the "
                    "player's choice and teleports don't count; MECHD3, RESEARCH22 #122)")
 
+
+# Boss RELOCATIONS (MECHD9; the manager's 26 Nov brief, item 1): how often the boss's ground position changes and how
+# far, for skills that need the boss to come to something laid on the ground (Ice Shards' armed bonus: a shard set off
+# t s after it arms; Bone Cage: the boss must touch a spike on its ring; ground hazards generally). Unlike
+# MOVING_CEILING (time spent travelling, for "while moving" lines) a relocation counts teleports and walks too: each puts
+# the boss somewhere new. Readings (relocations a minute, metres each, how):
+# - "skills": the preset's own Dash / Leap / Charge / Swoop / Jump Slam / Teleport / Blink / Warp / Reposition skills
+#   used off cooldown, one timer per CooldownGroup (scratch/mechd9/relocate.py, MECHD3's moving.py with the teleports
+#   added; game 26476662's GrantedEffectsPerLevel; HIGH for the cooldowns), an UPPER BOUND (the AI also picks its many
+#   cooldown-0 skills); metres: up to its MaximumAttackDistance plus the skills' attack_maximum_action_distance_+
+#   (game 26650308), / 10 (an upper bound on a gap-closer's reach; teleports' reach isn't in the tables). The King's
+#   first form only (43% of the fight; its second form has none). Walking isn't in it (the player decides it).
+# - "video": RELOCATE_VIDEO's tallies from fight videos (the user's rule: how something moves comes from visuals).
+# - "headline": the video tally where one exists, else 0 with a note (CLAUDE.md: no source, 0; never the ceiling: the
+#   readers are DPS GAINS, and the ceiling is an upper bound).
+# The worst case (AUDIT29 A29-1): a gain reads the lowest real preset, a harm the highest (`gain`).
+RELOCATE_SKILLS: dict[str, tuple[float, float, str]] = {  # (uses a minute off cooldown, metres up to, the skills)
+    "Arbiter of Ash": (33.0, (17 + 0) / 10, "Teleport 10 s, Dash Slash Left 8 s / Right 8 s / Forward 10 s, Jump Slam "
+                       "Combo 10 s"),
+    "Arbiter of Divinity": (10.35, 32 / 10, "Swoop Slam 16.5 s, Blink Slam 12 s, Storm Blink 35 s"),
+    "Xesht, We That Are One": (6.0, 14 / 10, "Teleport Start 10 s"),
+    "The King in the Mists": (round(0.43 * 37.5, 2), (15 + 15) / 10,
+                              "first form only (43%): Teleport 8 s (+1.5 m beyond its target), Teleport Flee 3 s, four "
+                              "Dashes on one 6 s timer"),
+    "Zarokh, the Temporal": (7.5, 12 / 10, "Teleport 10 s, Teleport Centre 40 s"),
+    "The Raven Trickster": (22.5, 25 / 10, "Teleport, Mirror Teleport, Mirror Teleport Exit (8 s each)"),
+    "The Bodach": (4.0, (18 + 100) / 10, "Reposition (a burrow) 15 s"),
+    "Olroth, Origin of the Fall": (15.0, (23 + 40) / 10, "Dash 1 / 2 / 3, 12 s each (+2.9 / +3.5 / +4.0 m)"),
+    "The Aberration": (12.86, (35 + 70) / 10, "Leap Back / Leap Forward / Leap Forward Far, 14 s each (+5 / +7 / +7 m)"),
+    "Vessel of Kulemak": (5.4, (14 + 80) / 10, "Teleport Slam / Teleport Escape (one 25 s timer, +8 m), Head Charge 20 s"),
+    "Atziri, the Red Queen": (7.0, 22 / 10, "Lightning Dash 20 s, Blood Warp 15 s"),
+    "Atziri, the Fell Serpent": (17.0, (22 + 100) / 10, "Beast Teleport 20 s (+10 m), Beast Dash 12 s (+5 m), Dash Arc "
+                                 "Left / Right one 8 s timer (+10 m), Teleport Centre"),
+}
+# (relocations a minute, mean metres, share of the fight in standing spells of 3.5 s or more (None: not read), source,
+# confidence). MECHD9's three video helpers, 26 Nov 2026 (scratch/mechd9/video_mv1.md / mv2.md / mv3.md, the brief
+# scratch/mechd9/video_brief.md): every move of the boss's GROUND position by 1 m or more (walks, dashes, leaps,
+# teleports), read by eye from 1 fps frames against arena landmarks, metres scaled from the player's and boss's bodies
+# (MEDIUM-LOW). Where a helper gave a range, the LOW END (the readers are DPS gains). The boss follows a moving player,
+# so the count depends on the play (kiting fights read higher); the fights used are named. Not tallied (0 in the
+# headline, the "skills" ceiling a row): the Bodach (not visible in 2 videos), Kulemak (3 videos unusable), the Arbiter
+# of Divinity (one 26 s kill: phase 1 within ~2 m of the player, phase 2 ~30 a minute over 15 s with the player moving).
+RELOCATE_VIDEO: dict[str, tuple[float, float, float | None, str, str]] = {
+    "Arbiter of Ash": (8.0, 4.0, 0.55, "3 melee fights, 153 s (VDA ssQ3UovP9js, Lambark 2tcYuXWnbI4, SlayerD "
+                       "TuRYrMaHIUU Uber): 9.5 pooled, 8-12; half its own leaps / dashes, half walks; it casts beams and "
+                       "rings in place, 55-70% in stands of 3.5 s or more", "big moves MEDIUM, walks LOW"),
+    "Olroth, Origin of the Fall": (12.0, 3.0, 0.30, "2 melee fights, 105 s (echoburn UoaVj5Xg1kA, a 0.5 HCSSF kill): "
+                                   "14 pooled, 12-17; a third dashes, two thirds walks", "LOW"),
+    "Xesht, We That Are One": (5.0, 3.5, None, "1 minion-build fight, 64 s (0.5): 5-7; a 6-7 m portal teleport about "
+                               "every 30 s plus 1-2 m walks, mostly standing", "LOW"),
+    "The King in the Mists": (round(0.43 * 7.5 + 0.57 * 12.0, 2), round(0.43 * 5.0 + 0.57 * 3.0, 2), None,
+                              "by form, 43% / 57% of the fight: the first form 7.5 a minute, all its own dashes (4-5 m) "
+                              "and teleports (~6 m), 75-80% in stands of 3.5 s or more (2 fights, 72 s: 0.3 Uber, 0.5); "
+                              "the second form ~12, 2-4 m walks (1 fight, 29 s)", "LOW (the first form LOW-MEDIUM)"),
+    "Zarokh, the Temporal": (20.0, 4.0, None, "2 short fights (a 0.5 melee Monk ~32 s, a 0.4 druid ~45 s): 20-40 a "
+                             "minute against the melee player, 6-12 of them blinks; off the field 12-14 s a fight in "
+                             "its Trial of Time phase (not in the count)", "LOW"),
+    "The Raven Trickster": (12.0, 3.0, None, "1 ranged fight, ~50 s: 12-20 a minute, nearly all walks after the kiting "
+                            "player, changing sides every 3-5 s", "LOW"),
+    "The Aberration": (20.0, 1.5, None, "1 melee fight (0.5 Titan standing still, 48 s): its body shifted 1-3 m every "
+                       "1-3 s within ~5 m, and left once (8 m+) to cast its web, back in 4-5 s", "LOW"),
+    "Atziri, the Red Queen": (13.0, 4.0, 0.20, "1 ranged kiting fight (0.4, 45 s): 2-8 m, mostly walks and dashes "
+                              "toward the player", "LOW"),
+    "Atziri, the Fell Serpent": (30.0, 2.5, 0.15, "1 fight (0.4 Uber, 52 s), read against the platform's centre: she "
+                                 "circles the player on a ~14 m platform, 2-3 m most seconds (30-40 a minute), ~8 "
+                                 "dashes of 4-6 m; moving 75-85% of the time (so the 'immobile' note on HIT_RADIUS "
+                                 "isn't that she stands still)", "LOW-MEDIUM"),
+}
+RELOCATE_READINGS = ("headline", "skills", "video")
+
+
+def relocations(stats: dict | None = None, reading: str = "headline", gain: bool = True) -> tuple[float, float, str]:
+    """(relocations a second, metres each, how) for the scored boss: see RELOCATE_SKILLS / RELOCATE_VIDEO. On the worst
+    case a gain reads the lowest real preset and a harm the highest (`gain`)."""
+    name = of(stats).name
+    if name == WORST:
+        pick = min if gain else max
+        src = pick(REAL, key=lambda n: relocations({"_boss": n}, reading)[0])
+        rate, metres, how = relocations({"_boss": src}, reading)
+        return rate, metres, f"the worst case reads {src}'s ({'the fewest' if gain else 'the most'}): {how}"
+    if reading == "skills":
+        uses, metres, skills = RELOCATE_SKILLS[name]
+        return uses / 60, metres, (f"at most {uses:.1f} a minute against {name}, each of its own moves used off cooldown "
+                                   f"({skills}), up to {metres:.1f} m each (an UPPER BOUND, LOW; walking not in it)")
+    video = RELOCATE_VIDEO.get(name)
+    if video:
+        per_min, metres, _, source, conf = video
+        return per_min / 60, metres, (f"{per_min:.1f} a minute against {name}, {metres:.1f} m each on average, counted "
+                                      f"in fight videos ({source}; {conf}); its own moves off cooldown allow "
+                                      f"{RELOCATE_SKILLS[name][0]:.1f} a minute (walks not in that)")
+    if reading == "video":
+        return 0.0, 0.0, f"no video tally of {name}'s relocations"
+    uses, metres, _ = RELOCATE_SKILLS[name]
+    return 0.0, 0.0, (f"not counted against {name}: no video tally of where it moves (0, CLAUDE.md); its own moves off "
+                      f"cooldown give at most {uses:.1f} a minute, up to {metres:.1f} m each (a row, an upper bound)")
+
 # The default boss: ONE INVENTED WORST-CASE PINNACLE (the user's decision, 12 Nov 2026, via the manager: "invent a
 # pinnacle boss that ... takes the highest stats of each and combines them (within reason), so builds return
 # conservative numbers"; worst case only, no per-boss table). Per stat, the value worst for the player among the 12 real
@@ -587,6 +692,61 @@ def add_waves(name: str = DEFAULT) -> list[tuple[float, int, float, str, str]]:
     """(MECHD7) The preset's add waves: [(seconds between waves, adds a wave, share of the fight they come in, what,
     confidence)], [] with none (for readers that need the timing, not only the rate: R38-5's Fear-on-Cull refresh)."""
     return [(k.every, k.wave, k.share, k.what, k.confidence) for k in PRESETS[name].kills]
+
+
+# Boss events that refill the player's flasks mid-fight (MECHD9; the manager's 26 Nov brief item 3; R63-5). 0.5.0 Monster
+# Changes: "You will now refill some Flask charges when Viper Napuatzi's soldiers constrict the size of her arena". No
+# preset is Napuatzi (an Act 3 / map boss), so every preset reads none: (checked: the patch-notes archive for
+# refill / recharge / regain / grant near "flask" (Napuatzi's line is the only boss event; the rest are items / skills);
+# game 26650308's GrantedEffectStatSets and their per-level rows for the 172 non-local flask stats: only player skills and
+# supports carry charge gains, no boss skill; R63-5: KeywordPopups / poe2db give kills, Checkpoints and Wells only). Her
+# entry waits on a preset for her: {boss name: (refills in a fight, share of each flask's maximum charges each, how)}.
+# What video gave for her (MECHD9's helper mv3, scratch/mechd9/video_mv3.md; 2 PC fights, 0.5): one constriction per
+# completed arena-wide attack, about one per 45-75 s before 5% Life (LOW); charges per refill NOT seen (the flasks
+# were full both times: UNVERIFIED, no table holds it); charms UNVERIFIED (the note names Flask charges only).
+FLASK_REFILLS: dict[str, tuple[int, float, str]] = {}
+
+
+def still_share(stats: dict | None = None) -> tuple[float | None, str]:
+    """(MECHD9) The share of the fight the boss spends in standing spells of 3.5 s or more (Ice Shards' 1.5 s arming plus
+    its 2 s ramp), from RELOCATE_VIDEO; (None, why) where the videos didn't read it. The worst case: None (no reading
+    is worst for every use)."""
+    name = of(stats).name
+    video = RELOCATE_VIDEO.get(name)
+    if not video or video[2] is None:
+        return None, f"not read for {name} (no video tally of its standing spells)"
+    return video[2], f"{video[2]:.0%} of the fight in stands of 3.5 s or more against {name} ({video[4]})"
+
+
+def flask_refills(stats: dict | None = None) -> tuple[int, float, str]:
+    """(MECHD9; R63-5) (refills in the fight, the share of each flask's maximum charges each gives, how) for boss events
+    that refill flasks mid-fight, for MECH-C's flask stock; (0, 0, why) against a boss with none (FLASK_REFILLS)."""
+    name = of(stats).name
+    if name in FLASK_REFILLS:
+        return FLASK_REFILLS[name]
+    return 0, 0.0, (f"no mid-fight flask refill against {name} (FLASK_REFILLS: the patch notes name Viper Napuatzi's "
+                    "arena constrictions only, not a preset; a Checkpoint before the fight is the stock's start)")
+
+
+def adds_near(name: str = DEFAULT, metres: float = 1.8) -> tuple[float, float, str]:
+    """(MECHD9; R61-15: Herald of Plague's spread reaches 1.5-1.8 m from the dying add) (the add kills a second that die
+    within `metres` of the boss's centre, the share of all add kills that is, how). Each Kills row's `near` points are
+    read at the largest point within `metres` (no interpolation upward: the lower reading); a row with no placement
+    data counts 0, said (CLAUDE.md: no source, 0)."""
+    b = PRESETS[name]
+    total, near, parts = 0.0, 0.0, []
+    for k in b.kills:
+        rate = k.wave * k.share / k.every
+        total += rate
+        inside = [s for m, s in k.near if m <= metres]
+        share = max(inside) if inside else 0.0
+        near += rate * share
+        what = k.what.split(" (")[0]
+        parts.append(f"{what}: {share:.0%} within {metres:g} m ({k.near_how})" if k.near else
+                     f"{what}: not counted (no data on where they die relative to the boss: 0)")
+    if total <= 0:
+        return 0.0, 0.0, f"no killable adds with a known rate against {name}: 0"
+    return near, near / total, "; ".join(parts)
 
 
 KILLS_STAT, CULLS_STAT = "AddKillsPerSecond", "AddCullsPerSecond"
@@ -863,7 +1023,7 @@ HIT_RADIUS: dict[str, float] = {  # metres: ObjectSize / 10
     "The Aberration": 0.5,  # CyclopsSpiderBoss
     "Vessel of Kulemak": 0.6,  # LichBoss/KulemakBoss
     "Atziri, the Red Queen": 0.5,  # AtziriBossPhaseOne
-    "Atziri, the Fell Serpent": 1.0,  # AtziriBossPhaseTwo______ (immobile)
+    "Atziri, the Fell Serpent": 1.0,  # AtziriBossPhaseTwo______ (its body; she moves on video: RELOCATE_VIDEO)
 }
 MODEL_SIZE: dict[str, float] = {  # ModelSizeMultiplier / 100, the same rows
     "Arbiter of Ash": 1.30, "Arbiter of Divinity": 1.30, "Xesht, We That Are One": 1.00, "The King in the Mists": 1.25,
