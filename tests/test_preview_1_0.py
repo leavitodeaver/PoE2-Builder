@@ -670,6 +670,11 @@ def test_duplicity_and_engulf_darkness_readings():
     gain, how = dup.darkness_gain({"Speed": 2.0, "HitChance": 100, "LedgerImpaleChance": 50}, "Blade of Night", 0.0, 0.1)
     assert gain == pytest.approx(0.1 * 5 + 1.0) and "Remnants" in how
     assert dup.darkness_gain({"Speed": 2.0, "LedgerImpaleChance": 100}, "Viper Strike", 0.0, 0.0)[0] == 0.0
+    # (PREVIEW6) the idle line's arithmetic: 0.5 presses/s at 2 a second take 25% of the time; +10% from Ambushes nets
+    # 1.10 x 0.75 - 1 = -17.5%
+    line = dup.idle_play({"hits": 0.5, "speed": 2.0}, "Blade of Night", 0.10, 0.4, False)
+    assert "(0.500/s)" in line and "+10.0%" in line and "25% of the time (0.50 s each" in line and "-17.5% in all" in line
+    assert "no Conceal on it" in line and "0.4 Darkness an Ambush" in line and "UNDERCOUNT" in line
 
 
 def test_duplicity_triggers_from_the_bosss_hits(engine):
@@ -705,6 +710,11 @@ def test_duplicity_triggers_from_the_bosss_hits(engine):
     # not pressed: no trigger, said
     mods, notes = ambush_model(build({}), SimpleNamespace(name="Viper Strike"), stats)
     assert not mods and any("Duplicity's triggers" in n["label"] and n["value"] == 0 for n in notes)
+    # (PREVIEW6) ...and its play line says why, with the without / with numbers (Conceal on it: 10 Darkness an Ambush)
+    idle = next(n for n in notes if "Duplicity's triggers" in n["label"])["play"]
+    assert idle.startswith("Don't press Duplicity here") and "Without it: Viper Strike as it is (+0%)" in idle
+    assert "With it pressed on each of the boss's landing Hits" in idle and "10 Darkness an Ambush" in idle
+    assert "of the time" in idle and "in all" in idle and idle.endswith(preview.ASTERISK)
     # pressed once a second: the boss's landing Hits cap it
     rate, d = dup.duplicity_rate(build({"Duplicity": 1.0}), {**stats, "_boss": None})
     assert 0 < rate == pytest.approx(min(d["pressed"], d["hits"])) and d["hits"] <= d["all_hits"]
@@ -712,6 +722,8 @@ def test_duplicity_triggers_from_the_bosss_hits(engine):
     ambush = next(n for n in notes if n["label"].startswith("Ambush"))
     assert len(mods) == 1 and ambush["value"] > 0 and "Duplicity" in ambush["basis"] and "Conceal 10" in ambush["basis"]
     assert preview.ASTERISK in ambush["basis"] and "Duplicity" in ambush["play"]
+    pressed = next(n for n in notes if "Duplicity's triggers" in n["label"])["play"]
+    assert pressed.startswith("Press Duplicity as the boss winds up")  # (pressed: the old play line, not the idle one)
     # its Engulf explosions (0 without an Immobilise: said) and its Shade's Volatile blast
     _, notes, _ = skill_model(build({"Duplicity": 1.0}), SimpleNamespace(name="Viper Strike"), {**stats, "_boss": None})
     assert any(n["label"].startswith("Duplicity's Engulf") for n in notes)

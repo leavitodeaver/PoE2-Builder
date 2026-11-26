@@ -73,7 +73,23 @@ def duplicity_rate(build: Any, stats: dict) -> tuple[float, dict]:
     hits, all_hits, how = boss_hit_rate(stats)
     rate = min(pressed, hits)
     return rate, {"pressed": pressed, "press_how": why, "hits": hits, "all_hits": all_hits, "how": how,
-                  "group": group}
+                  "group": group, "speed": models.number((row or {}).get("speed"))}
+
+
+def idle_play(d: dict, main_name: str, ambush: float, darkness: float, conceal: bool) -> str:
+    """(PREVIEW6; the manager, 26 Nov 06:32) The play line for a Duplicity the build holds but never presses (the search
+    tried its press rates and kept 0): why, with the without / with numbers. `ambush` = the average more damage the main
+    skill would get from Ambushes with Duplicity pressed on each of the boss's landing Hits (stealth.ambush_more);
+    each press takes 1 / its speed from the main skill (as the press model charges it)."""
+    rate, speed = d.get("hits", 0.0), d.get("speed", 0.0)
+    busy = min(1.0, rate / speed) if speed > 0 else 1.0
+    net = (1 + ambush) * (1 - busy) - 1
+    return (f"Don't press Duplicity here: the search tried it and kept 0 presses. Without it: {main_name} as it is "
+            f"(+0%). With it pressed on each of the boss's landing Hits ({rate:.3f}/s): Ambushes add {ambush:+.1%} to "
+            f"{main_name} ({darkness:.3g} Darkness an Ambush{'' if conceal else ', no Conceal on it'}; its Shade is taken "
+            f"to die to the Hit, so no Shade repeats), but the presses take {busy:.0%} of the time ({1 / speed if speed > 0 else 0:.2f} s "
+            f"each, the weapon's attack time: Duplicity's own use time isn't published, LOW): {net:+.1%} in all. Its own "
+            f"125% isn't counted (an UNDERCOUNT){ASTERISK}")
 
 
 def duplicity_note(rate: float, d: dict) -> dict:

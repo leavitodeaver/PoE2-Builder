@@ -129,6 +129,14 @@ def ambush_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[d
     total = used + baited
     sources = " and ".join(s for s, r in ((f"Shroud ({why})", used), (f"Duplicity ({baited:.3f}/s)", baited)) if r > 0)
     if total <= 0 or speed <= 0:
+        if extra and used <= 0 and speed > 0 and bait.get("hits", 0) > 0:  # (PREVIEW6: why it sits at 0 presses)
+            rate = bait["hits"]
+            boom, _ = dup.engulf_explosions(read, name, rate)
+            gain, _ = dup.darkness_gain(read, name, rate, boom)
+            cycle = 1 / rate + 1 / speed
+            dark = min(DARKNESS_MAX, DARKNESS_ON_STEALTH * _concealed(baiter) + gain * cycle)
+            more, _, _ = ambush_more(1 / cycle, uses, dark, 0)
+            extra[0]["play"] = dup.idle_play(bait, name, more, dark, _concealed(baiter))
         return [], [{"label": LABEL, "value": 0, "confidence": "MEDIUM",
                      "basis": ("Shroud / Duplicity is in the build but isn't used"
                                + (f" (Shroud: no rate read{': ' + why if why else ''})" if group is not None else "")
