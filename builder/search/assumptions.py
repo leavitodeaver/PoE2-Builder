@@ -11638,8 +11638,16 @@ class Assumptions:
             return [], []
         stats = getattr(self.build, "stats", None) or {}
         back = objective.hit_recovery_rates(stats) if stats else {}
+        # (MECHB66; COV58's b15, an UNDERCOUNT of x0.077 there) a pool that pays no Skill cost isn't a cap: Pyromantic
+        # Pact's "Gain Infernal Flame instead of spending Mana for Skill costs" (recovery.PACT_NO_MANA; MECHC51 sets
+        # build.cost_pools_replaced from the same line, later in the pass, so it's read here from the build's lines).
+        # Infernal Flame at its maximum costs Life and Energy Shield (a self-hit, recovery.pact_self_hit), not casts.
+        lines = [e["text"] for e in self.build.call("sourceLines")["lines"]]
+        replaced = {"Mana"} if any(recovery_mod.PACT_NO_MANA.search(t) for t in lines) else set()
         pools = {}
         for pool, (cost_field, fields) in objective.SUSTAIN_POOLS.items():
+            if pool in replaced:
+                continue
             got = {f: number(stats.get(f)) for f in fields if number(stats.get(f)) > 0}
             extra = number(back.get(pool))
             how = ", ".join(f"{k} {v:,.1f}" for k, v in got.items()) + (f", recoup / on block {extra:,.1f}" if extra > 0

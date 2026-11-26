@@ -135,3 +135,22 @@ def test_decompose_reads_its_sets_and_entry_from_pob(engine):
     print(notes)
     assert notes and notes[0]["full_dps"][models.DECOMPOSE] < 0.5, notes
     assert "no hit" in notes[0]["basis"]
+
+
+def test_the_cost_cap_skips_mana_when_pyromantic_pact_pays_costs_with_infernal_flame():
+    """(COV58's b15, x0.077 there) A triggered main skill spending more Mana than it earns is capped (R60-4), unless the
+    build's "Gain Infernal Flame instead of spending Mana for Skill costs" (Pyromantic Pact) means no Mana is spent."""
+    from types import SimpleNamespace
+
+    from builder.search.assumptions import Assumptions
+
+    def fake(lines):
+        stats = {"ManaPerSecondCost": 1000.0, "ManaRegenRecovery": 100.0}
+        build = SimpleNamespace(stats=stats, call=lambda method, **kw: {"lines": [{"text": t} for t in lines]})
+        return SimpleNamespace(build=build)
+
+    main = models.Skill("Comet", group=1, spell=True, triggered=True)
+    mods, notes = Assumptions.mana_cap(fake([]), main, {})
+    assert mods and mods[0]["value"] == pytest.approx(-90.0), mods  # (100 / 1000: x0.1)
+    pact = ["Gain Infernal Flame instead of spending Mana for Skill costs"]
+    assert Assumptions.mana_cap(fake(pact), main, {}) == ([], [])
