@@ -10991,6 +10991,18 @@ def cloud_poison_scale(cloud_set: dict, poisons: float) -> float:
     return min(stacks * poisons, limit) / min(stacks, limit)
 
 
+# The boss walks out of a cloud left where it stood (GEM47; MECHD9's survey, MECH-D's scratch/mechd9/survey.md: "Gas
+# Arrow cloud ~1.5 m, 4 s window", 0.78 against the default boss; the manager's reader rule, 26 Nov 06:30). A Gas Arrow /
+# Gas Grenade cloud stays where it landed ("leaving behind a growing Poison cloud": ActiveSkills toxic_grenade; Gas
+# Arrow's "a cloud of flammable poisonous gas" where the arrow lands), so: its Poisons come only while the boss is
+# inside: applications = gas_cloud_poisons(alive x stay_share(R, alive)); a Detonator's explosion (a uniform wait over
+# detonated_wait, as Earthshatter's spikes) hits it only if still inside: x stay_share(R, that wait); an Ignite- or
+# Burning-made explosion needs the boss inside when it comes, at any moment of the cloud's life: x stay_share(R, life).
+# R: PoB's Poison Cloud set radius (its AreaOfEffectRadius, tenths of a metre; CLOUD_STAY_RADIUS where PoB gives none);
+# the cloud's growth (+20% area a second, to +80%) not read (the lower reading). Rows: the boss standing still (before).
+CLOUD_STAY_RADIUS = 1.5  # (metres: MECHD9's survey estimate for Gas Arrow's cloud, used only without PoB's radius)
+
+
 def gas_cloud_poisons(alive: float) -> float:
     """Poison applications a Gas Arrow cloud makes on the boss in `alive` seconds (see above)."""
     return max(alive, 0.0) / GAS_POISON_EVERY + 0.5

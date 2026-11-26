@@ -57,3 +57,9 @@ def test_stay_rule_reads_parts_left_on_the_ground_not_parts_stuck_in_the_boss():
     # (Stormblast Bolts lodge in the ground; Rapid Assault's spearhead is "stuck in the target", so it moves with it)
     assert "Stormblast Bolts" in models.DETONATED_STAY and "Earthshatter" in models.DETONATED_STAY
     assert "Rapid Assault" not in models.DETONATED_STAY
+
+
+def test_cloud_stay_radius_is_a_fallback_only():
+    # (GEM47: the cloud's radius comes from PoB's Poison Cloud set; 1.5 m only without it)
+    assert models.CLOUD_STAY_RADIUS == 1.5
+    assert models.gas_cloud_poisons(4.0 * 0.8) < models.gas_cloud_poisons(4.0)

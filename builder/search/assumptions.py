@@ -11257,6 +11257,27 @@ class Assumptions:
         return share, (f"{others}: Shocked {by_others:.0%} of the fight ({duration:.2f} s each, random in time); "
                        f"the resolver's share {base:.0%} ({up_how})")
 
+    def cloud_stay(self, main_index: int, skill: str, life: float, alive: float,
+                   det_rate: float) -> tuple[float, float, float, str] | None:
+        """(GEM47, models.CLOUD_STAY) (the share of a cloud's average `alive` s the boss stays inside it, of its whole
+        `life`, of a Detonator's wait (models.detonated_wait), how) from bosses.stay_share at the cloud's radius (its
+        Poison Cloud set's AreaOfEffectRadius, else models.CLOUD_STAY_RADIUS); None when the boss doesn't move."""
+        from builder.search import bosses
+        build = self.build
+        boss = {"_boss": getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT}
+        spot = self.skill_spot(main_index, skill)
+        sets = (build.call("setRates", index=spot[0], active=spot[1])["sets"] if spot else []) or []
+        radius = number(next((x for x in sets if x.get("label") == "Poison Cloud"), {}).get("AreaOfEffectRadius")) / 10
+        radius = radius if radius > 0 else models.CLOUD_STAY_RADIUS
+        rate, _, _ = bosses.relocations(boss, gain=False)
+        if rate <= 0:
+            return None
+        in_alive, how = bosses.stay_share(boss, radius, alive) if alive > 0 else (1.0, "")
+        in_life, life_how = bosses.stay_share(boss, radius, life)
+        wait = models.detonated_wait(det_rate, life)
+        in_det = bosses.stay_share(boss, radius, wait)[0] if wait > 0 else 1.0
+        return in_alive, in_life, in_det, f"its {radius:.1f} m cloud: {how or life_how}"
+
     def gas_arrow_share(self, main_index: int, scored: str | None, cloud: tuple[float, float] | None = None,
                         every_use: tuple[str, ...] = ("Arrow",), burning: bool = False,
                         skill: str | None = None, base_seconds: float | None = None
@@ -11285,6 +11306,7 @@ class Assumptions:
         lying = min(float(limit), uses * life)
         det_rate, det_how = self.detonator_rate(main_index)
         detonated = min(1.0, det_rate * lying / uses) if det_rate > 0 else 0.0
+        det_only = detonated  # (GEM47: the Detonators' part, for the stay share below)
         duration = number(stats.get("IgniteDuration")) or conditions_mod.AILMENT_DURATION["Ignite"]
         others = dict(getattr(build, "ailment_others", None) or {})
         ground = dict(getattr(build, "ailment_ground", None) or {})
@@ -11313,6 +11335,15 @@ class Assumptions:
         ends = ignites + det_rate
         alive = 0.0 if up >= 1 else (1.0 - up) * ((1.0 - math.exp(-ends * life)) / ends if ends > 0 else life)
         poisons = models.gas_cloud_poisons(alive)
+        # (GEM47; MECHD9's survey and the manager's reader rule, 26 Nov: models.CLOUD_STAY's note) the boss walks out of
+        # the cloud left where it stood: its Poisons come only while the boss is inside, and a cloud explodes on it only
+        # if it is still inside when set off
+        stay = self.cloud_stay(main_index, skill, life, alive, det_rate)
+        still = (share, poisons)
+        if stay is not None:
+            in_alive, in_life, in_det, stay_how = stay
+            share = det_only * in_det + max(share - det_only, 0.0) * in_life
+            poisons = models.gas_cloud_poisons(alive * in_alive)
         others_n = len([o for o in others.get("Ignite") or () if o])
         source = ("the explosions' own Ignites" if own and scored == "Explosion" else
                   f"the {scored}'s own Ignites" if own else "no own Ignite read")
@@ -11322,13 +11353,19 @@ class Assumptions:
                          f"except by expiring', ground_effects_cannot_trigger), so no cloud explodes and each lives its "
                          f"{life:.1f} s{ground} (MEDIUM-HIGH: poe2wiki, Mobalytics; without that line {share:.1%} of "
                          f"clouds would explode: the boss Ignited {up:.1%} of the fight, Detonators"
-                         + (" and Fire DoT" if burning else "") + f" {detonated:.0%})"), models.gas_cloud_poisons(life)
+                         + (" and Fire DoT" if burning else "") + f" {detonated:.0%})"
+                         + (f"; the boss inside the cloud {stay[1]:.0%} of its life ({stay[3]}; standing still: "
+                            f"{models.gas_cloud_poisons(life):.2f} Poisons a cloud)" if stay is not None else "")),                 models.gas_cloud_poisons(life * (stay[1] if stay is not None else 1.0))
         return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
                        f"Detonators" + (" and Fire DoT" if burning else "") + f" set off {detonated:.0%} ({det_how}"
                        + (f"; {burn_how}: Burning {burn:.0%} of the fight, at some moment of a cloud {burn_within:.0%}"
                           if burning else "") + f"); a cloud lives {alive:.1f} s on average (up to {limit:g} clouds of "
-                       f"{seconds:.1f} s: the build's Limit and duration)"), poisons
+                       f"{seconds:.1f} s: the build's Limit and duration)"
+                       + (f"; the boss walks out of it (GEM47, LOW: {stay[3]}): inside {stay[0]:.0%} of a cloud's "
+                          f"{alive:.1f} s, so {poisons:.2f} Poisons a cloud; set off by a Detonator {stay[2]:.0%} / by an "
+                          f"Ignite {stay[1]:.0%} still inside: {share:.1%} explode (standing still: {still[0]:.1%}, "
+                          f"{still[1]:.2f} Poisons)" if stay is not None else "")), poisons
 
     def fire_dot_uptime(self, main_index: int) -> tuple[float, float, str]:
         """(GEM36, R48-5: "Enemies taking Fire damage over time are Burning", MEDIUM; GGG's Flame Wall + Gas Cloud
