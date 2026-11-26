@@ -119,7 +119,7 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest, legal: bo
     scoring steps, as finalize_task runs them on a finished build: conditions and assumptions settled (Search.settle),
     the conditions round, the play choices, press rates, exact uptimes and the Infused factor read again. Returns its DPS, the floors it reads short
     and the conditions it was granted; with `legal`, also the reading made legal (legal_reference, SEARCH35)."""
-    from builder.search.inner import Search, boss_config, boss_stats
+    from builder.search.inner import Search, adopt_code_items, boss_config, boss_stats
     from builder.search.skeletons import enumerate_skeletons
 
     payload = make_payload(request)
@@ -131,6 +131,7 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest, legal: bo
     build.call("resetConfig", **boss_config(request))
     build.boss_stats = boss_stats(request)
     build.refresh()
+    adopt_code_items(search)  # (SEARCH41, COV59's flask gap: the flasks and charms as the search scores its own builds)
     _score_finished(search)
     out = {"dps": build.objective.dps(build.stats), "short": [d[0] for d in build.objective.deficits(build.stats)],
            "conditions": sorted(search.conditions.active), "floor_stats": fair_floor_stats(build)}

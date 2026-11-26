@@ -2195,6 +2195,34 @@ REAPPLY_ROUNDS = 2  # settles of the finished, reloaded build
 REAPPLY_TOLERANCE = 0.01  # a DPS move above 1% from the same state applied again is flagged
 
 
+# (SEARCH41; COV59's find via the manager 25 Nov 21:30, an OVERCOUNT in the gate reference) Flask recovery and flask /
+# charm effects reach the score only through Gear.sync_flasks, which reads the search's own item record (build.equipped)
+# that only setup_seed and the gear rounds fill. A build loaded from a code and scored straight away (gate4's
+# fair_reference and refloor, fresh_score) had an empty record: its flasks and charms counted as PoB loaded them, on
+# even where the flask model gives them no charges in the fight (COV59's calibration: b4 7.42M -> 7.23M once its 0-charge
+# flasks and charms were off). adopt_code_items fills the record from the code's own items, as setup_seed's item loop
+# does but without its bans, prices or budget (the build is scored as it stands), and syncs the flasks.
+# POE2_FAIR_FLASKS=0: the old path (no record, no sync), for an A/B reading.
+def adopt_code_items(search: "Search") -> list[str]:
+    """Fill search.build.equipped from the loaded code's items and sync the flasks (see above). The slots adopted."""
+    if os.environ.get("POE2_FAIR_FLASKS", "1") == "0":
+        return []
+    build, ctx = search.build, search.ctx
+    raws = build.call("equipped")["slots"]
+    kept: dict[str, ItemOption] = {}
+    for item in build.call("facts", fields=[])["items"]:
+        raw = raws.get(item["slot"])
+        if raw is None:
+            continue
+        base = ctx.bases_by_name.get(item["base"]) or {}
+        kept[item["slot"]] = ItemOption(item["name"], item["base"], item["type"], base.get("subType"), raw,
+                                        item["rarity"] in ("UNIQUE", "RELIC"), 0.0, "yours (from the code)",
+                                        (base.get("req") or {}).get("level") or 0, rare=item["rarity"] in ("RARE", "MAGIC"))
+    build.equipped = kept
+    search.gear.sync_flasks()
+    return sorted(kept)
+
+
 def fresh_score(engine: Any, payload: dict, skeleton: dict, xml: str) -> float:
     """The exported build scored from scratch the search's way, in a new Search on this engine: its code loaded, the boss
     preset's config, then the steps finalize_task runs on a finished build (gate4.fair_reference's, which scores the
@@ -2205,6 +2233,7 @@ def fresh_score(engine: Any, payload: dict, skeleton: dict, xml: str) -> float:
     build.call("resetConfig", **boss_config(fresh.ctx.request))
     build.boss_stats = boss_stats(fresh.ctx.request)
     build.refresh()
+    adopt_code_items(fresh)  # (SEARCH41: the flasks as the search scores them)
     for _ in range(4):
         if not fresh.settle():
             break
