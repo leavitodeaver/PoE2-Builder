@@ -23,3 +23,25 @@
             "research/triskelion-visual-layout-r62.md", "research/triskelion-ap-cascade-r62.md", "scratch/gem45/probe_comet.log"]
   test_in_game: "Not asked (a crafted, drop-restricted gem; R61-13): the Astral Projection row stays."
   status: proposed
+
+- id: model-gem45-earthquake-jagged-magnitude
+  title: "Earthquake's Aftershock takes no damage from its \"100% increased Magnitude of Jagged Ground\" (the bridge mutes PoB's Damage MORE map)"
+  kind: model
+  model: earthquake_jagged
+  stats: ["jagged_ground_effect_+%"]
+  skill: [Earthquake]
+  confidence: MEDIUM-HIGH
+  notes: >-
+    RESEARCH63 R63-1 (research/earthquake-jagged-ground-magnitude-r63.md): "{0}% increased Magnitude of Jagged Ground
+    you create" is a constant of the Impact set only (GrantedEffectStatSets EarthquakePlayer; the Aftershock set has no
+    constants and inherits); Jagged Ground's only magnitude is its 20% Slow (KeywordPopups); the Aftershock's own
+    BaseMultiplier is 0.5.0's 184-666% (poe2db agrees); PoB parses the same stat on passives to
+    EnemyJaggedGroundMagnitude. PoB's act_str.lua maps the Aftershock's inherited copy to Damage MORE: an OVERCOUNT on
+    every Earthquake build scoring the Aftershock. engine/bridge.lua's STAT_SET_SLOT_FIXES mutes it (removing exactly
+    what PoB applies, in hits and ailments alike). Probe scratch/gem45/probe_quake.log (level-90 Warbringer Earthquake
+    20, endgame): Aftershock 456.88 -> 156.74 average damage (x2.915; TotalDPS 322.74 -> 110.72), the Impact 19.99 both.
+    Row: PoB's reading (x2.915 on that skeleton; why not x2 is not traced). No in-game damage test exists.
+  sources: ["engine/bridge.lua (STAT_SET_SLOT_FIXES)", "builder/search/models.py (earthquake_jagged_note)",
+            "scratch/gem45/probe_quake.log"]
+  test_in_game: "Hover Earthquake at gem level 20: do the Impact and Aftershock damage ranges differ by about 5.3x (this reading) or about 10.7x (PoB's)?"
+  status: proposed

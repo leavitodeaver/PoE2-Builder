@@ -11382,6 +11382,30 @@ def earthquake_limit_model(main: Skill | None, scored: str | None, speed: float,
                  f"{cap:.2f} a second adds no Aftershocks.")}]
 
 
+# Earthquake's Aftershock without PoB's Jagged Ground "more" (GEM45; RESEARCH63 R63-1, MEDIUM-HIGH; an OVERCOUNT on
+# every Earthquake build): engine/bridge.lua's STAT_SET_SLOT_FIXES mutes jagged_ground_effect_+% on the Aftershock set,
+# which PoB's own map turned into Damage MORE (the evidence is in the bridge's comment). This note says so on every
+# Earthquake build scoring the Aftershock, with PoB's reading as the row: measured on a level-90 Warbringer Earthquake 20
+# skeleton (probe POE2T9703, scratch/gem45/probe_quake.log), PoB's map multiplies the Aftershock's hit by x2.915 (456.88
+# -> 156.74 average damage; the Impact unchanged), not the x2 its 100 would give (why: not traced, UNVERIFIED).
+EARTHQUAKE_JAGGED_ENTRY = "model-gem45-earthquake-jagged-magnitude"
+EARTHQUAKE_POB_MORE = 2.915  # PoB's factor on the reference skeleton (POE2T9703), for the row only
+
+
+def earthquake_jagged_note(main: Skill | None, scored: str | None) -> list[dict]:
+    """The note for the Aftershock scored without PoB's Jagged Ground Damage MORE (see above)."""
+    if main is None or main.name != EARTHQUAKE or scored != EARTHQUAKE_SET:
+        return []
+    return [{"label": f"{EARTHQUAKE}: the Aftershock takes no damage from \"100% increased Magnitude of Jagged Ground\"*",
+             "value": "PoB's more taken out", "confidence": "MEDIUM-HIGH", "entry": EARTHQUAKE_JAGGED_ENTRY,
+             "basis": ("The line raises Jagged Ground's Slow, its only magnitude; it sits on the Impact's stat set, the "
+                       "Aftershock only inherits it and already deals its own 184-666% (0.5.0; poe2db), and PoB reads the "
+                       "same stat on passives as magnitude (RESEARCH63 R63-1, MEDIUM-HIGH; no in-game damage test). PoB "
+                       "maps it to Damage MORE on the Aftershock; the bridge mutes that. Row: PoB's reading, the "
+                       f"Aftershock x{EARTHQUAKE_POB_MORE:g} (measured on a level-90 Warbringer skeleton)"),
+             "play": ""}]
+
+
 # Enervating Nova's damage by distance (GEM20; an open gem-stat row: PoB never reads new_shock_nova_distance_based_damage_
 # +%_final, so it scores the ring at x1 wherever the boss stands). The game (26650308): ActiveSkills enervating_nova
 # "Enemies close to you take no damage while enemies at the edge of the ring take significantly more damage";

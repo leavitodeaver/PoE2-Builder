@@ -5916,6 +5916,7 @@ class Assumptions:
             eq_mods, eq_notes = models.earthquake_limit_model(main, main.stat_set, number(stats.get("Speed")), eq_limit,
                                                               eq_seconds, eq_short, forbidden)
             hand_mods, hand_notes = hand_mods + eq_mods, hand_notes + eq_notes
+            hand_notes += models.earthquake_jagged_note(main, main.stat_set)  # (GEM45, R63-1: the bridge's mute)
             hit_cut(build, eq_mods, main.name)
         if main is not None and main.name == models.ENERVATING_NOVA:  # (GEM20: its damage by the boss's distance)
             radii = build.call("stats", fields=["AreaOfEffectRadius", "AreaOfEffectRadiusSecondary"])

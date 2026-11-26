@@ -60,3 +60,59 @@ def test_triskelion_model_gain_close_loss_far_and_rows():
     assert mods == [] and "UNVERIFIED" in notes[0]["basis"]
     assert models.triskelion_cascade_model(comet, CASCADABLE, 1.0, LVL20, 2.0, 1.0, 0.3, "t",
                                            forbidden={models.TRISKELION_ENTRY}) == ([], [])
+
+
+def test_earthquake_jagged_note_only_on_the_scored_aftershock():
+    quake = models.Skill(models.EARTHQUAKE, 1, stat_set=models.EARTHQUAKE_SET)
+    note = models.earthquake_jagged_note(quake, models.EARTHQUAKE_SET)
+    assert note and note[0]["entry"] == models.EARTHQUAKE_JAGGED_ENTRY and "R63-1" in note[0]["basis"]
+    assert models.earthquake_jagged_note(quake, "Impact") == []
+    assert models.earthquake_jagged_note(models.Skill("Boneshatter", 1), models.EARTHQUAKE_SET) == []
+
+
+@pytest.fixture(scope="module")
+def engine():
+    import faulthandler
+
+    from builder.data import GameData
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump")
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()
+    eng = PobEngine()
+    yield eng
+    eng.close()
+    if enabled:
+        faulthandler.enable()
+
+
+def test_earthquake_aftershock_without_pobs_jagged_ground_more(engine):
+    # (GEM45, R63-1) the bridge mutes jagged_ground_effect_+% on the Aftershock set; PoB's own Damage MORE map, put back
+    # in this process only, multiplies the Aftershock's hit (x2.915 on the probe skeleton) and leaves the Impact alone
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+
+    payload = make_payload(BuildRequest(main_skill="Earthquake"))
+    s = Search(engine, None, payload, enumerate_skeletons(Context(payload), ["Earthquake"])[0][0].as_dict(), 0)
+    s.setup(quests=False)
+    index = s.build.main_group()["index"]
+
+    def sets():
+        return {x["label"]: x.get("AverageDamage") for x in engine.call("setRates", index=index, active=1)["sets"]}
+    muted = sets()
+    statmap = 'data.skills["EarthquakePlayer"].statSets[2].statMap'
+    engine.lua.run('rawset(' + statmap + ', "jagged_ground_effect_+%", '
+                   '{ { name = "Damage", type = "MORE", flags = 0, keywordFlags = 0 } })', "gem45_remap")
+    try:
+        pob = sets()
+    finally:
+        engine.lua.run('rawset(' + statmap + ', "jagged_ground_effect_+%", { })', "gem45_unmap")
+    assert pob["Impact"] == pytest.approx(muted["Impact"])
+    assert pob["Aftershock"] / muted["Aftershock"] > 1.9  # PoB's more, gone from our number
+    assert sets()["Aftershock"] == pytest.approx(muted["Aftershock"])

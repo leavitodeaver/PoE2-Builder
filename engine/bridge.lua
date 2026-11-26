@@ -2922,8 +2922,18 @@ end
 --   the secondary stat (acidic_concoction.csd); poe2db: "Burst radius is 1.5 metres", quality "Explosion radius is
 --   (0-0.4) metres". Muted: the Burst's radius is 15 in every process.
 -- tests/test_stat_set_slots.py fails on a set with this pattern that is not handled here (a PoB upgrade's).
+-- (GEM45, RESEARCH63 R63-1, MEDIUM-HIGH; an OVERCOUNT on every Earthquake build) The same table also mutes one stat on
+-- Earthquake's Aftershock that PoB's hand-written map turns into damage: jagged_ground_effect_+% ("{0}% increased
+-- Magnitude of Jagged Ground you create", stat_descriptions.csd) is a constant of the Impact set only
+-- (GrantedEffectStatSets EarthquakePlayer; EarthquakeAftershockPlayer has no constants, it inherits), Jagged Ground's
+-- only magnitude is its 20% Slow (KeywordPopups JaggedGround), the Aftershock's own multiplier is already 0.5.0's
+-- "184-666% of Attack damage" (BaseMultiplier 8400 / 56600; poe2db), and PoB itself parses the same stat on passives to
+-- EnemyJaggedGroundMagnitude, not damage. PoB's act_str.lua (EarthquakePlayer set 2) maps it to Damage MORE (x2.92 on
+-- GEM44's probe skeleton). Muted: the Aftershock takes no damage from it; models.earthquake_jagged_note gives PoB's
+-- reading as a row. (checked: SkillStatMap.lua and every Data/Skills file for jagged_ground: only this map.)
 local STAT_SET_SLOT_FIXES = {
-	EarthquakePlayer = { [2] = { drop = { "active_skill_base_tertiary_area_of_effect_radius" } } },
+	EarthquakePlayer = { [2] = { drop = { "active_skill_base_tertiary_area_of_effect_radius" },
+		mute = { "jagged_ground_effect_+%" } } },
 	AcidicConcoctionPlayer = { [2] = { mute = { "active_skill_base_area_of_effect_radius" } } },
 }
 local statSetSlotsInstalled = false
