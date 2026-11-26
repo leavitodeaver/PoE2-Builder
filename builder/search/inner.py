@@ -1088,6 +1088,14 @@ class Search:
         if any(g["name"] == HEART_OF_ICE and g.get("enabled", True) for grp in self.build.groups()
                if grp.get("enabled", True) for g in grp["gems"]):
             lines.append("Heart of Ice: Chills all enemies in your Presence")
+        # (SEARCH41; MECH106's routed item, the manager 24 Nov 17:24) Malice's Critical Weakness counts only while the boss
+        # is in your Presence (MECH106's 5a13aec0, models.MALICE): a caster standing back with Malice tries the Presence
+        # edge too (before: a 5 m caster with a 4 m Presence read 0 Critical Weakness and never tried 4 m)
+        from builder.search.models import MALICE
+
+        if any(g["name"] == MALICE and g.get("enabled", True) for grp in self.build.groups()
+               if grp.get("enabled", True) for g in grp["gems"]):
+            lines.append("Malice: Critical Weakness on enemies in your Presence")
         lines += support_distance_lines(self.build.groups())
         # (the Presence radius in metres: the Presence-edge trial for "in your Presence" lines and the just-beyond one for
         # "no enemies are in your Presence" lines, Lioneye's Glare; distance_candidates took 0 m before, so neither was
@@ -1108,7 +1116,12 @@ class Search:
         scores, keys = {}, {}
         for metres in candidates:
             conditions.distance = None if metres == natural else (metres, "")
-            self.settle()
+            # (SEARCH41; MECH108's POE2T8811 / 8816: a Presence build's Withered / Presence numbers keep moving over further
+            # settles, so one settle could rank the distances on half-moved numbers) each candidate is settled to rest,
+            # up to DISTANCE_SETTLES rounds (the finished-build scoring's 4 in fresh_score / gate4._score_finished)
+            for _ in range(DISTANCE_SETTLES):
+                if not self.settle():
+                    break
             scores[metres] = self.build.objective.value(self.build.stats)
             # (SEARCH39: the choice compares damage, then the hard shortfall, then the rest: Objective.choice_key)
             keys[metres] = self.build.objective.choice_key(self.build.stats)

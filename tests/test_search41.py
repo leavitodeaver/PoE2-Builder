@@ -69,3 +69,58 @@ def test_skills_whose_cast_time_another_model_charges_are_left_out_of_upkeep():
     assert {"Ferocious Roar", "Parry", "Raise Shield", "Pounce", "Snap", "Frost Bomb"} <= names
     assert "Thunderstorm" not in names
     assert {"AppliesCurse", "Mark", "Warcry"} <= UPKEEP_TYPES_CHARGED
+
+
+def test_a_build_with_malice_tries_its_presence_edge(monkeypatch):
+    """(MECH106's routed item) Malice's Critical Weakness needs the boss in your Presence: its line reaches
+    distance_candidates, which then offers the Presence edge to a caster standing further back."""
+    from types import SimpleNamespace
+    from builder.search import inner
+    from builder.search.conditions import distance_candidates
+
+    seen = {}
+
+    def capture(lines, main_types, presence_radius=0.0, skill=""):
+        seen["lines"], seen["radius"] = list(lines), presence_radius
+        return []
+    monkeypatch.setattr(inner, "distance_candidates", capture)
+    groups = [{"enabled": True, "gems": [{"name": "Spark"}]}, {"enabled": True, "gems": [{"name": "Malice"}]}]
+    build = SimpleNamespace(groups=lambda: groups,
+                            call=lambda m, **kw: {"lines": []} if m == "sourceLines" else {"PresenceRadius": 40})
+    search = object.__new__(inner.Search)
+    search.build, search.conditions = build, SimpleNamespace(distance=None, main_types={"Spell"}, main_skill="Spark")
+    assert search.choose_distance() is False
+    assert any("Malice" in t and "in your Presence" in t for t in seen["lines"]) and seen["radius"] == 4.0
+    groups.pop()
+    search.choose_distance()
+    assert not any("Malice" in t for t in seen["lines"])
+    # (and the real candidate list then holds the 4 m edge for a ranged spell)
+    edge = distance_candidates(["Malice: Critical Weakness on enemies in your Presence"], {"Spell", "Projectile"},
+                               presence_radius=4.0, skill="Spark")
+    assert 4.0 in edge
+
+
+def test_each_distance_candidate_is_settled_to_rest_before_it_is_scored(monkeypatch):
+    """(MECH108) a candidate scored after one settle could lose on half-moved Withered / Presence numbers: each is now
+    settled until nothing moves (at most DISTANCE_SETTLES rounds)."""
+    from types import SimpleNamespace
+    from builder.search import inner
+
+    monkeypatch.setattr(inner, "distance_candidates", lambda *a, **k: [6.0, 4.0])
+    calls = {"n": 0, "moving": 3}
+
+    def settle():
+        calls["n"] += 1
+        calls["moving"] -= 1
+        return calls["moving"] > 0
+    objective = SimpleNamespace(value=lambda s: 1.0, choice_key=lambda s: (0, 0, calls["n"]))
+    build = SimpleNamespace(groups=lambda: [], stats={}, objective=objective,
+                            call=lambda m, **kw: {"lines": []} if m == "sourceLines" else {"PresenceRadius": 40})
+    search = object.__new__(inner.Search)
+    search.build, search.settle = build, settle
+    search.conditions = SimpleNamespace(distance=None, main_types={"Spell"}, main_skill="Spark")
+    search.choose_distance()
+    # (6 m: 3 settles to rest; 4 m: 1 (already at rest, `moving` <= 0); the chosen one applied: 1)
+    assert calls["n"] == 5
+    assert 1 <= inner.DISTANCE_SETTLES <= 6
+
