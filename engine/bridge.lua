@@ -7439,6 +7439,24 @@ function bridge.sourceLines()
 			end
 		end
 	end
+	-- (COV61; the manager 26 Nov 12:33, SPEED5's Phase 0, an OVERCOUNT) a passive an item or mod GRANTS ("Allocates X":
+	-- an Amulet anoint, a unique's or jewel's "Allocates" line, the Essence granted passive, Forbidden Flame / Flesh's
+	-- ascendancy node): PoB adds it to env.allocNodes and env.grantedPassives only (CalcSetup's addGrantedPassiveNode,
+	-- 1761-1781: the modDB's GrantedPassive list), never to spec.allocNodes, so its lines reached no model and PoB read the
+	-- notable raw: Marked for Sickness x1.10 anointed, x1.000 on the tree (mark_model knows the Mark is never applied).
+	-- Given as the node's passive lines, as if allocated, from the node data PoB itself merged (a conquered node's too).
+	-- Item-granted SOCKETS are already in spec.allocNodes (PassiveSpec:SetGrantedPassiveNodes) and listed above.
+	for id in pairs(env and env.grantedPassives or { }) do
+		local node = not build.spec.allocNodes[id] and ((env.allocNodes and env.allocNodes[id]) or build.spec.nodes[id])
+		if node and not (node.type == "Keystone" and node.dn and keystones[node.dn]) then
+			if node.type == "Keystone" and node.dn then
+				keystones[node.dn] = true
+			end
+			for _, line in ipairs(node.sd or { }) do
+				add("passive:" .. (node.dn or node.id), line)
+			end
+		end
+	end
 	-- (COV44) Necromantic Talisman, "All bonuses from Equipped Amulet apply to your Minions instead of you": PoB moves the
 	-- Amulet's mods to the minions when node 39935 is allocated (CalcSetup 1549: env.talismanModList, not the player's
 	-- itemModDB; CalcPerform 1101 / 1233), so the Amulet's lines aren't the player's either: before, the models read them
