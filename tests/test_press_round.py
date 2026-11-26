@@ -51,6 +51,9 @@ class FakeBuild:
     def groups(self):
         return self.groups_list
 
+    def set_group(self, index, **kw):  # (SEARCH41: Search.upkeep_round switches a side group off once to see if it's used)
+        next(g for g in self.groups_list if g["index"] == index).update(kw)
+
     def call(self, name, **kw):
         if name == "groups":
             return {"mainSocketGroup": 1, "groups": self.groups_list}

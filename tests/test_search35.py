@@ -57,7 +57,7 @@ def _search(groups, stats):
 
     search = types.SimpleNamespace(build=build, tree=types.SimpleNamespace(trim_to_budget=trim),
                                    gems=types.SimpleNamespace(refresh_infused=lambda: False))
-    for name in ("conditions_round", "choose_play", "resolve", "weigh_uptimes"):
+    for name in ("conditions_round", "choose_play", "resolve", "weigh_life", "weigh_uptimes"):
         setattr(search, name, lambda: calls.append(name))
     search.settle = lambda: False
     search.press_round = lambda deadline: None

@@ -234,7 +234,7 @@ def test_the_finished_build_chooses_its_stat_set_and_distance_again():
             conditions.distance = (2.0, "close")
         search = SimpleNamespace(build=build, conditions=conditions, assumptions=None,
                                  gems=SimpleNamespace(choose_active_skill=choose, plain_state=lambda o: Gems.plain_state(o)),
-                                 choose_distance=lambda: False, weigh_uptimes=lambda: None)
+                                 choose_distance=lambda: False, weigh_life=lambda: None, weigh_uptimes=lambda: None)
         return search, restored
 
     better = {"k": (True, -1.0, 18.7), "d": [("Physical max hit", 0.095, False)]}

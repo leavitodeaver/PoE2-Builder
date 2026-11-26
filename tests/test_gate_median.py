@@ -116,6 +116,9 @@ def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_
         def press_round(self, deadline):
             calls.append("press")
 
+        def weigh_life(self):  # (SEARCH41: the Low Life factor on the pressed build)
+            calls.append("life")
+
         def weigh_uptimes(self):
             calls.append("uptimes")
             self.build.stats["dps"] = 621.0
@@ -125,6 +128,7 @@ def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_
             return False
 
     monkeypatch.setattr(inner, "Search", Search)
+    monkeypatch.setattr(inner, "adopt_code_items", lambda search: calls.append("adopt"))  # (SEARCH41: the flasks synced)
     monkeypatch.setattr(skeletons, "enumerate_skeletons",
                         lambda ctx, names: [[types.SimpleNamespace(as_dict=lambda: {})]])
     monkeypatch.setattr(gate4, "make_payload", lambda request: {})
@@ -134,8 +138,8 @@ def test_gate4_fair_scores_the_reference_with_the_searchs_own_steps_and_a_reset_
     floor_stats = fair.pop("floor_stats")  # (SEARCH27: the floors' stats, read as the deficits read them)
     assert fair == {"dps": 621.0, "short": ["Spirit"], "conditions": ["EnemyFrozen"]}
     assert set(floor_stats) == set(gate4.FLOOR_STATS)
-    assert calls == ["loadXml", "resetConfig", "refresh", "settle", "settle", "settle", "conditions", "play", "resolve",
-                     "press", "uptimes", "choices", "infused"]
+    assert calls == ["loadXml", "resetConfig", "refresh", "adopt", "settle", "settle", "settle", "conditions", "play",
+                     "resolve", "press", "life", "uptimes", "choices", "infused"]
 
 
 def test_gate4_judges_against_the_fair_reference_unless_asked_for_the_authors_toggles():

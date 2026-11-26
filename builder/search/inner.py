@@ -700,7 +700,7 @@ class Search:
             if group["index"] == main:
                 main_names |= set(names)
                 continue
-            if group.get("enabled") is False or pressed_group(group, build.ctx.gems, granted):
+            if group.get("enabled") is False or (group.get("fullDPS") and pressed_group(group, build.ctx.gems, granted)):
                 continue  # (off, or a pressed Full DPS group: press_model charges it)
             keep = [n for n in names if n in buttons and n not in choices and n not in upkeep_charged_elsewhere()
                     and not set((known.get(n) or {}).get("skillTypes") or ()) & UPKEEP_TYPES_CHARGED]
@@ -725,6 +725,7 @@ class Search:
         """Charge the kept-up side skills upkeep_round found used (objective.upkeep_busy / upkeep_rates), dropping any no
         longer in a side group. True if the charge changed."""
         objective = self.build.objective
+        self.upkeep_rows = getattr(self, "upkeep_rows", None) or {}  # (a bare Search, e.g. a test's stand-in)
         if not self.upkeep_rows and not getattr(objective, "upkeep_busy", 0.0):
             return False
         present = {n["name"] for g in self.build.groups() if not g["main"] and g.get("enabled") is not False
