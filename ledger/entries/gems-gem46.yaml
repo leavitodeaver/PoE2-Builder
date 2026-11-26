@@ -50,3 +50,25 @@
             "research/vine-arrow-poisoned-plant-r63.md"]
   test_in_game: "R63-2's morning question only if a returned build rides on it."
   status: proposed
+
+- id: model-gem46-flame-pillar-support
+  title: "The Flame Pillar support: a supported skill's hit Consumes the boss's Ignite to make a pillar dealing 25% of the Ignite's remaining damage"
+  kind: model
+  model: flame_pillar
+  stats: ["support_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage",
+          "pillar_of_flame_consume_ignite_to_create_X_pillars"]
+  skill: [Flame Pillar]
+  confidence: MEDIUM
+  notes: >-
+    PoB sup_str.lua SupportFlamePillarPlayer (26650308): "Supported Skills Consume Ignite on Hit to create pillars of
+    flame, but cannot themselves inflict Ignite" (never_ignite: PoB's CannotIgnite, applied); TriggeredFlamePillarPlayer:
+    "Deal Fire Damage in an Area based on a percentage of the expected Damage of the Consumed Ignite", 25%, radius 1.5 m,
+    made within 1 m of the consumed enemy. PoB holds no damage for the pillar. Counted as MECH71's Grisly Pyre (the same
+    shape at 30%): assumptions.grisly_pyre / models.grisly_pyre_model with share 0.25, the supported skill's uses, the
+    boss's Ignited share after the consumption, the Ignite from the build's other skills (MECH74's path where the
+    supported skill can't Ignite); an added source. Probe POE2T9727 (scratch/gem46/probe_pillar2.log; a level-90
+    Boneshatter + Flame Pillar main, a stated Ignite of 5,000 a second on the boss 60% of the fight, one every 2 s):
+    0.57 uses a second x 60% x 3,750 a pillar: 82.45 -> 1,353.95 (the skeleton's own Fireball never Ignites the boss: 0).
+  sources: ["builder/search/models.py (grisly_pyre_model, FLAME_PILLAR)", "builder/search/assumptions.py (grisly_pyre)"]
+  test_in_game: "Not needed beyond Grisly Pyre's reading (the pillar isn't scaled again by your modifiers: UNVERIFIED either way, the lower reading)."
+  status: proposed

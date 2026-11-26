@@ -3671,13 +3671,14 @@ def sacrifice_life(build: Build, found: list[models.Skill], main: models.Skill |
     return life, notes
 
 
-def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+def grisly_pyre(build: Build, main: models.Skill | None, skill: str = models.GRISLY_PYRE_SOURCE,
+                share: float = models.GRISLY_PYRE_SHARE, pillar: str = models.GRISLY_PYRE_SKILL
+                ) -> tuple[float, list[dict]]:
     """(added DPS, notes) for His Winnowing Flame's Grisly Pyres (MECH71; models.grisly_pyre_model): the skill's uses
     (the main skill's Speed, else its group's rate: conditions.skill_use_rate, the search's chosen press rate where
     nothing else sets it, else 0), the boss's Ignited share (build.ailment_uptimes, after the consumption), and the main
     skill's Ignite (PoB's IgniteDPS, IgniteDuration, its hits x IgniteChancePerHit). Where the main skill doesn't Ignite
     (His Winnowing Flame itself never does), another group's Ignite (MECH74: models.grisly_pyre_other_ignite)."""
-    skill = models.GRISLY_PYRE_SOURCE
     choices = models.press_choices(build)
     uses = 0.0
     pairs = [(each["index"], position, entry["name"]) for each in build.groups() if each["enabled"]
@@ -3703,7 +3704,8 @@ def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[di
         applications = models.hits_per_second(stats) * min(models.number(stats.get("IgniteChancePerHit")), 100) / 100
         ignited = models.number((getattr(build, "ailment_uptimes", None) or {}).get("Ignited"))
         dps, how = models.grisly_pyre_model(uses, ignited, models.number(stats.get("IgniteDPS")),
-                                            models.number(stats.get("IgniteDuration")), applications)
+                                            models.number(stats.get("IgniteDuration")), applications, share=share,
+                                            source=skill, pillar=pillar)
     else:
         # (MECH74) the strongest other group's Ignite, scored as PoB scores it as the main skill, at its own use rate
         best = (0.0, None)
@@ -3717,16 +3719,16 @@ def grisly_pyre(build: Build, main: models.Skill | None) -> tuple[float, list[di
             if weight > best[0]:
                 best = (weight, (name, row, hits, chance, why))
         if best[1] is None:
-            dps, how = models.grisly_pyre_model(uses, 0.0, 0.0, 0.0, 0.0)
+            dps, how = models.grisly_pyre_model(uses, 0.0, 0.0, 0.0, 0.0, share=share, source=skill, pillar=pillar)
         else:
             name, row, hits, chance, why = best[1]
             duration = models.number(row.get("IgniteDuration"))
-            ignited, share_how = models.grisly_pyre_other_ignite(uses, hits, chance, duration)
+            ignited, share_how = models.grisly_pyre_other_ignite(uses, hits, chance, duration, source=skill)
             dps, how = models.grisly_pyre_model(uses, ignited, models.number(row.get("IgniteDPS")), duration,
-                                                hits * chance)
+                                                hits * chance, share=share, source=skill, pillar=pillar)
             how = (f"{name}'s Ignite ({why}; PoB's {models.number(row.get('IgniteDPS')):,.0f} Ignite DPS for it as the "
                    f"main skill): {share_how}; {how}; the time split between the two skills not taken off*")
-    return dps, [{"label": f"{models.GRISLY_PYRE_SKILL} ({skill})*", "value": f"{dps:,.0f}", "basis": how,
+    return dps, [{"label": f"{pillar} ({skill})*", "value": f"{dps:,.0f}", "basis": how,
                   "confidence": "MEDIUM"}]
 
 
@@ -6234,6 +6236,11 @@ class Assumptions:
         pyre, pyre_notes = grisly_pyre(build, main)  # (MECH71: His Winnowing Flame's Grisly Pyres, PoB holds no damage)
         hand_mods += [models.added_input("GrislyPyre", pyre)] if pyre > 0 else []
         hand_notes += pyre_notes
+        # (GEM46) the Flame Pillar support's pillars from each skill it supports (models.FLAME_PILLAR; PoB holds none)
+        for supported in sorted({s.name for s in found if number(s.support_stats.get(models.FLAME_PILLAR_STAT)) > 0}):
+            pillar, pillar_notes = grisly_pyre(build, main, supported, models.FLAME_PILLAR_SHARE, models.FLAME_PILLAR)
+            hand_mods += [models.added_input("FlamePillar" + re.sub(r"\W", "", supported), pillar)] if pillar > 0 else []
+            hand_notes += pillar_notes
         shout, shout_notes = battershout(build)  # (MECH72: Battershout's explosions, PoB holds no damage)
         hand_mods += [models.added_input("Battershout", shout)] if shout > 0 else []
         hand_notes += shout_notes
@@ -7680,7 +7687,7 @@ class Assumptions:
             KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, models.ETERNAL_MARCH, BREACH, *models.gem_stat_skills(),
             "Spear of Solaris",  # (MECHC65: its quality's Glory retain, models.GLORY_RETAIN_STAT)
             *models.curse_gem_names(getattr(getattr(self.build, "ctx", None), "gems", None))],  # (MECH100: each curse's level cap)
-            supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
+            supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT, models.FLAME_PILLAR_STAT,
                           models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT, models.ECHO_COUNT_STAT,
                           EXTRA_REMNANT_STAT, "remnant_pickup_range_+%"])["skills"]  # (MECH-B: A23-3; MECHB36 Spell Cascade; MECHC60: Harmonic Remnants II; MECHC64: remnant_walk.PICKUP_STAT)
         mods, notes, self.extra_groups = self.models(skills)

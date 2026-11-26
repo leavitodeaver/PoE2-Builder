@@ -15503,21 +15503,37 @@ GRISLY_PYRE_SKILL, GRISLY_PYRE_SOURCE = "Grisly Pyre", "His Winnowing Flame"
 
 
 def grisly_pyre_model(uses: float, ignited: float, ignite_dps: float, duration: float,
-                      applications: float) -> tuple[float, str]:
+                      applications: float, *, share: float = GRISLY_PYRE_SHARE, source: str = GRISLY_PYRE_SOURCE,
+                      pillar: str = GRISLY_PYRE_SKILL) -> tuple[float, str]:
     """(added DPS, how) of His Winnowing Flame's Grisly Pyres on the boss (see the note above): uses of the skill per
-    second, the share of the fight the boss is Ignited, PoB's IgniteDPS and IgniteDuration, Ignites applied per second."""
+    second, the share of the fight the boss is Ignited, PoB's IgniteDPS and IgniteDuration, Ignites applied per second.
+    (GEM46) `share` / `source` / `pillar`: the Flame Pillar support's 25% pillars from a skill it supports (FLAME_PILLAR)."""
     if uses <= 0:
-        return 0.0, "His Winnowing Flame isn't used (no use rate): no Grisly Pyres"
+        return 0.0, f"{source} isn't used (no use rate): no {pillar}s"
     if ignite_dps <= 0 or duration <= 0 or applications <= 0 or ignited <= 0:
-        return 0.0, ("His Winnowing Flame never Ignites (never_ignite), and no skill of the build puts an Ignite on the "
-                     "boss for it to Consume: no Grisly Pyres")
+        return 0.0, (f"{source} never Ignites (never_ignite), and no skill of the build puts an Ignite on the "
+                     f"boss for it to Consume: no {pillar}s")
     every = 1 / applications
     remaining = duration - min(every, duration) / 2
-    pyre = GRISLY_PYRE_SHARE * ignite_dps * remaining
+    pyre = share * ignite_dps * remaining
     dps = uses * min(1.0, ignited) * pyre
-    return dps, (f"{uses:.2f} uses/s x {min(1.0, ignited):.0%} finding the boss Ignited x 1 Grisly Pyre of 30% of the "
-                 f"Ignite's remaining damage ({ignite_dps:,.0f}/s x {remaining:.2f} s left of {duration:.2f} s, an Ignite "
-                 f"every {every:.2f} s: {pyre:,.0f} each); Aggravated Ignite's 3 more pillars not counted")
+    return dps, (f"{uses:.2f} uses/s x {min(1.0, ignited):.0%} finding the boss Ignited x 1 {pillar} of {share:.0%} of "
+                 f"the Ignite's remaining damage ({ignite_dps:,.0f}/s x {remaining:.2f} s left of {duration:.2f} s, an "
+                 f"Ignite every {every:.2f} s: {pyre:,.0f} each); Aggravated Ignite's more pillars not counted")
+
+
+# The Flame Pillar support (GEM46; GEM44's unread list, an UNDERCOUNT: PoB holds no damage for its pillar, and nothing
+# read support_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage). PoB sup_str.lua SupportFlamePillarPlayer
+# (26650308): "Supported Skills Consume Ignite on Hit to create pillars of flame, but cannot themselves inflict Ignite"
+# (never_ignite: PoB's CannotIgnite; pillar_of_flame_consume_ignite_to_create_X_pillars 1, at most 10 a use;
+# pillar_of_flame_X_additional_pillars_on_consuming_aggravated_ignite 0); TriggeredFlamePillarPlayer: "Deal Fire Damage
+# in an Area based on a percentage of the expected Damage of the Consumed Ignite", 25% of the remaining Ignite damage,
+# radius 1.5 m, made within 1 m (pillar_of_flame_creation_radius 10) of the consumed enemy. The same shape as Grisly Pyre
+# (MECH71): grisly_pyre_model at 25%, the supported skill's uses, the boss's Ignited share after the consumption
+# (conditions' consume model already lists the support's stat), the Ignite from the build's other skills. MEDIUM.
+FLAME_PILLAR = "Flame Pillar"
+FLAME_PILLAR_STAT = "pillar_of_flame_consume_ignite_to_create_X_pillars"
+FLAME_PILLAR_SHARE = 0.25  # (support_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage 25)
 
 
 # Incinerate's fuel and Compounding Ignite (MECH79; conditions' INCINERATE / COMPOUNDING_SKILLS notes hold the game
@@ -16922,7 +16938,8 @@ def kelari_beetle_explosions(skill: Skill, stats: dict) -> tuple[float, str]:
 # it off the main skill in Full DPS: an OVERCOUNT of the Pyres where both are pressed, small beside a cooldown skill).
 
 
-def grisly_pyre_other_ignite(uses: float, hits: float, chance: float, duration: float) -> tuple[float, str]:
+def grisly_pyre_other_ignite(uses: float, hits: float, chance: float, duration: float,
+                             source: str = GRISLY_PYRE_SOURCE) -> tuple[float, str]:
     """(the boss's Ignited share, how) from another skill's Ignite (hits per second x chance per hit, each lasting
     `duration` s) that His Winnowing Flame Consumes `uses` times a second (see the note above)."""
     if hits <= 0 or chance <= 0 or duration <= 0:
@@ -16933,7 +16950,7 @@ def grisly_pyre_other_ignite(uses: float, hits: float, chance: float, duration: 
     wait = 1.0 / (hits * chance)
     share = alone / (1.0 + alone * max(uses, 0.0) * (CONSUME_IMMUNE + wait))
     return share, (f"Ignited {alone:.0%} of the fight by it alone ({hits:.2f} hits/s x {chance:.0%}, {duration:.2f} s "
-                   f"each), {share:.0%} once His Winnowing Flame Consumes it {uses:.2f} times/s (then immune "
+                   f"each), {share:.0%} once {source} Consumes it {uses:.2f} times/s (then immune "
                    f"{CONSUME_IMMUNE:g} s, {wait:.2f} s to Ignite again)")
 
 # Blood Hunt's explosion (MECH75; PATCH_CHECK H2-5's reader, an UNDERCOUNT: neither PoB nor the tool read Blood Loss).

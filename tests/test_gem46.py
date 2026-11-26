@@ -132,3 +132,15 @@ def test_vine_plant_without_a_cloud_or_a_plant_deals_nothing():
     mods, notes = models.vine_plant_model(-50, 1, 0.0, 8.0, [("Gas Arrow", 1000.0, 1.0)])
     assert mods == [] and "no plant" in notes[0]["basis"]
     assert models.vine_plant_model(-50, 1, 0.25, 8.0, [("Gas Arrow", 1000.0, 1.0)], forbidden={models.VINE_ENTRY}) == ([], [])
+
+
+def test_flame_pillar_is_grisly_pyres_shape_at_25_percent():
+    # (an Ignite of 1,000/s lasting 4 s, applied every 2 s: 3 s left on average; 1 use a second finding it 50% of the time)
+    pyre, _ = models.grisly_pyre_model(1.0, 0.5, 1000.0, 4.0, 0.5)
+    pillar, how = models.grisly_pyre_model(1.0, 0.5, 1000.0, 4.0, 0.5, share=models.FLAME_PILLAR_SHARE,
+                                           source="Boneshatter", pillar=models.FLAME_PILLAR)
+    assert pyre == pytest.approx(1.0 * 0.5 * 0.30 * 1000 * 3.0)
+    assert pillar == pytest.approx(1.0 * 0.5 * 0.25 * 1000 * 3.0) and "1 Flame Pillar of 25%" in how
+    _, how = models.grisly_pyre_model(0.0, 0.5, 1000.0, 4.0, 0.5, share=0.25, source="Boneshatter",
+                                      pillar=models.FLAME_PILLAR)
+    assert "Boneshatter isn't used" in how
