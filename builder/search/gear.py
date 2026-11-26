@@ -15,6 +15,7 @@ layers the requested style allows.
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
 import os
 import random
@@ -162,6 +163,36 @@ def resist_swap_split(now: float, deadline: float) -> tuple[float, float]:
     if os.environ.get(SWITCH_RESIST_SWAP, "0") != "1":
         return deadline, deadline
     return now + (1.0 - RESIST_SWAP_SHARE) * max(0.0, deadline - now), deadline
+
+
+# (SEARCHB10; the manager, 26 Nov 01:33) The same starvation for ALL of a full gear round's round-level work after its slot
+# loop: character_rune_round (Runic Meridians' character rune sockets), granted_meta_trials and purity_trials each stop
+# at the round's deadline, and at gate budgets the slot loop spends it. "1": the slot loop stops ROUND_SHARE of the round's
+# time early and that work gets the round's own end (OFF by default).
+SWITCH_ROUND_SHARE = "POE2_SEARCH_ROUND_SHARE"
+ROUND_SHARE = 0.3  # (LOW, a search-effort setting, as RESIST_SWAP_SHARE)
+# A diagnostic: a file path; each full gear round appends one JSON line (the time its round-level work found left)
+SWITCH_ROUND_LOG = "POE2_SEARCH_ROUND_LOG"
+
+
+def round_split(now: float, deadline: float) -> tuple[float, float, float]:
+    """(the slot loop's deadline, the round-level work's, resist_swap_round's) for a full gear round starting at `now`.
+    POE2_SEARCH_ROUND_SHARE=1 leaves ROUND_SHARE of the round to all the round-level work; POE2_SEARCH_RESIST_SWAP=1
+    alone leaves RESIST_SWAP_SHARE to the swap round only (resist_swap_split); both off: all three are `deadline`."""
+    loop, swap = resist_swap_split(now, deadline)
+    if os.environ.get(SWITCH_ROUND_SHARE, "0") != "1":
+        return loop, loop, swap
+    loop = min(loop, now + (1.0 - ROUND_SHARE) * max(0.0, deadline - now))
+    return loop, deadline, deadline
+
+
+def round_log(path: str, row: dict) -> None:
+    """One JSON line (POE2_SEARCH_ROUND_LOG; a diagnostic, never read by the search). Workers append side by side."""
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
 # (SEARCHC1) "0": a socket no rune scored for stays empty, as before (Gear.fill_sockets; ON by default: THE USER 23 Nov,
 # never an empty rune socket; a filler never lowers the score)
 SWITCH_FILL_SOCKETS = "POE2_SEARCH_FILL_SOCKETS"
@@ -2356,9 +2387,10 @@ class Gear:
             start = slots.index(self.resume) if self.resume in slots else 0
             slots = slots[start:] + slots[:start]
             self.resume = None
-        swap_deadline = deadline  # (SEARCHB10: resist_swap_round's own end, past a slot loop it would otherwise follow)
+        swap_deadline = tail_deadline = deadline  # (SEARCHB10: the round-level work's own ends, past the slot loop's)
+        round_start, round_end = clock.now(), deadline
         if whole:
-            deadline, swap_deadline = resist_swap_split(clock.now(), deadline)
+            deadline, tail_deadline, swap_deadline = round_split(round_start, deadline)
         for slot in slots:
             if clock.now() > deadline:
                 if whole and self.resume is None:
@@ -2433,15 +2465,22 @@ class Gear:
             improved = improved or build.score > before + EPSILON
             if build.score > before + EPSILON and (checkpoint := getattr(self, "checkpoint", None)) is not None:
                 checkpoint()  # (SEARCHD1 hook, F1: a hard stop later in the round keeps this slot's kept item)
+        tail_start = clock.now()
         if whole:
-            improved = self.character_rune_round(deadline) or improved
+            improved = self.character_rune_round(tail_deadline) or improved
         if whole and os.environ.get(SWITCH_RESIST_SWAP, "0") == "1":
             self.resist_swap_rows = self.resist_swap_round(swap_deadline)  # (kept for probes: one row per pair tried)
             improved = any(row["kept"] for row in self.resist_swap_rows) or improved
         if whole and self.fill_granted is not None:
-            improved = self.granted_meta_trials(deadline) or improved
+            improved = self.granted_meta_trials(tail_deadline) or improved
         if whole and os.environ.get(SWITCH_PURITY, "0") == "1":
-            improved = self.purity_trials(deadline) or improved
+            improved = self.purity_trials(tail_deadline) or improved
+        if whole and (log := os.environ.get(SWITCH_ROUND_LOG)):
+            round_log(log, {"pid": os.getpid(), "round": round(round_end - round_start, 2),
+                            "left": round(tail_deadline - tail_start, 2), "cut": self.resume is not None,
+                            "tail": round(clock.now() - tail_start, 2), "runes": bool(getattr(build, "character_runes", None)),
+                            "granted": self.fill_granted is not None, "purity": os.environ.get(SWITCH_PURITY, "0") == "1",
+                            "share": os.environ.get(SWITCH_ROUND_SHARE, "0") == "1"})
         if whole:
             self.update_lambda()
             if self.resume is None:  # (SEARCHD1 hook: a whole round that reached every slot)

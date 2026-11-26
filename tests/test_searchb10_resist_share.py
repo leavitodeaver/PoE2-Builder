@@ -56,3 +56,40 @@ def test_a_cut_slot_loop_leaves_the_swap_round_its_time(monkeypatch, switch):
     else:
         assert "swap" not in calls  # (OFF: no swap round, and the rest as before)
         assert calls["runes"] == 100.0
+
+
+# POE2_SEARCH_ROUND_SHARE (the manager, 26 Nov 01:33): the same share for ALL the round-level work after the slot loop
+def test_round_split_off_keeps_one_deadline(monkeypatch):
+    monkeypatch.delenv(gear.SWITCH_RESIST_SWAP, raising=False)
+    monkeypatch.delenv(gear.SWITCH_ROUND_SHARE, raising=False)
+    assert gear.round_split(100.0, 200.0) == (200.0, 200.0, 200.0)
+    monkeypatch.setenv(gear.SWITCH_RESIST_SWAP, "1")  # (the swap round's share alone, as before)
+    loop, tail, swap = gear.round_split(100.0, 200.0)
+    assert loop == tail == pytest.approx(100.0 + (1.0 - gear.RESIST_SWAP_SHARE) * 100.0) and swap == 200.0
+
+
+def test_round_split_on_gives_all_round_level_work_the_rounds_end(monkeypatch):
+    monkeypatch.delenv(gear.SWITCH_RESIST_SWAP, raising=False)
+    monkeypatch.setenv(gear.SWITCH_ROUND_SHARE, "1")
+    loop, tail, swap = gear.round_split(100.0, 200.0)
+    assert loop == pytest.approx(100.0 + (1.0 - gear.ROUND_SHARE) * 100.0) and tail == swap == 200.0
+
+
+def test_a_cut_slot_loop_leaves_the_round_level_work_its_time(monkeypatch, tmp_path):
+    monkeypatch.delenv(gear.SWITCH_RESIST_SWAP, raising=False)
+    monkeypatch.delenv(gear.SWITCH_QUICK_FILL, raising=False)
+    monkeypatch.delenv(gear.SWITCH_PURITY, raising=False)
+    monkeypatch.setenv(gear.SWITCH_ROUND_SHARE, "1")
+    log = tmp_path / "rounds.jsonl"
+    monkeypatch.setenv(gear.SWITCH_ROUND_LOG, str(log))
+    times = iter([0.0, 0.0, 80.0] + [80.0] * 20)
+    monkeypatch.setattr(gear.clock, "now", lambda: next(times))
+    calls = {}
+    g = fake_gear(calls)
+    g.fill_granted = lambda d: None
+    g.granted_meta_trials = lambda d: calls.setdefault("granted", d) and False
+    gear.Gear.gear_round(g, 100.0)
+    assert g.resume == "Helmet" and calls["runes"] == 100.0 and calls["granted"] == 100.0
+    import json
+    row = json.loads(log.read_text().splitlines()[0])
+    assert row["cut"] and row["share"] and row["left"] == 20.0

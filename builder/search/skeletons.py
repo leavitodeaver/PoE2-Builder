@@ -22,6 +22,15 @@ MELEE_FALLBACK = ["One Hand Mace", "Two Hand Mace", "Spear", "Staff"]
 # rescans it). So a request that names a weapon type can hold such a skill on it. These three DO carry a requirement PoB's
 # gem data doesn't list, and keep the old rule.
 WEAPON_BOUND_NO_TYPES = frozenset({"Fortifying Cry", "Magma Barrier", "The Stars Answer"})
+# (SEARCHB10; the manager, 26 Nov 01:33: "YES, but cheaply") A minion skill (CreatesMinion; no Attack, no PoB weaponTypes)
+# also gets these main hands in the open search when POE2_SEARCH_MINION_MACES is "1" (OFF by default; read at call time).
+# Why: two mace uniques carry "+N to Level of all Minion Skills" (Trenchtimbre, One Hand Mace; Chober Chaber, Two Hand
+# Mace), and two of the four example builds with minion mains hold Chober Chaber beside a Sceptre under Giant's Blood
+# (probe POE2T8449, real PoB, minion DPS: b06 Supporting Fire 5.19M with it vs 3.19M with a plain Leaden Greathammer in
+# its place, x1.62; b17 Tamed Companion 16.0M vs 8.89M, x1.80); the open search offered them CASTER_WEAPONS only. The
+# Sceptre beside a Two Hand Mace still needs Giant's Blood and POE2_SEARCH_GIANTS_BLOOD naming it (passive_offhand_archetypes).
+MINION_MACES_SWITCH = "POE2_SEARCH_MINION_MACES"
+MINION_MACES = [("One Hand Mace", None), ("Two Hand Mace", None)]
 
 
 @dataclass(frozen=True)
@@ -136,6 +145,8 @@ def main_hands(ctx: Context, skill: str, weapon_unique: str | None = None, swap:
         mains = [(t, "Warstaff" if t == "Staff" else None) for t in MELEE_FALLBACK]
     else:
         mains = list(CASTER_WEAPONS)
+        if "CreatesMinion" in gem["skillTypes"] and os.environ.get(MINION_MACES_SWITCH, "0").strip() == "1":
+            mains += MINION_MACES
 
     if weapon_unique:
         option = ctx.unique_option(weapon_unique)
