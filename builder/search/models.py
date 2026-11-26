@@ -16711,19 +16711,58 @@ AGGRAVATE_ALWAYS = re.compile(r"^Bleeding you inflict is Aggravated$", re.I)
 BEETLEBITE = re.compile(r"^Aggravate Bleeding on Enemies when they Enter your Presence$", re.I)
 
 
+# (MECHC65) The boss's forced moves as a second way in (the manager's brief, 25 Nov 20:3x; her_declaration's note said
+# "the boss's own leaps and forced moves add entries not counted"). A red flash or ground marker makes you leave the
+# struck area (boss_hits.red_flash_rate, MECH-D's per-use reading) and come back to fight: one exit and one re-entry per
+# forced move, added to the rolls' entries (half of them while the rolls keep you in your Presence half the time). Assumed: clearing a red-flash slam takes you past your Presence's edge
+# (UNVERIFIED, MEDIUM-LOW: no file gives the slams' areas; bosses.hit_radius is the boss's body, not its slams); the row,
+# a forced move that stays inside your Presence, adds none. The worst-case pinnacle takes the real preset with the
+# FEWEST forced moves (the cautious side for a gain, as assumptions.fight_moves): today 0 (Vessel of Kulemak, Atziri's
+# first phase), so only a named boss moves. Every reader of presence_reentries shares it: Her Declaration's Intimidate
+# (conditions.her_declaration), Wither Away (conditions WITHER_ENTRY), Beetlebite's Aggravate (Assumptions'
+# aggravate model), the "entered / exited your Presence Recently" lines (presence_recently_mods). POE2_PRESENCE_FORCED=0
+# is the old reading (rolls only).
+PRESENCE_FORCED = os.environ.get("POE2_PRESENCE_FORCED", "1") != "0"
+
+
+def presence_forced_moves(stats: dict) -> tuple[float, str]:
+    """(the boss's forced moves a second that carry you out of your Presence and back, how); see PRESENCE_FORCED."""
+    from builder.search import boss_hits, bosses
+
+    if not PRESENCE_FORCED:
+        return 0.0, "forced moves not counted (POE2_PRESENCE_FORCED=0, the old reading)"
+    name = boss_hits.boss_name(stats)
+    if name == boss_hits._worst() or name not in bosses.HIT_EVERY:
+        rows = sorted((boss_hits.red_flash_rate({**stats, "_boss": n, "enemySkillTime": 0})[0], n)
+                      for n in bosses.REAL if n in bosses.HIT_EVERY)
+        rate, low = rows[0]
+        return rate, (f"worst case: the real preset with the fewest forced moves, {low} ({rate * 60:.1f} a minute; the "
+                      f"presets give {rows[0][0] * 60:.1f}-{rows[-1][0] * 60:.1f})")
+    rate, how = boss_hits.red_flash_rate(stats)
+    return rate, how
+
+
 def presence_reentries(texts: list[str], stats: dict, metres: float) -> tuple[float, str]:
-    """(times a second the boss enters your Presence, how), from the build's dodge rolls (see BEETLEBITE's note)."""
+    """(times a second the boss enters your Presence, how), from the build's dodge rolls (see BEETLEBITE's note) and the
+    boss's forced moves (PRESENCE_FORCED's note)."""
     radius = number(stats.get("PresenceRadius")) / 10
     if radius <= 0 or metres > radius:
         return 0.0, f"the boss {metres:g} m away stays outside your Presence ({radius:.1f} m): it never enters"
+    forced, forced_how = presence_forced_moves(stats)
+    forced_text = (f"; the boss's forced moves {forced * 60:.1f} a minute ({forced_how}), each taking you out past your "
+                   "Presence's edge and back (UNVERIFIED, MEDIUM-LOW; row: inside it, none)") if forced > 0 else ""
     roll = dodge_roll(texts, stats)["metres"]
     if metres + roll <= radius:
+        if forced > 0:
+            return forced, (f"a {roll:.1f} m roll from {metres:g} m doesn't leave your {radius:.1f} m Presence{forced_text}:"
+                            f" it enters {forced * 60:.1f} times a minute")
         return 0.0, (f"a {roll:.1f} m roll from {metres:g} m doesn't leave your {radius:.1f} m Presence: the boss never "
-                     "re-enters")
-    every = 2 * DODGE_EVERY
-    return 1.0 / every, (f"rolling out of your {radius:.1f} m Presence and back in (a {roll:.1f} m roll every "
-                         f"{DODGE_EVERY:g} s, the boss {metres:g} m away): it enters once every {every:g} s (a way to "
-                         "play the build: MEDIUM)")
+                     "re-enters" + (f" (forced moves: {forced_how})" if PRESENCE_FORCED else ""))
+    every = 2 * DODGE_EVERY  # (rolling out and back, you're outside half the time: a forced move then adds no entry)
+    return 1.0 / every + forced / 2, (f"rolling out of your {radius:.1f} m Presence and back in (a {roll:.1f} m roll "
+                                      f"every {DODGE_EVERY:g} s, the boss {metres:g} m away): it enters once every "
+                                      f"{every:g} s (a way to play the build: MEDIUM){forced_text}, half of them while "
+                                      "you're already outside")
 AGGRAVATE_MODEL = "aggravate"  # (custom-models.yaml entries feeding these lines to aggravate_model)
 AGGRAVATE_LINE = "1% more Magnitude of Bleeding you inflict"  # (MECH103: PoB's Aggravated box, probe POE2T6497)
 
