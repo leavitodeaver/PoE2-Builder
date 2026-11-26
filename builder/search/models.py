@@ -17868,6 +17868,17 @@ SAVAGE_FURY_CAST = 0.6
 SAVAGE_FURY_PER_FURY = 0.5
 SAVAGE_FURY_MAX = 20
 SAVAGE_FURY_ONSLAUGHT_SPEED = 20.0
+# (MECHC67; RESEARCH66 R66-2, HIGH for the form attacks: the in-game Skills panel shows every skill's DPS x1.44 with the
+# frenzy (Shred 115 -> 166: the level-4 21% more x Onslaught's 20%); the text has no skill-type limit; the frenzy forces
+# animal form and "ends immediately if you return to human form") PoB's buff (act_str.lua 16551-16556) reaches only
+# UsableWhileShapeshifted skills, so a Shapeshift form attack (Shred, Cross Slash, Maul, Furious Slam, Rampage ...: the
+# Shapeshift skill type) got nothing: an UNDERCOUNT. Now a Shapeshift main skill that PoB leaves out gets the frenzy at
+# its earned share u: Damage MORE u x m, Onslaught's 20% attack speed x u where no other Onslaught source is on, and the
+# Life loss (wild_beast_life_lost_%_per_minute_nonlethal, 180 a minute: 3% of maximum Life a second) x u. A human-form
+# main skill (neither type) gets none: using it returns you to human form, which ends the frenzy (MEDIUM, R66-2; row).
+# On a UsableWhileShapeshifted main skill PoB's Life loss is all fight: its unearned (1 - u) comes off too.
+SAVAGE_FURY_LIFE_STAT = "wild_beast_life_lost_%_per_minute_nonlethal"
+SAVAGE_FURY_LIFE_PER_MINUTE = 180.0
 
 
 def savage_fury_uptime(fury_rate: float, fury_max: float, per_fury: float) -> tuple[float, str]:
@@ -17881,7 +17892,7 @@ def savage_fury_uptime(fury_rate: float, fury_max: float, per_fury: float) -> tu
 
 
 def savage_fury_model(skills: list[dict], stats: dict, main_types: set, main_attack: bool, onslaught_box: bool,
-                      duration: float | None) -> tuple[list[dict], list[dict]]:
+                      duration: float | None, life: float = 0.0) -> tuple[list[dict], list[dict]]:
     """Savage Fury's negating mods and row (the note above). `skills`: bridge activeSkills rows with levelStats for
     Savage Fury; `duration`: PoB's frenzy duration a Fury (useRates), None for the base 0.5 s."""
     frenzy = next((s for s in skills if s.get("skillId") == "SavageFuryActivePlayer" and not s.get("disabled")), None)
@@ -17896,6 +17907,9 @@ def savage_fury_model(skills: list[dict], stats: dict, main_types: set, main_att
     up, how = savage_fury_uptime(rate, fury_max, per_fury)
     mods, cut = [], []
     shifted = "UsableWhileShapeshifted" in main_types
+    form = "Shapeshift" in main_types and not shifted  # (MECHC67, R66-2: PoB leaves these out; the model adds them)
+    per_second = number((frenzy.get("levelStats") or {}).get(SAVAGE_FURY_LIFE_STAT)) or SAVAGE_FURY_LIFE_PER_MINUTE
+    loss = number(life) * per_second / 100 / 60  # (Life a second while the frenzy is up)
     if shifted and more > 0 and up < 1:
         scale = (1 + up * more / 100) / (1 + more / 100)
         mods.append(raw_mod("Damage", "MORE", 100 * (scale - 1), tag="SavageFury"))
@@ -17903,13 +17917,30 @@ def savage_fury_model(skills: list[dict], stats: dict, main_types: set, main_att
     if shifted and not onslaught_box and up < 1:
         mods.append(raw_mod("Speed", "INC", -SAVAGE_FURY_ONSLAUGHT_SPEED * (1 - up), tag="SavageFury"))
         cut.append(f"Onslaught's {SAVAGE_FURY_ONSLAUGHT_SPEED:g}% attack speed at {up:.0%}")
-    if not shifted:
-        cut.append("the main skill isn't usable while shapeshifted, so the frenzy's buff never reaches it in PoB either")
+    if shifted and loss > 0 and up < 1:
+        mods.append(raw_mod("LifeDegen", "BASE", -loss * (1 - up), tag="SavageFury"))
+        cut.append(f"its {loss:,.1f} Life a second lost at {up:.0%}")
+    added = []
+    if form and more > 0 and up > 0:
+        mods.append(raw_mod("Damage", "MORE", up * more, tag="SavageFury"))
+        added.append(f"its {more:g}% more Damage at {up:.0%} (x{1 + up * more / 100:.3f})")
+    if form and not onslaught_box and up > 0:
+        mods.append(raw_mod("Speed", "INC", SAVAGE_FURY_ONSLAUGHT_SPEED * up, tag="SavageFury"))
+        added.append(f"Onslaught's {SAVAGE_FURY_ONSLAUGHT_SPEED:g}% attack speed at {up:.0%}")
+    if form and loss > 0 and up > 0:
+        mods.append(raw_mod("LifeDegen", "BASE", loss * up, tag="SavageFury"))
+        added.append(f"its {loss:,.1f} Life a second lost ({per_second / 60:g}% of maximum Life) at {up:.0%}")
+    if not shifted and not form:
+        cut.append("the main skill is a human-form skill: using it returns you to human form, which ends the frenzy "
+                   "(R66-2, MEDIUM), so it gets none")
+    pob = (f"PoB counts the frenzy all fight: {'; '.join(cut) or 'nothing to take off'}" if shifted else
+           f"PoB gives a Shapeshift form attack none of it (its buff reaches only skills usable while shapeshifted; "
+           f"R66-2, HIGH: the game gives every skill in animal form it): added {'; '.join(added) or 'nothing'}"
+           if form else '; '.join(cut))
     row = {"label": "Savage Fury: the frenzy's share of the fight*",
            "value": f"{up:.0%}",
-           "basis": (f"{how}; PoB counts the frenzy all fight: {'; '.join(cut) or 'nothing to take off'}. Fury from "
-                     "the main skill's hitting uses only (other attacks not read: the lower reading); its Life loss "
-                     "left as PoB's"),
+           "basis": (f"{how}; {pob}. Fury from the main skill's hitting uses only (other attacks not read: the lower "
+                     "reading)"),
            "confidence": "MEDIUM (the game's own Fury and duration numbers; the main skill's rate)",
            "play": (f"Build Fury with your attacks, release Savage Fury at {fury_max:g} Fury and stay in animal form: "
                     f"with it up {up:.0%} of the fight; without it (never released): its damage and Onslaught 0%")}

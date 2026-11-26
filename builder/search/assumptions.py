@@ -5058,7 +5058,8 @@ class Assumptions:
             fury_types = set(skill_types_of(build.ctx, name)) if name else set()
             fury_mods, fury_notes = models.savage_fury_model(
                 fury_skills, stats, fury_types, "Attack" in fury_types,
-                bool(build.call("getConfig")["input"].get("buffOnslaught")), number(fury_rate.get("duration")) or None)
+                bool(build.call("getConfig")["input"].get("buffOnslaught")), number(fury_rate.get("duration")) or None,
+                number(build.call("stats", fields=["Life"]).get("Life")))  # (MECHC67: its Life loss, R66-2)
             hand_mods, hand_notes = hand_mods + fury_mods, hand_notes + fury_notes
         if (target := self.target_collection(skills)) is not None:  # (MECHC67: TARGET_REMNANTS' note)
             if target["walk"] > 0:

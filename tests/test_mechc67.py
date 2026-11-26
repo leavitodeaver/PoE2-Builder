@@ -150,3 +150,26 @@ def test_the_flask_stock_adds_the_bosss_mid_fight_refills():
     info = {"kind": "Flask", "chargesUsed": 10, "chargesMax": 60}
     assert flasks.stock_charges(info, gain) == pytest.approx(60 / 100)
     assert flasks.stock_charges(info, replace(gain, refills=2 * 0.5)) == pytest.approx((60 + 60) / 100)
+
+
+def test_savage_fury_reaches_shapeshift_form_attacks_with_its_life_loss():
+    """RESEARCH66 R66-2 (HIGH): the frenzy reaches every skill in animal form; PoB only UsableWhileShapeshifted ones. A
+    Shapeshift form attack gets it at its earned share (added), a human-form skill none (it ends the frenzy)."""
+    from builder.search import models
+
+    skills = [{"name": "Savage Fury", "skillId": "SavageFuryPlayer",
+               "levelStats": {"wild_beast_maximum_energy": 20, "wild_beast_energy_per_hit": 1}},
+              {"name": "Savage Fury", "skillId": "SavageFuryActivePlayer",
+               "levelStats": {"wild_beast_damage_+%_final": 29, "wild_beast_life_lost_%_per_minute_nonlethal": 180}}]
+    stats = {"Speed": 2.0, "HitChance": 100}
+    up = 10 / 20.6
+    mods, rows = models.savage_fury_model(skills, stats, {"Attack", "Shapeshift"}, True, False, None, 1000.0)
+    by = {m["name"]: m["value"] for m in mods}
+    assert by["Damage"] == pytest.approx(up * 29, abs=0.01) and by["Speed"] == pytest.approx(20 * up, abs=0.01)
+    assert by["LifeDegen"] == pytest.approx(30 * up, abs=0.01) and "PoB gives a Shapeshift form attack none" in rows[0]["basis"]
+    # usable while shapeshifted: PoB has it all fight, the unearned share of its Life loss comes off too
+    mods, _ = models.savage_fury_model(skills, stats, {"Attack", "UsableWhileShapeshifted"}, True, False, None, 1000.0)
+    assert {m["name"]: m["value"] for m in mods}["LifeDegen"] == pytest.approx(-30 * (1 - up), abs=0.01)
+    # a human-form attack: none
+    mods, rows = models.savage_fury_model(skills, stats, {"Attack", "Bow"}, True, False, None, 1000.0)
+    assert mods == [] and "human-form" in rows[0]["basis"]
