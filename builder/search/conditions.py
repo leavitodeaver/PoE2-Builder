@@ -3036,6 +3036,17 @@ RAGE_SOURCE = re.compile(r"(?:(\d+(?:\.\d+)?)% chance to )?\bgain (\d+|an?)? ?Ra
 RAGE_REGEN = re.compile(r"\bregenerate (\d+(?:\.\d+)?)(%)?(?: of your maximum)? Rage per second(.*)$|"
                         r"\b1 Rage Regenerated for every", re.I)
 RAGE_PER_SPENT = re.compile(r"\bregenerate (\d+(?:\.\d+)?) Rage per second per (\d+) Rage spent Recently", re.I)
+# Relentless Rage (MECHC65, GEM44's MECH-C row; an UNDERCOUNT before: no code read it). PoB sup_str.lua: "Supports
+# Skills you use yourself. On spending Rage with any skill you will gain a Buff. Using Supported Skills consumes this Buff
+# to grant you Rage"; support_relentless_rage_spending_X_rage_grants_rage_on_next_skill_use 30,
+# ..._gain_X_rage_on_skill_use_if_enough_was_spent 10 (game files 26650308 Stats 24418 / 24419). Each 30 Rage spent (by
+# any skill) gives one Buff, which the next use of a supported skill turns into 10 Rage: a refund of
+# R = min(10 x the supported skills' uses a second, the spend asked / 3, the gains / 2) (the last: when the costs ask more
+# than comes, the spend is what comes, gains + R, so R = (gains + R) / 3). One Buff at a time, taken as not stacking
+# (UNVERIFIED, the lower reading: a stacking Buff changes nothing while the supported skill is used more often than one
+# per 30 Rage spent). Supported skills' uses: the main skill's at its share, any other at its group's rate.
+RELENTLESS_RAGE = "Relentless Rage"
+RELENTLESS_SPEND, RELENTLESS_GAIN = 30.0, 10.0
 RAGE_NOT_SOURCE = re.compile(r"cannot gain|instead|\ballies\b|companions|benefits|per (?:\d+ )?Rage|when you lose|"
                              r"per enemy power|if you have gained", re.I)
 # Rage spent per use (molten_crash_optionally_consume_X_rage_for_fissures 10, bear_slam_spend_X_rage_for_stronger_slam 10,
@@ -3556,6 +3567,13 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
         events, spent = events + 1.0, spent - back  # (regenerated every second: the loss paused; the net spend falls)
     elif refund and not gain:
         return 0.0, ""  # (a refund with nothing gained: no Rage to spend in the first place)
+    relentless = stats.get("_relentless_rage") or (0.0, ())
+    if asked > 0 and gain > 0 and number(relentless[0]) > 0:  # (MECHC65: RELENTLESS_RAGE's note)
+        back = min(RELENTLESS_GAIN * relentless[0], asked * RELENTLESS_GAIN / RELENTLESS_SPEND, gain / 2)
+        gain, events = gain + back, events + back / RELENTLESS_GAIN
+        how.append(f"Relentless Rage on {', '.join(relentless[1])} ({relentless[0]:.2f} uses/s): {back:.2f} Rage/s back "
+                   f"({RELENTLESS_GAIN:g} per {RELENTLESS_SPEND:g} spent, at most one per supported use, and no more than "
+                   "the Rage that comes can pay for; one Buff at a time, UNVERIFIED, the lower reading)")
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
     land = boss_hits.gain_hits(stats)[0]
@@ -12005,6 +12023,25 @@ class Conditions:
                 rage_spend[n] = RAGE_PER_USE[n] * each if n in RAGE_PER_USE else RAGE_PER_SECOND[n] * min(1.0, each)
         if any(n in RAGEFORGED_SIDE for n in rage_spend):  # (MECHC61: RAGEFORGED_SIDE's note)
             rage_spend.update(self._rageforged_copies(rage_spend, main_gems))
+        relentless_uses, relentless_on = 0.0, []  # (MECHC65: RELENTLESS_RAGE's note)
+        if rage_spend and RELENTLESS_RAGE in {g["name"] for grp in self.build.groups() for g in grp.get("gems") or []}:
+            for grp in self.build.groups():
+                if grp.get("enabled") is False:
+                    continue
+                gems_here = [g for g in grp.get("gems") or [] if g.get("enabled", True)]
+                if not any(g["name"] == RELENTLESS_RAGE for g in gems_here):
+                    continue
+                known = all_gems(self.build.ctx)
+                for n in [g["name"] for g in gems_here if not (known.get(g["name"]) or {}).get("support")]:
+                    if n == self.main_skill:
+                        u = number(stats.get("Speed")) * _main_share(stats)
+                    else:
+                        u = self._group_uses(groups_now or self.build.call("groups")["groups"], {n}).get(
+                            n, self._chosen_use(n))
+                    if u > 0:
+                        relentless_uses += u
+                        relentless_on.append(n)
+        stats["_relentless_rage"] = (relentless_uses, tuple(relentless_on))
         if (any(STEWARD_OF_KULEMAK.match(line["text"].strip()) for line in lines) and "Spell" in main_types
                 and "Damage" in main_types and not main_types & STEWARD_EXCLUDED and self.main_skill
                 and self.main_skill not in (consumers.get("Power") or {})):  # (MECHC49: STEWARD_OF_KULEMAK's note)

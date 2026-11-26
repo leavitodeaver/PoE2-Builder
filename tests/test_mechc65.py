@@ -37,6 +37,24 @@ def test_choice_of_power_pickup_range_is_read_by_the_walking_model():
     assert pickup == pytest.approx(2.25) and reveal == pytest.approx(7.5) and "+50%" in how
 
 
+def test_relentless_rage_refunds_ten_per_thirty_spent_within_its_uses_and_the_rage_that_comes():
+    from builder.search import conditions as c
+
+    base = {"Speed": 2.0, "HitChance": 100, "MaximumRage": 30, "_main_types": {"Attack", "Melee"},
+            "_rage_spend": {"Molten Crash": 9.0}}
+    gain = ["Gain 3 Rage on Melee Hit"]  # 6 Rage/s against 9 asked
+    plain = dict(base)
+    c.rage_held(gain, plain)
+    assert plain["_rage_spent_real"][0] == pytest.approx(6.0)
+    fed = dict(base, _relentless_rage=(0.5, ("Molten Crash",)))
+    _, basis = c.rage_held(gain, fed)
+    # back = min(10 x 0.5, 9 / 3, 6 / 2) = 3: the spend paid rises from 6 to 9
+    assert fed["_rage_spent_real"][0] == pytest.approx(9.0) and "Relentless Rage" in basis
+    few = dict(base, _relentless_rage=(0.1, ("Molten Crash",)))  # one supported use every 10 s: 1 Rage/s back
+    c.rage_held(gain, few)
+    assert few["_rage_spent_real"][0] == pytest.approx(7.0)
+
+
 def test_perfected_endurance_pays_on_the_supported_perfect_timing_uses_not_every_main_hit():
     from builder.search import conditions as c
 
