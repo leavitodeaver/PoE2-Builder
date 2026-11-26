@@ -3258,6 +3258,23 @@ def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list
     return models.fan_the_flames_model(parts)
 
 
+def persistent_ground(build: Build, group, name: str, base_seconds: float, seconds: float | None = None,
+                      contains: bool = False) -> tuple[float, bool, float]:
+    """(MECH113; the manager's item 5: ONE Persistent Ground reader for MECH-A's Gas Arrow clouds and MECH-B's Sniper /
+    Decompose clouds, MECHB66's 067df87d) (the ground's seconds with its supports' ground_effect_duration_+% added to its
+    increased duration, whether they carry ground_effects_cannot_trigger, that increase in %) for the skill `name` in group
+    `group` (a substring of the row's name with `contains`, e.g. a minion's row), read by stat from activeSkills'
+    supportStats (models.persistent_cloud's note: Persistent Ground I-III's +50% Ground Surface duration, which PoB's
+    duration never holds; II / III's "cannot be destroyed except by expiring"). `seconds` PoB's own duration (else the
+    base). No row read: no support stats (the base duration, no protection)."""
+    rows = build.call("activeSkills", supportStats=[models.PERSISTENT_GROUND_STAT, models.GROUND_DURATION_STAT])["skills"]
+    row = next((x for x in rows if x.get("group") == group and not x.get("disabled")
+                and (name in str(x.get("name")) if contains else x.get("name") == name)), {})
+    support = row.get("supportStats") or {}
+    life, persists = models.persistent_cloud(seconds or base_seconds, base_seconds, support)
+    return life, persists, number(support.get(models.GROUND_DURATION_STAT))
+
+
 def static_shocks(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Static Shocks (MECH112's models.static_shocks_model): in each enabled group holding the
     triggered skill, every other active skill's hits a second on the boss (_skill_hits: PoB's rate x hit chance x its
@@ -11119,12 +11136,9 @@ class Assumptions:
         limit, seconds = cloud or (models.GAS_CLOUD_LIMIT, models.GAS_CLOUD_SECONDS)
         skill, base_seconds = skill or models.GAS_ARROW, base_seconds or models.GAS_CLOUD_SECONDS
         # (MECH110, models.persistent_cloud: Persistent Ground's longer Ground Surfaces, and II / III's clouds that can't
-        # be destroyed except by expiring, read by stat from the main group's copy of the skill)
-        support = next((x.get("supportStats") or {} for x in build.call(
-            "activeSkills", levelStats=[skill], supportStats=[models.PERSISTENT_GROUND_STAT,
-                                                              models.GROUND_DURATION_STAT])["skills"]
-            if x.get("name") == skill and x.get("group") == main_index and not x.get("disabled")), {})
-        seconds, persists = models.persistent_cloud(seconds or base_seconds, base_seconds, support)
+        # be destroyed except by expiring, read by stat from the main group's copy of the skill; MECH113: through the
+        # shared reader, persistent_ground)
+        seconds, persists, ground_inc = persistent_ground(build, main_index, skill, base_seconds, seconds)
         life = models.gas_cloud_life(uses, limit, seconds)
         lying = min(float(limit), uses * life)
         det_rate, det_how = self.detonator_rate(main_index)
@@ -11161,8 +11175,7 @@ class Assumptions:
         source = ("the explosions' own Ignites" if own and scored == "Explosion" else
                   f"the {scored}'s own Ignites" if own else "no own Ignite read")
         if persists:  # (MECH110: no cloud explodes, each lives its whole duration)
-            ground = f" ({number(support.get(models.GROUND_DURATION_STAT)):+g}% Ground Surface duration)" if number(
-                support.get(models.GROUND_DURATION_STAT)) else ""
+            ground = f" ({ground_inc:+g}% Ground Surface duration)" if ground_inc else ""
             return 0.0, (f"none: Persistent Ground on it ('Ground Surfaces created by Supported Skills cannot be destroyed "
                          f"except by expiring', ground_effects_cannot_trigger), so no cloud explodes and each lives its "
                          f"{life:.1f} s{ground} (MEDIUM-HIGH: poe2wiki, Mobalytics; without that line {share:.1%} of "

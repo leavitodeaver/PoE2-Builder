@@ -130,3 +130,26 @@ def test_staggering_palms_projectiles_blind_at_the_buffs_rate(monkeypatch):
     assert rate == pytest.approx(0.05 * 7.5 * 0.5) and "Staggering Palm's own" in how
     monkeypatch.setattr(models, "heavy_stun_rate", lambda stats: (0.0, "no stuns"))
     assert conditions.Conditions._palm_projectiles(Self(), stats) is None
+
+
+def test_the_shared_persistent_ground_reader():
+    """(item 5) assumptions.persistent_ground: the skill's row in its group, its supports' Ground Surface duration added
+    to the base, II / III's cannot-trigger flag; a substring match for a minion's row; no row: the plain duration."""
+    from builder.search import assumptions, models
+
+    class Build:
+        def call(self, method, **kw):
+            assert method == "activeSkills"
+            assert set(kw["supportStats"]) == {models.PERSISTENT_GROUND_STAT, models.GROUND_DURATION_STAT}
+            return {"skills": [
+                {"name": "Gas Arrow", "group": 2, "supportStats": {models.GROUND_DURATION_STAT: 50,
+                                                                    models.PERSISTENT_GROUND_STAT: 1}},
+                {"name": "Gas Arrow", "group": 5, "supportStats": {}},
+                {"name": "Skeletal Sniper (minion)", "group": 3, "supportStats": {models.GROUND_DURATION_STAT: 50}},
+                {"name": "Decompose", "group": 4, "disabled": True, "supportStats": {models.PERSISTENT_GROUND_STAT: 1}}]}
+
+    b = Build()
+    assert assumptions.persistent_ground(b, 2, "Gas Arrow", 4.0, 5.0) == (pytest.approx(7.0), True, 50.0)
+    assert assumptions.persistent_ground(b, 5, "Gas Arrow", 4.0) == (pytest.approx(4.0), False, 0.0)
+    assert assumptions.persistent_ground(b, 3, "Skeletal Sniper", 8.0, contains=True) == (pytest.approx(12.0), False, 50.0)
+    assert assumptions.persistent_ground(b, 4, "Decompose", 6.0) == (pytest.approx(6.0), False, 0.0)  # disabled: none
