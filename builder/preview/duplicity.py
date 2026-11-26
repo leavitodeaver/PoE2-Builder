@@ -94,7 +94,9 @@ def idle_play(d: dict, main_name: str, ambush: float, darkness: float, conceal: 
     rate, speed = d.get("hits", 0.0), d.get("speed", 0.0)
     busy = min(1.0, rate / speed) if speed > 0 else 1.0
     net = (1 + ambush + retaliate) * (1 - busy) - 1
-    return (f"Don't press Duplicity here: the search tried it and kept 0 presses. Without it: {main_name} as it is "
+    lead = ("Don't press Duplicity here: the search tried it and kept 0 presses" if net <= 0 else
+            "Duplicity isn't pressed in this build (no press rate chosen for it), though pressing it would pay")
+    return (f"{lead}. Without it: {main_name} as it is "
             f"(+0%). With it pressed on each of the boss's landing Hits ({rate:.3f}/s): Ambushes add {ambush:+.1%} to "
             f"{main_name} ({darkness:.3g} Darkness an Ambush{'' if conceal else ', no Conceal on it'}; its Shade is taken "
             f"to die to the Hit, so no Shade repeats) and its Shade's retaliation {retaliate:+.1%} (125%, R65-18's "

@@ -682,6 +682,9 @@ def test_duplicity_and_engulf_darkness_readings():
     assert dup.retaliation(1000.0, 0.0, 0.5) == 0 and dup.retaliation(1000.0, 144.0, 0.0) == 0
     line = dup.idle_play({"hits": 0.5, "speed": 2.0}, "Blade of Night", 0.10, 0.4, False, 0.05)
     assert "retaliation +5.0%" in line and "-13.7% in all" in line  # (1.15 x 0.75 - 1)
+    assert line.startswith("Don't press Duplicity here")
+    line = dup.idle_play({"hits": 0.5, "speed": 2.0}, "Blade of Night", 0.10, 0.4, False, 0.30)
+    assert "+5.0% in all" in line and line.startswith("Duplicity isn't pressed in this build")  # (1.40 x 0.75 - 1)
 
 
 def test_duplicity_triggers_from_the_bosss_hits(engine):
@@ -719,7 +722,8 @@ def test_duplicity_triggers_from_the_bosss_hits(engine):
     assert not mods and any("Duplicity's triggers" in n["label"] and n["value"] == 0 for n in notes)
     # (PREVIEW6) ...and its play line says why, with the without / with numbers (Conceal on it: 10 Darkness an Ambush)
     idle = next(n for n in notes if "Duplicity's triggers" in n["label"])["play"]
-    assert idle.startswith("Don't press Duplicity here") and "Without it: Viper Strike as it is (+0%)" in idle
+    lead = "Don't press Duplicity here" if "-" in idle.split(" in all")[0].split(": ")[-1] else "Duplicity isn't pressed"
+    assert idle.startswith(lead) and "Without it: Viper Strike as it is (+0%)" in idle
     assert "With it pressed on each of the boss's landing Hits" in idle and "10 Darkness an Ambush" in idle
     assert "of the time" in idle and "in all" in idle and idle.endswith(preview.ASTERISK)
     # pressed once a second: the boss's landing Hits cap it
