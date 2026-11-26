@@ -1975,7 +1975,9 @@ def test_cluster_grenade_minis_reach_the_boss():
     assert models.cluster_minis_on_boss(0.3, 1.0, 0.0, 0.05) == pytest.approx(18)  # (a hard Detonation Time cut: shotgun)
     sets = [{"label": "Primary Grenade", "TotalDPS": 10.89}, {"label": "Mini Grenades", "TotalDPS": 7.24}]
     cg = Skill("Cluster Grenade", 1, attack=True)
-    stats = {"AreaOfEffectMod": 1.0}
+    # (GEM47: a preset with no movement tally, so the geometry alone is tested; the boss walking off before
+    # the bursts is test_gem47's)
+    stats = {"AreaOfEffectMod": 1.0, "_boss": "The Bodach"}
     n = models.cluster_minis_on_boss(models.bosses.hit_radius(stats)[0], 1.0, models.CLUSTER_OFFSET)
     mods, notes = models.cluster_grenade_model(cg, "Primary Grenade", sets, stats, fuse=2.0)
     assert mods[0]["name"] == "DPS" and mods[0]["value"] == pytest.approx(100 * (7.24 * n / 10.89), abs=0.01)

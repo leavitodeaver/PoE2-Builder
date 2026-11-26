@@ -46,7 +46,9 @@ def test_cluster_grenade_throw_of_several_primaries():
     sets = [{"label": "Primary Grenade", "TotalDPS": 10.89, "ProjectileCount": 1, "AreaOfEffectRadius": 25},
             {"label": "Mini Grenades", "TotalDPS": 7.24}]
     cg = Skill("Cluster Grenade", 1, attack=True)
-    stats = {"AreaOfEffectMod": 1.0}
+    # (GEM47: a preset with no movement tally, so the geometry alone is tested; the boss walking off before
+    # the bursts is test_gem47's)
+    stats = {"AreaOfEffectMod": 1.0, "_boss": "The Bodach"}
     one, _ = models.cluster_grenade_model(cg, "Primary Grenade", sets, stats, fuse=2.0)
     two_sets = [{**sets[0], "ProjectileCount": 2}, sets[1]]
     two, notes = models.cluster_grenade_model(cg, "Primary Grenade", two_sets, stats, fuse=2.0)

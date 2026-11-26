@@ -71,3 +71,21 @@ def test_earthquakes_aftershock_needs_the_boss_still_there_when_it_erupts():
     moved, notes = models.earthquake_limit_model(skill, "Aftershock", 0.5, 6, 4.0, there=(0.7, 0.9, "the boss moves"))
     assert still == [] and abs(moved[0]["value"] - (-30.0)) < 1e-6
     assert "standing still" in notes[0]["basis"]
+
+
+def test_cluster_grenades_minis_burst_where_the_boss_stood():
+    from builder.search import bosses
+    moving = {"_boss": "Arbiter of Ash"}
+    assert bosses.still_there(moving, 1.4, 5.0)[0] < bosses.still_there(moving, 2.5, 2.0)[0] < 1.0
+
+
+def test_cluster_grenade_is_cut_on_a_moving_boss_only():
+    sets = [{"label": "Primary Grenade", "TotalDPS": 10.89, "ProjectileCount": 1, "AreaOfEffectRadius": 25},
+            {"label": "Mini Grenades", "TotalDPS": 7.24}]
+    cg = models.Skill("Cluster Grenade", 1, attack=True)
+    still, _ = models.cluster_grenade_model(cg, "Primary Grenade", sets, {"AreaOfEffectMod": 1.0, "_boss": "The Bodach"},
+                                            fuse=2.0)
+    moved, notes = models.cluster_grenade_model(cg, "Primary Grenade", sets,
+                                                {"AreaOfEffectMod": 1.0, "_boss": "Arbiter of Ash"}, fuse=2.0)
+    assert "walks off before they burst" in notes[0]["basis"] and "standing still" in notes[0]["basis"]
+    assert moved[0]["value"] < still[0]["value"]

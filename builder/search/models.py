@@ -9521,7 +9521,16 @@ def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dic
     blast = number(prow.get("AreaOfEffectRadius")) / 10 or CLUSTER_PRIMARY_BLAST * scale
     bursts, head = cluster_throw(radius, area, CLUSTER_OFFSET, mult, primaries, blast)
     steer = PART_STEER if dps[scored] < max(primary, mini) else 1.0
-    factor = (bursts * primary + head * mini) / dps[scored] * steer
+    # (GEM47; MECHD9's survey "Cluster Grenade minis 1.4 m, 3 s", the manager's reader rule: a delayed hit x
+    # bosses.still_there) the primary bursts a fuse after the throw at the boss, the minis a mini fuse after that, each
+    # where the boss stood: each x the chance the boss is still within its own blast then
+    fuse_p, fuse_m = CLUSTER_FUSE * mult, CLUSTER_FUSE * mult + CLUSTER_MINI_FUSE * mult
+    p_there, p_how = bosses.still_there(stats, blast, fuse_p)
+    m_there, m_how = bosses.still_there(stats, CLUSTER_BLAST * scale, fuse_m)
+    p_fixed = bosses.still_there(stats, blast, fuse_p, moves="fixed")[0]
+    m_fixed = bosses.still_there(stats, CLUSTER_BLAST * scale, fuse_m, moves="fixed")[0]
+    still_factor = (bursts * primary + head * mini) / dps[scored] * steer
+    factor = (bursts * primary * p_there + head * mini * m_there) / dps[scored] * steer
     rows = []
     for label, offset in (("bursting 2.5 m from the boss", 2.5), ("point-blank", 0.0)):
         b, n = cluster_throw(radius, area, offset, mult, primaries, blast)
@@ -9534,7 +9543,13 @@ def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dic
     throw = (f"; a throw of {primaries:g} primaries over a fixed {GRENADE_SPREAD[CLUSTER_GRENADE]:g} degree arc "
              f"(fixed_projectile_spread; RESEARCH46 R46-12, MEDIUM-LOW): {bursts:.2f} primary bursts on the boss, each "
              "with its own minis" if primaries > 1 else "")
-    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CLUSTER_ENTRY), bursts + head)], [{
+    rows.append(f"the boss standing still (before GEM47) x{still_factor:.3f}; every move its mean length "
+                f"x{(bursts * primary * p_fixed + head * mini * m_fixed) / dps[scored] * steer:.3f}")
+    there_how = (f"; the boss walks off before they burst (GEM47, MECHD9's reader rule, LOW): the primary {fuse_p:.1f} s "
+                 f"after the throw, {p_there:.0%} still within its {blast:.1f} m; the minis {fuse_m:.1f} s after, "
+                 f"{m_there:.0%} still within their {CLUSTER_BLAST * scale:.2f} m ({m_how})")
+    return [with_per_use(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=CLUSTER_ENTRY),
+                         bursts * p_there + head * m_there)], [{
         "label": f"{CLUSTER_GRENADE}: its mini grenades on the boss*", "value": f"x{factor:.3f}",
         "confidence": "LOW", "entry": CLUSTER_ENTRY,
         "basis": (f"PoB scores the {scored} set alone (Primary {primary:,.1f}, one Mini {mini:,.1f} DPS). Each use throws "
@@ -9542,7 +9557,7 @@ def cluster_grenade_model(main: Skill | None, scored: str | None, sets: list[dic
                   f"(a filled disc, RESEARCH45 R45-1, LOW-MEDIUM), each a {CLUSTER_BLAST * scale:.2f} m blast (Area "
                   f"x{scale:.2f} on both); their 3 s fuse x{mult:.2f} (Detonation Time) stops them by {reach_max:.2f} m; "
                   f"{radius_how}; the primary bursting {CLUSTER_OFFSET:g} m from the boss (LOW, your positioning): "
-                  f"{head:.1f} minis hit it{throw}. Rows: " + "; ".join(rows) + "."
+                  f"{head:.1f} minis hit it{throw}{there_how}. Rows: " + "; ".join(rows) + "."
                   + (f" {' / '.join(stop)} in the build: the grenade halts where it lands, read as the same spread "
                      "(UNVERIFIED)" if stop else "")),
         "play": (f"Stand close and throw {CLUSTER_GRENADE} so it bursts at the boss, and cut its Detonation Time so the "
