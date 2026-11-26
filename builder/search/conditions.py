@@ -11457,7 +11457,7 @@ class Conditions:
     def _solaris_uses(self, lines: list) -> tuple[float, str]:
         """(Spear of Solaris's uses a second, how) (MECH84, ignited_ground): the uses its Glory pays for
         (models.glory_uses), as _banner_share reads a banner's."""
-        found = [models.Skill.of(s) for s in self.build.call("activeSkills")["skills"] if not s["disabled"]]
+        found = [models.Skill.of(s) for s in self.build.call("activeSkills", levelStats=[SPEAR_OF_SOLARIS])["skills"] if not s["disabled"]]  # (MECHC65: its quality's retain)
         group = self.build.main_group()
         main = next((s for s in found if group and s.group == group["index"] and s.name == self.main_skill), None)
         texts = [line["text"] if isinstance(line, dict) else line for line in lines]

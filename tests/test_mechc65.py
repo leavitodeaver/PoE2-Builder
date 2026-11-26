@@ -55,6 +55,16 @@ def test_relentless_rage_refunds_ten_per_thirty_spent_within_its_uses_and_the_ra
     assert few["_rage_spent_real"][0] == pytest.approx(7.0)
 
 
+def test_spear_of_solaris_quality_retains_glory_on_that_skill():
+    stats = {"Speed": 2.0, "HitChance": 100, "IgniteChanceOnHit": 50, "ShockChanceOnHit": 50}
+    main = models.Skill(name="Fireball")
+    bare = models.glory_uses(["Spear of Solaris"], dict(stats), main, [models.Skill(name="Spear of Solaris")], [])[0]
+    q20 = models.Skill(name="Spear of Solaris", level_stats={models.GLORY_RETAIN_STAT: 25})  # 1.25 x 20 quality
+    got, how = models.glory_uses(["Spear of Solaris"], dict(stats), main, [q20], [])
+    # 20 Glory a use x (1 - 0.4 x 25%) = 18 needed (its 4 s instance, when no Glory comes, unchanged)
+    assert got > bare and "18 Glory needed a use" in how and "quality's 25%" in how
+
+
 def test_perfected_endurance_pays_on_the_supported_perfect_timing_uses_not_every_main_hit():
     from builder.search import conditions as c
 

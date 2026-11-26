@@ -18689,6 +18689,11 @@ GLORY_PRESENCE = re.compile(r"^skills gain 1 glory every (\d+(?:\.\d+)?) seconds
                             r"presence$", re.I)
 GLORY_BANNER_FLAT = re.compile(r"^banners gain (\d+(?:\.\d+)?) glory per second\b", re.I)
 GLORY_NOT_CONSUME = re.compile(r"^(?:skills have an? )?(\d+(?:\.\d+)?)% chance to not consume glory$", re.I)
+# (MECHC65, GEM44's MECH-C row; an UNDERCOUNT before: only text lines were read) Spear of Solaris' quality stat (PoB
+# act_dex.lua SpearOfSolarisPlayer qualityStats: chance_to_retain_40%_of_glory_on_use_% 1.25 a quality point, 25% at
+# 20%) on that skill alone, from its own levelStats (the bridge's buildSkillInstanceStats takes quality), added to the
+# lines' chance as GLORY_RETAIN's (summed, at most 100%).
+GLORY_RETAIN_STAT = "chance_to_retain_40%_of_glory_on_use_%"
 GLORY_RETAIN = re.compile(r"^(\d+(?:\.\d+)?)% chance (?:for skills )?to retain 40% of glory on use$", re.I)
 GLORY_BANNER_REFUND = re.compile(r"^when a banner expires, recover (\d+(?:\.\d+)?)% of the glory required for that banner$",
                                  re.I)
@@ -18879,7 +18884,12 @@ def glory_plan(names: list[str], stats: dict, main: Skill | None, skills: list[S
         if glory <= 0:
             parts.append(f"{name}: {how}, never")
             continue
-        consumed = cost * (1 - lines["not_consume"]) * (1 - 0.4 * lines["retain"])
+        own_retain = max((number(sk.level_stats.get(GLORY_RETAIN_STAT)) for sk in skills or [] if sk.name == name),
+                         default=0.0) / 100  # (MECHC65: GLORY_RETAIN_STAT's note)
+        retain = min(1.0, lines["retain"] + own_retain)
+        if own_retain:
+            extra.append(f"its quality's {own_retain:.0%} chance to retain 40% of Glory on use")
+        consumed = cost * (1 - lines["not_consume"]) * (1 - 0.4 * retain)
         needed = consumed * (1 - lines["refund"] if banner else 1.0)
         if needed != cost:
             extra.append(f"{needed:.0f} Glory needed a use (chance not to consume / retain"

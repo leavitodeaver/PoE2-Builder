@@ -7459,6 +7459,7 @@ class Assumptions:
         skills = self.build.call("activeSkills", levelStats=[
             models.IRON_WARD, models.FEROCIOUS_ROAR, models.SUMMON_WOLF, models.RAPID_SHOT, models.APOCALYPSE,
             KALGUUR, models.TAWHOA, models.ARCTIC_HOWL, models.ETERNAL_MARCH, BREACH, *models.gem_stat_skills(),
+            "Spear of Solaris",  # (MECHC65: its quality's Glory retain, models.GLORY_RETAIN_STAT)
             *models.curse_gem_names(getattr(getattr(self.build, "ctx", None), "gems", None))],  # (MECH100: each curse's level cap)
             supportStats=[*models.gem_stat_support_stats(), models.TOTEM_ONE_STAT,
                           models.CASCADES_PER_SIDE, models.ECHO_POWER_STAT, models.ECHO_COUNT_STAT,
