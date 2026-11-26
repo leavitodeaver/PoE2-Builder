@@ -3258,6 +3258,39 @@ def fan_the_flames(build: Build, main: models.Skill | None) -> tuple[float, list
     return models.fan_the_flames_model(parts)
 
 
+def static_shocks(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Static Shocks (MECH112's models.static_shocks_model): in each enabled group holding the
+    triggered skill, every other active skill's hits a second on the boss (_skill_hits: PoB's rate x hit chance x its
+    press share) and its own Shock chance a hit (the bridge's ShockChancePerHit over the roll, its useRates row), the
+    triggered skill's row (duration, AverageHit) and PoB's own Full DPS entry."""
+    press = getattr(build.objective, "press_scales", None) or {}
+    parts, entries = [], None
+    for group in build.groups():
+        if not group["enabled"]:
+            continue
+        skills = group.get("skills") or []
+        n = next((i for i, x in enumerate(skills, 1) if x["name"] == models.STATIC_SHOCKS), 0)
+        if not n:
+            continue
+        sources = []
+        for i, x in enumerate(skills, 1):
+            if i == n or x.get("disabled"):
+                continue
+            hits, row = _skill_hits(build, group, i, press)
+            chance = min(models.number(row.get("ShockChancePerHit")), 100.0) / 100
+            if hits > 0 and chance > 0:
+                sources.append((row.get("name") or x["name"], hits, chance))
+        row = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
+        if entries is None:
+            entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+        pob = sum(models.number(e.get("dps")) * (e.get("count") or 1) for e in entries
+                  if e.get("name") == models.STATIC_SHOCKS)
+        parts.append({"group": skills[0]["name"] if skills else "", "sources": sources,
+                      "duration": models.number(row.get("duration")),
+                      "pulse": models.number(row.get("AverageHit")), "pob": pob})
+    return models.static_shocks_model(parts)
+
+
 def support_dots(build: Build, found: list[models.Skill], curses: list[models.CurseUse], stats: dict,
                  stat_notes: list[dict], texts: list[str], forbidden: set[str]) -> tuple[list[dict], list[dict]]:
     """(mods, notes) for the support-triggered damage over time PoB counts only in Full DPS (GEM25): Decaying Hex's
@@ -5879,6 +5912,9 @@ class Assumptions:
             gas_mods, gas_notes = models.gas_arrow_model(main, main.stat_set, sets, gas, gas_how, forbidden, gas_poisons,
                                                          time_share)
             hand_mods, hand_notes = hand_mods + gas_mods, hand_notes + gas_notes
+        spread_gems = {g["name"] for grp in build.groups() if grp["enabled"] for g in grp.get("gems") or []
+                       if g.get("enabled", True)}  # (MECH112: Contagion / Bursting Plague / Shock Conduction II rows)
+        hand_notes += models.death_spread_notes(found, spread_gems, stats, forbidden)
         if any(s.name == models.HERALD_OF_PLAGUE for s in found):  # (MECH110: its Poison spread from killed adds)
             hp_mods, hp_notes = models.herald_of_plague_model(found, stats, forbidden)
             hand_mods, hand_notes = hand_mods + hp_mods, hand_notes + hp_notes
@@ -6168,6 +6204,11 @@ class Assumptions:
         hand_mods += [models.added_input("FanTheFlames", flames)] if flames > 0 else []
         hand_notes += flames_notes
         for note in flames_notes:
+            build.objective.entry_scales.update(note.get("full_dps") or {})
+        static, static_notes = static_shocks(build, main)  # (MECH112: pulses from the Static Shock on the boss)
+        hand_mods += [models.added_input("StaticShocks", static)] if static > 0 else []
+        hand_notes += static_notes
+        for note in static_notes:
             build.objective.entry_scales.update(note.get("full_dps") or {})
         growth, growth_notes = accelerated_growth(build, found, [e["text"] for e in source_lines], stats,
                                                   {k: inputs.total(k) for k in models.ARCHON_TIMING})  # (GEM24: Overgrown plants)

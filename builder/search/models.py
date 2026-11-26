@@ -11083,6 +11083,127 @@ def nova_reach_model(main: Skill | None, reach: float | None, how: str, metres: 
          "play": f"Stand within {reach:.1f} m of the boss: {main.name} lands around you."}]
 
 
+
+# Static Shocks' pulses (MECH112; GEM44's MECH-A row, an UNDERCOUNT: PoB gives its triggered skill speed 0, so 0 DPS;
+# probe POE2T8951, 2b75c's Spear Stab group: the row's AverageHit 2,121.7, duration 4.026 s, cooldown 0.4 s, speed 0).
+# The game (26650308): the support (SupportStaticShocksPlayer, grounding_shocks_chance_%_to_create_orb_on_shocking_enemy
+# 100): "Supported Skills Trigger Static Shocks when Shocking an enemy" (gem_stat_descriptions); the skill
+# (TriggeredStaticShocksPlayer, ActiveSkills): "Attaches a Static Shock to a target that pulses Lightning damage to the
+# attached target and nearby enemies. Targets can have a maximum of one Static Shock attached to them"; its stats:
+# base_skill_effect_duration 4000, grounding_shocks_pulse_delay_ms 650, maximum_grounding_shocks_allowed 5, radius 30,
+# never_shock (its pulses can't feed it), cooldown 0.4 s with 3 stored uses (GrantedEffectsPerLevel). No Mods row,
+# passive or other stat set carries any grounding_shocks stat (checked: Stats ids holding grounding_shock /
+# static_shock, 6 ids, and their carriers in Mods, PassiveSkills, GrantedEffectStatSets(PerLevel), 26650308), so the
+# pulse delay is the 650 ms and only the skill's duration modifiers change how long one lasts (PoB's row "duration").
+# On a lone boss one Static Shock is attached at a time: it pulses floor(duration / 0.65 s) times (the first 0.65 s after
+# it attaches, MEDIUM: the delay read as the gap before each pulse), then the boss's next Shock from a supported skill
+# attaches the next. Whether a Shock while one is attached replaces it (restarting its pulses) or does nothing is
+# UNVERIFIED (research question): taken as nothing (the "maximum of one" text), the cooldown then never binds. The next
+# attach waits for the next Shock: Shocks a second r = the supported skills' hits a second on the boss x their own
+# Shock chance a hit (the bridge's ShockChancePerHit over the roll), each hit's roll independent and the hits evenly
+# spaced (H a second in all): a wait of 1 / r - 1 / (2 H) after the expiry (the geometric number of hits, the first
+# half a gap away; MEDIUM). Each pulse hits the boss at PoB's own AverageHit for the triggered skill (its group's
+# supports; MEDIUM: PoB's damage for a skill it never scores). Adds nearby pulsed too: not counted (a lone boss, the
+# user's worst case). No hits on the boss (an unpressed group) or no Shock chance: 0, said in the play line.
+STATIC_SHOCKS = "Static Shocks"
+STATIC_SHOCKS_ENTRY = "model-mech112-static-shocks"
+STATIC_SHOCKS_PULSE = 0.65  # s between pulses (grounding_shocks_pulse_delay_ms 650; no carrier changes it: above)
+
+
+def static_shocks_model(parts: list[dict]) -> tuple[float, list[dict]]:
+    """(added DPS, notes) for Static Shocks (see above): `parts`, one per group holding it: {"group": a label,
+    "sources": [(skill, hits a second on the boss, Shock chance a hit 0-1)], "duration": one Static Shock's (s),
+    "pulse": one pulse's damage on the boss (PoB's AverageHit), "pob": PoB's Full DPS entry}."""
+    total, rows = 0.0, []
+    for part in parts:
+        sources = [(name, max(number(h), 0.0), min(max(number(c), 0.0), 1.0)) for name, h, c in part.get("sources") or ()]
+        hits = sum(h for _, h, _ in sources)
+        shocks = sum(h * c for _, h, c in sources)
+        duration = max(number(part.get("duration")), 0.0)
+        pulses = math.floor(duration / STATIC_SHOCKS_PULSE + 1e-9)
+        pulse = max(number(part.get("pulse")), 0.0)
+        if shocks > 0 and pulses > 0:
+            wait = max(0.0, 1.0 / shocks - 0.5 / hits)
+            rate = pulses / (duration + wait)
+        else:
+            wait, rate = float("inf"), 0.0
+        dps = rate * pulse
+        total += dps
+        made = ", ".join(f"{name} {h:.2f} hits/s x {c:.1%} Shock" for name, h, c in sources) or "no supported hits"
+        rows.append(f"{part.get('group') or 'its group'}: {made} = {shocks:.3f} Shocks a second; one attached for "
+                    f"{duration:.3g} s = {pulses} pulses"
+                    + (f", the next after {wait:.2f} s on average: {rate:.3f} pulses a second" if shocks > 0 else "")
+                    + f" at {pulse:,.0f} each")
+    if not parts:
+        return 0.0, []
+    return total, [{
+        "label": "Static Shocks: pulses from the Static Shock attached to the boss*", "value": f"{total:,.1f} DPS",
+        "confidence": "MEDIUM", "entry": STATIC_SHOCKS_ENTRY, "full_dps": {STATIC_SHOCKS: 0.0},
+        "basis": ("PoB gives the triggered skill no rate (0 DPS). The game: Shocking an enemy with a supported skill "
+                  "attaches a Static Shock that pulses every 0.65 s for its duration; one per target: " + "; ".join(rows)
+                  + ". A Shock while one is attached taken to do nothing (UNVERIFIED); adds pulsed nearby not counted"),
+        "play": (f"Shock the boss with the Static Shocks skill and keep hitting it: each Static Shock pulses for its "
+                 f"duration, the next attaching on your next Shock after it ends. With this build {total:,.1f} DPS; "
+                 f"without Shocks from the supported skill (or the skill unused): 0.")}]
+
+
+# Death-fed spreads and bursts, and Shock Conduction II's always-Shock (MECH112; GEM44's MECH-A rows). The game
+# (26650308, ActiveSkills): Contagion "If the enemy dies while affected by Contagion, it spreads itself, Curses, and other
+# Chaos damage over time Debuffs on the target to nearby enemies. This refreshes their durations" (contagion_spread_
+# magnitude_+%_final 100, maximum 300: "More Damage per spread"); its corpse clause needs a corpse that carried it.
+# Plague Burst (Bursting Plague): "Triggered when an enemy Poisoned by a supported skill dies, dealing Physical damage
+# around them based on the built-up Plague" (stores 100% of the Poison magnitude applied, up to 20% of the enemy's
+# maximum Life). Both need an enemy other than the boss to die near it: against a lone boss (the default, the user's
+# worst case) none does (the boss's own death ends the fight), so both add 0; with a preset's adds (AddKillsPerSecond)
+# where they die isn't in the presets (as Herald of Plague's R61-15 note): not added (an UNDERCOUNT there, said). PoB
+# scores Contagion's own DoT on its target and gives Plague Burst no damage (no base damage; its stored value isn't
+# read), so neither is an overcount from PoB. Shock Conduction II (always_shock_wet_enemies: "always Shock Drenched
+# enemies"): Drenched comes only from Thunderstorm's wet debuff (checked: every 26650308 table's stat columns for stats
+# holding drench / wet: thunderstorm_wet_debuff_* on ThunderstormPlayer alone; the other wet stats are plants being wet
+# or skills reading it; KeywordPopups Drenched "a Debuff that causes enemies to be easier to Shock and Freeze"; patch
+# notes: no Drenched line). Without Thunderstorm it never applies (0); with it, the boss is Drenched for drenched_model's
+# share of the fight and the supported skill Shocks on every hit then: not added to the Shock chance yet (an
+# UNDERCOUNT, said in the row; the manager's item 4).
+DEATH_SPREAD_ENTRY = "model-mech112-death-spreads"
+DEATH_SPREAD_SKILLS = {"Contagion": "spreads to nearby enemies when its target dies (more damage per spread)",
+                       "Bursting Plague": "bursts for the Poison stored on an enemy when it dies"}
+SHOCK_CONDUCTION_II = "Shock Conduction II"
+
+
+def death_spread_notes(found: list[Skill], gems: set[str], stats: dict,
+                       forbidden: set[str] = frozenset()) -> list[dict]:
+    """Rows for Contagion / Bursting Plague (no enemy dies near a lone boss) and Shock Conduction II (no Drenched without
+    Thunderstorm): see above. `gems` the enabled gem names (supports included)."""
+    if DEATH_SPREAD_ENTRY in forbidden:
+        return []
+    kills = max(number(stats.get("AddKillsPerSecond")), 0.0)
+    rows = []
+    for name, what in DEATH_SPREAD_SKILLS.items():
+        if name not in gems and not any(s.name == name for s in found):
+            continue
+        rows.append({
+            "label": f"{name}: {what}*", "value": "0 on a lone boss", "confidence": "HIGH (lone boss)",
+            "entry": DEATH_SPREAD_ENTRY,
+            "basis": (f"the game: it {what}; against a lone boss no other enemy dies (the boss's death ends the fight)"
+                      + (f"; this fight's adds die at {kills:.3f} a second, but where isn't in the boss preset: not "
+                         f"added (an undercount here)" if kills > 0 else "")),
+            "play": (f"{name} pays only where other enemies die near the boss: against a lone boss 0"
+                     + ("; kill the adds beside the boss for more (not counted)" if kills > 0 else "") + ".")})
+    if SHOCK_CONDUCTION_II in gems:
+        storm = any(s.name == DRENCH_SKILL for s in found)
+        rows.append({
+            "label": "Shock Conduction II: always Shock Drenched enemies*",
+            "value": "not added" if storm else "0 (no Drenched source)", "confidence": "MEDIUM",
+            "entry": DEATH_SPREAD_ENTRY,
+            "basis": ("only Thunderstorm Drenches enemies (checked: every game table's drench / wet stats)"
+                      + ("; the build casts it (Thunderstorm's row gives its uptime), but the always-Shock while the "
+                         "boss is Drenched isn't added to the Shock chance yet (an undercount)" if storm
+                         else "; the build has none, so the line never applies")),
+            "play": ("Cast Thunderstorm on the boss: while it's Drenched, the supported skill always Shocks it."
+                     + ("" if storm else " Without Thunderstorm: 0."))})
+    return rows
+
+
 def set_dps_unscaled(sets: list[dict]) -> dict[str, float]:
     """{label: DPS} of a skill's sets as PoB scores each before this pass's DPS lines (GEM20): setRates' TotalDPS carries
     the previous pass's DPS MORE lines on the skill, its AverageDamage x Speed doesn't (TotalDPS when either is absent)."""

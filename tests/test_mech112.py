@@ -75,3 +75,33 @@ def test_ignite_chance_is_the_mean_of_the_capped_chance_over_the_roll():
     build.call("setConfig", vars={"enemyLevel": 84}, fields=[])
     assert checked and crossed
 
+
+# Static Shocks' pulses and the death-fed / Drenched rows (MECH112 item 4) ------------------------------------------------
+
+def test_static_shocks_pulse_for_its_duration_then_wait_for_the_next_shock():
+    from builder.search import models
+
+    part = {"group": "Spark", "sources": [("Spark", 2.0, 0.5)], "duration": 4.026, "pulse": 100.0}
+    dps, notes = models.static_shocks_model([part])
+    # 1 Shock a second; 6 pulses (0.65 s apart) in 4.026 s, then a wait of 1 / 1 - 1 / (2 x 2) = 0.75 s
+    assert dps == pytest.approx(6 / (4.026 + 0.75) * 100.0)
+    assert notes[0]["full_dps"] == {models.STATIC_SHOCKS: 0.0}
+    # every hit Shocks and hits come fast: the next attaches on the next hit, half a gap away on average
+    fast = models.static_shocks_model([{**part, "sources": [("Spark", 20.0, 1.0)]}])[0]
+    assert fast == pytest.approx(6 / (4.026 + 0.025) * 100.0)
+    # no Shocks from the supported skill (or no hits on the boss): 0
+    assert models.static_shocks_model([{**part, "sources": []}])[0] == 0.0
+    assert models.static_shocks_model([]) == (0.0, [])
+
+
+def test_death_spreads_are_zero_on_a_lone_boss_and_shock_conduction_needs_thunderstorm():
+    from builder.search import models
+
+    rows = models.death_spread_notes([], {"Contagion", "Bursting Plague", "Shock Conduction II"}, {})
+    labels = " ".join(r["label"] for r in rows)
+    assert "Contagion" in labels and "Bursting Plague" in labels and "Shock Conduction II" in labels
+    assert all(r["value"] in ("0 on a lone boss", "0 (no Drenched source)") for r in rows)
+    with_adds = models.death_spread_notes([], {"Contagion"}, {"AddKillsPerSecond": 0.2})
+    assert "undercount" in with_adds[0]["basis"]
+    assert models.death_spread_notes([], {"Spark"}, {}) == []
+    assert models.death_spread_notes([], {"Contagion"}, {}, {models.DEATH_SPREAD_ENTRY}) == []
