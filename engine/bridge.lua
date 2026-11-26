@@ -6571,6 +6571,10 @@ function bridge.activeSkills(args)
 					-- (MECHB65, models.infernal_legion_ignited) where the minion stands: its monster's attackRange (10 a
 					-- metre) and its counted skill's Melee flag as PoB resolved it by the minion's weapon (nil: not built)
 					range = type(minionData.attackRange) == "number" and minionData.attackRange or nil,
+					-- (MECHB68, models.command_every) the Commands' chosen presses a second, the tool's own OVERRIDE
+					-- (models.COMMAND_PRESS, set by Assumptions.choose_demise: Explosive Demise's rate by the build's DPS),
+					-- so every reader of this list (the conditions, the gem ranking) presses them as the score does
+					pressRate = list:Override(cfg, "LedgerCommandPress"),
 					melee = (function()
 						local m = activeSkill.minion.mainSkill
 						local e = m and m.activeEffect

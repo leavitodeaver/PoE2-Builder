@@ -1691,7 +1691,8 @@ def minion_lives(build: Build, found: list[models.Skill]) -> dict[str, float]:
     """{Reviving minion skill: its minion's maximum Life} when a skill in the build has Minion Pact (models.pact_uses_per_kill;
     PoB calculates a minion's Life only as the main skill, so the bridge's useRates sets each minion group as main)."""
     if not any(models.number(s.support_stats.get(models.MINION_PACT_STAT)) > 0 for s in found) and not any(
-            s.name == models.ETERNAL_MARCH for s in found):  # (MECHB41: Eternal March's revives read the Life too)
+            s.name in (models.ETERNAL_MARCH, models.ARSONIST) for s in found):  # (MECHB41: Eternal March's revives read
+        # the Life too; MECHB68: Explosive Demise's 8% of the detonated minion's Life)
         return {}
     wanted = {s.name for s in found if s.summon and s.summon.get("persistent") and not models.number(s.summon.get("duration"))}
     indices, actives, names = [], [], []
@@ -3884,6 +3885,9 @@ class Assumptions:
         self.untether_speed = 1.0  # (MECH-B, MECHB32) Untether as the main skill: the share of PoB's casts that explode
         self.bomb_speed = 1.0  # Living Bomb as the main skill: the share of PoB's casts that explode, now on PoB's numbers
         self.ledger_shares: dict[str, int] = {}  # condition -> its share in whole percent, for the ledger's `share:` lines
+        # (MECHB68, models.explosive_demise_model) Explosive Demise's chosen presses a second (None: on cooldown), the
+        # build key it was chosen for, the most a second, the trials' {rate: DPS}, and whether a new choice is due
+        self.demise: dict = {"key": None, "rate": None, "most": 0.0, "trials": {}, "due": False, "memo": {}}
 
     def main_skill(self) -> str | None:
         group = self.build.main_group()
@@ -3901,6 +3905,7 @@ class Assumptions:
         group = build.main_group()
         name = self.main_skill()
         found = [models.Skill.of(s) for s in skills if not s["disabled"]]
+        found = self.demise_press(found)  # (MECHB68: Explosive Demise's chosen press rate, before any reader)
         main = next((s for s in found if group and s.group == group["index"] and s.name == name), None)
         main_gems = {g["name"] for g in group["gems"]} if group else set()
         stats = build.call("stats", fields=models.MODEL_FIELDS)
@@ -5382,6 +5387,8 @@ class Assumptions:
         alive_mods, alive_notes = models.minion_alive_model(found, main, stats)  # (MECHB40: minions the build kills
         # itself are dead part of the fight; PoB counted them alive: an OVERCOUNT)
         hand_mods, hand_notes = hand_mods + alive_mods, hand_notes + alive_notes
+        demise, demise_mods, demise_notes = self.explosive_demise(found, main)  # (MECHB68: its rate and explosion)
+        hand_mods, hand_notes = hand_mods + demise_mods, hand_notes + demise_notes
         tawhoa_groups: set[int] = set()
         if any(s.name == models.TAWHOA for s in found):  # (MECHB40: Tawhoa's Vengeance at its totems' deaths; PoB: 0)
             totem_out: dict = {}
@@ -6408,6 +6415,7 @@ class Assumptions:
                                    "Inevitable Agony": agony, "Melee reflect": reflect, "Impale": impaled + impaled_others, "Infernal Legion": legion,
                                    "Briarpatch": briar, "Ice-Tipped Fragments": frost, "Oil Ground": oil,
                                    "Ignited Ground's Ignite": burn, "Djinn Commands": djinn,
+                                   "Explosive Demise": demise,
                                    "Meteors (side group)": side_meteors,
                                    "1.0 preview supports and skills*": preview_added,
                                    # (GEM21: Gas Arrow's cloud Poison beside its Arrow / Explosion set, gas_arrow_model)
@@ -13414,6 +13422,112 @@ class Assumptions:
         self.monster_notes = notes
         return changed
 
+    def demise_press(self, found: list[models.Skill]) -> list[models.Skill]:
+        """(MECHB68) The build's Skill list with the Arsonist's chosen Explosive Demise rate (self.demise; PoB's own
+        override may be a round behind); notes a new choice due when the build's skills, main skill or Reviving minions
+        changed. No Arsonist with another Reviving minion to detonate: nothing to choose."""
+        state = self.demise
+        at = next((i for i, s in enumerate(found) if s.name == models.ARSONIST and s.summon), None)
+        reviving = [s for s in found if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))]
+        if at is None or sum(number(s.summon.get("limit")) for s in reviving) <= number(found[at].summon.get("limit")):
+            state.update(key=None, rate=None, most=0.0, trials={}, due=False)
+            return found
+        arsonist = found[at]
+        key = (self.main_skill(), tuple(sorted({s.name for s in found})),
+               tuple(sorted((s.name, number(s.summon.get("limit"))) for s in reviving)))
+        state["most"] = models.demise_most(arsonist)
+        if key != state["key"]:  # (a build key chosen before: its choice again, no trials)
+            rate, trials = state["memo"].get(key, (None, {}))
+            state.update(key=key, rate=rate, trials=trials,
+                         due=key not in state["memo"] and getattr(self.build, "objective", None) is not None)
+        summon = {k: v for k, v in arsonist.summon.items() if k != "pressRate"}
+        if state["rate"] is not None:
+            summon["pressRate"] = min(state["rate"], state["most"])
+        return [dataclasses.replace(s, summon=summon) if i == at else s for i, s in enumerate(found)]
+
+    def explosive_demise(self, found: list[models.Skill], main: models.Skill | None
+                         ) -> tuple[float, list[dict], list[dict]]:
+        """(MECHB68, models.explosive_demise_model) The chosen press rate's override (COMMAND_PRESS, for every reader of
+        PoB's skill list), the explosion's added DPS, the Command's cast charged, the play guide's rows."""
+        state = self.demise
+        if state["key"] is None:
+            return 0.0, [], []
+        build = self.build
+        most, chosen = state["most"], state["rate"]
+        rate = most if chosen is None else min(chosen, most)
+        mods = ([models.raw_mod(models.COMMAND_PRESS, "OVERRIDE", chosen, skill=models.ARSONIST, tag=models.DEMISE_TAG)]
+                if chosen is not None else [])
+        spot = next(((g["index"], n) for g in build.groups() if g.get("enabled") is not False
+                     for n, s in enumerate(g["skills"], 1) if s["name"] == models.ARSONIST), None)
+        hit = 0.0
+        if spot is not None and rate > 0:
+            got = build.call("minionSkillHit", index=spot[0], active=spot[1], skill=models.EXPLOSIVE_DEMISE_ID)
+            got = got if isinstance(got, dict) else {}  # (an empty Lua table reaches Python as a list)
+            hit = number(got.get("AverageDamage")) or number(got.get("AverageHit"))
+        lives = getattr(build, "minion_lives", None) or {}
+        others = [(number(lives.get(s.name)), number(s.summon.get("limit"))) for s in found
+                  if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))
+                  and s.name != models.ARSONIST and number(lives.get(s.name)) > 0]
+        count = sum(n for _, n in others)
+        life = sum(l * n for l, n in others) / count if count > 0 else 0.0
+        life_how = ("the mean of your other Reviving minions', PoB's" if count > 0 else
+                    "no other minion's Life read: its Life part not counted, an UNDERCOUNT")
+        resist = number(build.call("getConfig")["input"].get("enemyFireResist")) if rate > 0 else 0.0
+        added, demise_mods, notes = models.explosive_demise_model(rate, most, hit, life, life_how, resist, main,
+                                                                  state["trials"])
+        if added > 0:  # (a Command press: the button cap counts it, as the Skeletal Sniper's)
+            presses = getattr(build, models.ITEM_PRESSES, None)
+            if isinstance(presses, dict):
+                presses["Command: Skeletal Arsonist"] = (rate, notes[-1]["play"])
+        return added, mods + demise_mods, notes
+
+    def choose_demise(self) -> None:
+        """(MECHB68; the manager 25 Nov 22:55) Explosive Demise's press rate by the build's DPS: the rates tried walk up
+        DEMISE_SHARES of the most from 0 and stop at the first that doesn't raise the DPS (the deaths' gains saturate
+        while the minions' loss grows with them: the peak is behind it), then the halves beside the best; each scored
+        by the whole models pass (wanted, with the rate's override in its mods: PoB's own skill list, which a few side
+        readers and the conditions read, follows a trial behind: MEDIUM-LOW). The best DPS kept (ties to fewer presses;
+        the most kept as None, on cooldown, following the build's Cooldown Recovery; a gain under DEMISE_TIE of the DPS
+        counts as a tie) and remembered for the build key
+        (self.demise memo: a key seen before isn't tried again). The trials' DPS go to the play guide's rows
+        (models.explosive_demise_model). Cost: 3 trials where never pressing is best (example build 6), at most 6."""
+        build, state = self.build, self.demise
+        state["due"] = False
+        most = state["most"]
+        objective = getattr(build, "objective", None)
+        if objective is None or most <= 0:
+            return
+        trials: dict[float, float] = {}
+
+        def trial(share: float) -> float:
+            rate = most * share
+            state["rate"] = None if share >= 1.0 else rate
+            mods, _ = self.wanted()
+            build._committed(build.call("setAssumptions", mods=mods, fields=objective.fields))
+            self.mods = mods
+            trials[rate] = number(objective.dps(build.stats))
+            return trials[rate]
+
+        scored = {0.0: trial(0.0)}
+        best = 0.0
+        for share in models.DEMISE_SHARES[1:]:
+            scored[share] = trial(share)
+            if scored[share] <= scored[best]:
+                break  # (the first drop: the peak is behind)
+            best = share
+        step = models.DEMISE_SHARES[1] / 2
+        for share in (best - step, best + step):
+            if 0.0 <= share <= 1.0 and share not in scored:
+                scored[share] = trial(share)
+        top = max(scored.values())
+        best = min(s for s, d in scored.items() if d >= top - abs(top) * models.DEMISE_TIE)  # (ties to fewer presses)
+        state["rate"] = None if best >= 1.0 else most * best
+        state["trials"] = trials
+        memo = state["memo"]
+        memo[state["key"]] = (state["rate"], trials)
+        while len(memo) > 16:  # (the oldest keys go)
+            memo.pop(next(iter(memo)))
+
     def skill_spot(self, index: int | None, name: str) -> tuple[int, int] | None:
         """(group index, active position) of the named skill in that group, for setRates / useRates."""
         return next(((g["index"], position) for g in self.build.groups() if g["index"] == index
@@ -13578,6 +13692,9 @@ class Assumptions:
         unticked = self.untick_imported()  # (MECHB50, R40-13: before the models read PoB's numbers)
         monster_changed = self.choose_monsters()  # (MECHB51, Spectre step 3: before the models read PoB's numbers)
         mods, notes = self.wanted()
+        if self.demise.get("due"):  # (MECHB68: Explosive Demise's press rate, chosen by the build's DPS)
+            self.choose_demise()
+            mods, notes = self.wanted()
         self.active = notes + self.untick_notes + self.monster_notes
         build = self.build
         flagged = unticked or monster_changed

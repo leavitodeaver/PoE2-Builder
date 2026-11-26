@@ -1102,8 +1102,11 @@ OWN_USE_GAINS = ("crit", "ailment", "melee hit", "cast")
 #    that consumes corpses (the corpse_model's skill types) uses one minion per use (one corpse per use assumed; that a
 #    minion used as a corpse is Killed, reaching 0 life, is UNVERIFIED: LOW);
 #  - Explosive Demise, Skeletal Arsonists' Command ("Detonate an allied Minion whose current Life is below a threshold"):
-#    one minion per use, on its 3 s cooldown (PoB's minion.lua and the game files) x cooldown recovery, when the build has
-#    another minion to detonate (that one is below the threshold when the Command comes up is assumed: LOW).
+#    one minion per use, when the build has another minion to detonate (that one is below the threshold when the Command
+#    comes up is assumed: LOW), at the press rate the build's DPS chooses (MECHB68, the manager 25 Nov 22:55: a player
+#    picks how often to sacrifice; Assumptions.choose_demise, command_every), at most once per its 3 s cooldown (PoB's
+#    minion.lua and the game files) over cooldown recovery, its 1 s cast a floor (MECHB68: no floor before, so a fast
+#    recovery read presses faster than the Command can be cast, an OVERCOUNT of deaths).
 #  - Minion Pact I / II (AUDIT23 A23-2, MECHB11): its skill "remove[s] 100% (150%) of your maximum Life from a nearby
 #    Minion on use" (support_minion_pact_user_life_%_removed_from_nearby_minion; game files SupportMinionPactPlayer /
 #    PlayerTwo; PoB's sup_int.lua, which reads only its 30% / 35% more damage, with a minion in your Presence). Removing
@@ -1121,6 +1124,42 @@ OWN_USE_GAINS = ("crit", "ailment", "melee hit", "cast")
 # minions taking damage for you, other on-minion-death lines.
 RESUMMON_SECONDS = 7.5  # global_resummon_time_ms (PoB Misc.lua)
 EXPLOSIVE_DEMISE_COOLDOWN = 3.0  # s (PoB minion.lua:815 levels; game files)
+EXPLOSIVE_DEMISE_CAST = 1.0  # s (PoB minion.lua DestructiveLinkSkeletonBombadierMinion castTime 1; COMMANDS below)
+EXPLOSIVE_DEMISE_ID = "DestructiveLinkSkeletonBombadierMinion"
+# "Deals additional Fire damage equal to {0}% of Minion's maximum Life" (arsonist_destructive_link_%_of_life_as_fire_damage,
+# 8 in its stat set; + 0.2 a quality, read as the gem's quality: not read, an UNDERCOUNT of up to 4 at 20%). PoB maps no
+# stat for it (checked: PoB src grep "destructive_link": only the skill data and the stat descriptions), so its own hit
+# holds only the Attack part ("heavy Attack damage": baseMultiplier 3).
+EXPLOSIVE_DEMISE_LIFE_PCT = 8.0
+# (MECHB68) The Commands' chosen presses a second: an OVERRIDE on the summon skill (the bridge's summon.pressRate), so
+# every reader of activeSkills (Conditions' Death Storm and kill readers, gems' Cast on Minion Death ranking) presses them
+# as the score does. Only Explosive Demise is chosen today (Assumptions.choose_demise); none: on cooldown.
+COMMAND_PRESS = "LedgerCommandPress"
+DEMISE_TAG = "ExplosiveDemisePress"
+# The press rates tried, as shares of the most (on cooldown): each scored by the whole models pass, then the halves
+# around the best (Assumptions.choose_demise).
+DEMISE_SHARES = (0.0, 0.25, 0.5, 0.75, 1.0)
+# A gain under this share of the DPS counts as none (the fewer presses kept): the trials score the models pass a round
+# before the search's later weights and with the conditions a trial behind, which moved example build 6's DPS by about
+# 0.3-1% between a trial and the settled build (POE2T9075: a 24 s press +0.26% in the trials, -1.1% settled; the full
+# settles' curve, POE2T9073: +0.006%). A tolerance, not a rate (MEDIUM-LOW).
+DEMISE_TIE = 0.005
+
+
+def command_every(skill: Skill, cooldown: float, cast: float) -> float:
+    """(MECHB68) Seconds between presses of a summon's Command: once per its cooldown over the summon's Cooldown Recovery,
+    its cast a floor; a chosen press rate (summon pressRate, COMMAND_PRESS) slower than that wins; inf when chosen 0."""
+    every = max(cooldown / (skill.cooldown_recovery or 1.0), cast)
+    press = (skill.summon or {}).get("pressRate")
+    if press is None:
+        return every
+    press = number(press)
+    return math.inf if press <= 0 else max(every, 1.0 / press)
+
+
+def demise_most(arsonist: Skill) -> float:
+    """(MECHB68) The most Explosive Demise presses a second: on its cooldown, its cast a floor (no chosen rate)."""
+    return 1.0 / max(EXPLOSIVE_DEMISE_COOLDOWN / (arsonist.cooldown_recovery or 1.0), EXPLOSIVE_DEMISE_CAST)
 SACRIFICE = "Sacrifice"
 ARSONIST = "Skeletal Arsonist Minion"
 MINION_PACT_STAT = "support_minion_pact_user_life_%_removed_from_nearby_minion"
@@ -1231,15 +1270,24 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict,
                      f"({uses:.2f} uses/s; KeywordPopups Sacrifice / MinionDeath: a minion its summoner brings to 0 Life is "
                      f"Killed): {how}{guarded}. Without it: {without:.2f} deaths/s from the other sources before revival")
     arsonist = next((s for s in skills if s.name == ARSONIST), None)
+    held = ""
     if arsonist is not None and count > number(arsonist.summon.get("limit")):
-        every = EXPLOSIVE_DEMISE_COOLDOWN / (arsonist.cooldown_recovery or 1.0)
-        kills += 1 / every
-        parts.append(f"Explosive Demise (your Skeletal Arsonists' Command) detonates one of your other minions every "
-                     f"{every:.2f} s (its {EXPLOSIVE_DEMISE_COOLDOWN:g} s cooldown; that one is below its Life threshold "
-                     f"when the Command comes up is assumed, LOW)")
+        every = command_every(arsonist, EXPLOSIVE_DEMISE_COOLDOWN, EXPLOSIVE_DEMISE_CAST)
+        chosen = (arsonist.summon or {}).get("pressRate") is not None
+        if every < math.inf:
+            kills += 1 / every
+            parts.append(f"Explosive Demise (your Skeletal Arsonists' Command) detonates one of your other minions every "
+                         f"{every:.2f} s ("
+                         + ("pressed at the rate the build's DPS is highest at, MECHB68; " if chosen else "")
+                         + f"at most once per its {EXPLOSIVE_DEMISE_COOLDOWN:g} s cooldown over Cooldown Recovery, its "
+                           f"{EXPLOSIVE_DEMISE_CAST:g} s cast a floor; that one is below its Life threshold when the "
+                           "Command comes up is assumed, LOW)")
+        else:
+            held = ("; Explosive Demise (your Skeletal Arsonists' Command) not pressed: the build's DPS is highest without "
+                    "detonating its own minions (MECHB68)")
     not_counted = ("not counted yet: the boss killing your minions, minions taking damage for you, Offerings (an "
                    "undercount); Dark Pact / Abyssal Pact (13% / 20% of a minion's Life a use) have no skill in PoB, so no "
-                   "use rate here")
+                   "use rate here" + held)
     guard, guard_how = stats.get(MINION_DEATHLESS_STAT) or (0.0, "")
     others = [n for n, p in ((SACRIFICE, "Sacrifice"), ("Explosive Demise", "Explosive Demise"))
               if any(x.startswith(p) for x in parts)]
@@ -1277,6 +1325,73 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict,
                   + f"; each revives {revive:.3g} s after the last death (KeywordPopups Reviving: the delay "
                     f"resets on each death; {how}), so {count:g} x {kills:.2f} / ({count:g} + {revive:.3g} x {kills:.2f}); "
                   + not_counted)
+
+
+# Explosive Demise's own explosion and its chosen press rate (MECHB68; the manager 25 Nov 22:55, on MECHB67's item 4:
+# pressed on every cooldown it detonated example build 6's own minions every 0.58 s, alive 48% of the fight, and the
+# build fell 2,951,554 -> 1,836,973; "A player chooses how often to sacrifice minions"). The rate: Assumptions.choose_demise
+# scores the whole models pass (every reader of the deaths: the minions alive, Cast on Minion Death's Energy, the Kills,
+# Grim Feast, Death Storm's fallen Skeletons, Puppet Master and Archon of Undeath's Command uses, the explosion below) at
+# DEMISE_SHARES of the most presses a second and the halves around the best, and keeps the rate the build's DPS is
+# highest at (ties to the fewer presses: the CLAUDE.md rule, a play the build is fed by on purpose; "without it / with
+# it" rows from the same trials). Chosen again when the build's skills, main skill or Reviving minions change, not on
+# every gear or tree change (the rate then held, clamped to the new most: MEDIUM). During the trials the boss's
+# conditions (MECH-A's Shocked Ground from Death Storm, Intimidate) keep the last choice's values (MEDIUM-LOW, a
+# one-pass lag).
+# The explosion (counted, an added source; 0 before: PoB scores only the Arsonist's first skill): a press deals PoB's
+# Explosive Demise hit (the bridge's minionSkillHit: its Attack part, the boss's resistance in) plus 8% of the detonated
+# minion's maximum Life as Fire ("Deals additional Fire damage equal to 8% of Minion's maximum Life", which PoB doesn't
+# map), the mean Life of the build's other Reviving minions (PoB's, the bridge's useRates minionLife; which one is below
+# the threshold is the game's), through the boss's Fire resistance (the config's enemyFireResist) and none of the
+# Arsonist's damage modifiers (UNVERIFIED whether they scale it: the lower reading). Charged (the safe side, as
+# eternal_hunt_model): the Command's 1 s cast from the Arsonist's own attacks, and from a player main skill's time
+# (whether a Command stops your skill is UNVERIFIED); a press under the button cap (ITEM_PRESSES).
+def explosive_demise_model(rate: float, most: float, hit: float, life: float, life_how: str, fire_resist: float,
+                           main: Skill | None, trials: dict[float, float]) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for Explosive Demise pressed `rate` times a second (of `most`): its explosion, the
+    Command's cast charged, and the trials' rows (`trials`: {presses a second: the build's DPS})."""
+    label = "Explosive Demise: how often you detonate your own minions*"
+    rows = ""
+    if trials:
+        ordered = sorted(trials.items())
+        rows = ("; the build's DPS at each rate tried: " + ", ".join(
+            f"{'never' if r <= 0 else f'every {1 / r:.2f} s'} {d:,.0f}" for r, d in ordered))
+    if rate <= 0:
+        note = {"label": label, "value": "not pressed", "confidence": "MEDIUM",
+                "basis": (f"the build's DPS is highest without detonating its own minions (at most once every "
+                          f"{1 / most:.2f} s: its {EXPLOSIVE_DEMISE_COOLDOWN:g} s cooldown over Cooldown Recovery, its "
+                          f"{EXPLOSIVE_DEMISE_CAST:g} s cast a floor){rows}. Its explosion: {hit:,.0f} (PoB's Attack part) "
+                          f"+ {EXPLOSIVE_DEMISE_LIFE_PCT:g}% of a {life:,.0f}-Life minion as Fire ({life_how})"),
+                "play": ("Don't press Explosive Demise: each detonation costs more minion damage than it gives"
+                         + (f" (without it {trials[0.0]:,.0f} DPS; with it every {1 / max(trials):.2f} s, the most "
+                            f"tried: {trials[max(trials)]:,.0f} DPS)" if 0.0 in trials and max(trials) > 0 else ""))}
+        return 0.0, [], [note]
+    life_part = EXPLOSIVE_DEMISE_LIFE_PCT / 100 * life * (1 - fire_resist / 100)
+    each = hit + life_part
+    added = rate * each
+    share = min(1.0, rate * EXPLOSIVE_DEMISE_CAST)
+    mods = [line("Minions deal 1% more Damage", -100.0 * share, skill=ARSONIST)]
+    minion_main = main is not None and bool(main.summon)
+    if main is not None and not minion_main:
+        mods.append(raw_mod("DPS", "MORE", -100.0 * share, main.name))
+    chosen = rate < most - 1e-9
+    note = {"label": label, "value": f"every {1 / rate:.2f} s", "confidence": "MEDIUM",
+            "basis": (f"pressed {rate:.3f} times a second ("
+                      + (f"chosen by the build's DPS, below the most, once every {1 / most:.2f} s" if chosen else
+                         f"on its cooldown, once every {1 / most:.2f} s: the build's DPS is highest there")
+                      + f"){rows}. Each explosion: {hit:,.0f} (PoB's Attack part) + {EXPLOSIVE_DEMISE_LIFE_PCT:g}% of a "
+                        f"{life:,.0f}-Life minion ({life_how}) through the boss's {fire_resist:g}% Fire resistance "
+                        f"({life_part:,.0f}; the Arsonist's damage modifiers not applied, UNVERIFIED) = {each:,.0f}: "
+                        f"+{added:,.1f} DPS. Charged: its {EXPLOSIVE_DEMISE_CAST:g} s cast, {share:.0%} of the Arsonists' "
+                        "attacks" + (f" and of {main.name}'s time (whether a Command stops your skill is UNVERIFIED)"
+                                     if main is not None and not minion_main else "")),
+            "play": (f"Press Explosive Demise every {1 / rate:.2f} s"
+                     + (f" (not on every cooldown, every {1 / most:.2f} s: more minions stay alive)" if chosen else
+                        " (each time it comes off cooldown)")
+                     + (f": without it {trials.get(0.0, 0):,.0f} DPS, with it {trials.get(rate, 0):,.0f} DPS"
+                        if 0.0 in trials and rate in trials else "")),
+            "uses": rate}
+    return added, mods, [note]
 
 
 # Revival time (MECHB2; FIX_QUEUE: Sacrifice makes revival 40% slower, AUDIT5). PoB works it out per Reviving minion skill
@@ -1497,7 +1612,10 @@ def command_uses(skills: list[Skill]) -> tuple[float, list[str]]:
                 continue
             seen.add(minion)
             for name, cooldown, cast in commands:
-                every = max(cooldown / (skill.cooldown_recovery or 1.0), cast)
+                every = command_every(skill, cooldown, cast)  # (MECHB68: a chosen press rate, the cast a floor)
+                if every == math.inf:
+                    parts.append(f"{name} not pressed")
+                    continue
                 total += 1.0 / every
                 parts.append(f"{name} every {every:.3g} s")
     return total, parts
@@ -1570,7 +1688,7 @@ def different_commands_model(skills: list[Skill], texts: list[str]) -> tuple[lis
                 continue
             seen.add(minion)
             for name, cooldown, cast in commands:
-                every = max(cooldown / (skill.cooldown_recovery or 1.0), cast)
+                every = command_every(skill, cooldown, cast)  # (MECHB68: a chosen press rate, the cast a floor)
                 share = min(1.0, COMMAND_WINDOW / every)
                 count += share
                 parts.append(f"{name} every {every:.3g} s" + (f" ({share:.0%} of windows)" if share < 1 else ""))
