@@ -51,3 +51,12 @@ def test_cov59_gem44_readers_are_marked_and_the_unread_stay_open():
                         ("crushing_blow_vs_ignited_and_fully_armour_broken", "Syzygy"),
                         ("cannot_inflict_maim", "Undermine")):
         assert coverage.stat_covered(covered, stat, skill) is None, stat
+
+
+def test_cov59_three_entries_name_the_audited_skills():
+    covered = coverage.stat_entries()
+    for stat, skill, entry in (("consume_parry_debuff_on_hit_to_gain_X_frenzy_charges", "Frenzied Riposte", "model-stats-parry-consume"),
+                               ("triggered_by_charged_staff", "Charged Shockwave", "model-mechb53-charged-shockwave"),
+                               ("triggered_by_staggering_palm_on_hit_with_other_skill", "Projectile",
+                                "model-mechb51-staggering-palm")):
+        assert coverage.stat_covered(covered, stat, skill) == ("model", entry), (stat, skill)

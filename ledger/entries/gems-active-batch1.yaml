@@ -223,7 +223,7 @@
   kind: model
   model: parry
   stats: ["consume_parry_debuff_on_hit_to_gain_X_frenzy_charges"]
-  skill: ["Disengage"]
+  skill: ["Disengage", "Frenzied Riposte"]  # (COV59, the manager 20:53: the support's row, read by the same PARRY_CONSUMERS)
   confidence: datamined
   notes: >-
     models.PARRY_CONSUMERS: a main skill that consumes Parried gains on one hit per Parried. The Frenzied Riposte

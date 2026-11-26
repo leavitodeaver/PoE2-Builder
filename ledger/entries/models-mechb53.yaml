@@ -27,7 +27,7 @@
   kind: model
   model: charged_shockwave
   stats: ["triggered_by_charged_staff"]
-  skill: [Charged Staff]
+  skill: [Charged Staff, Charged Shockwave]  # (COV59, the manager 20:53: the audit shows the triggered skill's own name)
   confidence: theory
   notes: >-
     MECHB53 (MECHC51's routed item; an UNDERCOUNT: PoB makes Charged Shockwave an active skill but never triggers it).

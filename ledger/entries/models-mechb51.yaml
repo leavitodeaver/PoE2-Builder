@@ -128,7 +128,7 @@
   kind: model
   model: staggering_palm
   stats: ["base_skill_effect_duration", "staggering_palm_buff_max_duration_ms", "triggered_by_staggering_palm_on_hit_with_other_skill"]
-  skill: [Staggering Palm]
+  skill: [Staggering Palm, Projectile]  # (COV59, the manager 20:53: the audit shows the gem's second skill as "Projectile")
   confidence: theory
   notes: >-
     MECHB51 (PLANS7 gs-staggering-palm-buff.md; RESEARCH41 R41-14; probe POE2T4763, an OVERCOUNT: PoB's Full DPS counts
