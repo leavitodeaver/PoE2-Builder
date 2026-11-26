@@ -5630,6 +5630,12 @@ def debuff_uptime(var: str) -> Callable[[list[str], dict], tuple[object, str]]:
 # fight (the lower reading: rolls every DODGE_EVERY s are regular, which would give min(1, rate x 4 s)); combined with
 # the box's other sources as independent (debuff_uptime).
 HER_DECLARATION = "Her Declaration"
+
+
+def all_gems(ctx) -> dict:
+    """(MECHC65) {name: gem} over every gem PoB knows (ctx.any_gems: ascendancy gems, granted skills and supports), the
+    socketable ones (ctx.gems) winning; for any context-like object (a test's stand-in may carry gems only)."""
+    return {**(getattr(ctx, "any_gems", None) or {}), **(getattr(ctx, "gems", None) or {})}
 HER_DECLARATION_SECONDS = 4.0  # support_mothers_declaration_..._base_duration_ms 4000
 
 
@@ -12315,7 +12321,10 @@ class Conditions:
         roar = self.shattering_roar(texts) if any(SKELETAL_BRUTE in n for n in names) else None
         intimidated = [roar] if roar and roar[0] > 0 else []
         if HER_DECLARATION in names:  # (MECH83: on each Presence entry, her_declaration)
-            declared = her_declaration(self.build.groups(), self.build.ctx.gems, texts, stats,
+            # (MECHC65: every gem PoB knows behind the socketable ones: build 1's Virtuous Barrier is a Gemling
+            # ascendancy gem and its Her Declaration a granted support, both missing from ctx.gems, so no Persistent
+            # Buff was found and the support read 0: an UNDERCOUNT, probe POE2T9602)
+            declared = her_declaration(self.build.groups(), all_gems(self.build.ctx), texts, stats,
                                        _boss_distance(texts, stats)[0] / 10)
             if declared and declared[0] > 0:
                 intimidated.append(declared)
