@@ -80,3 +80,18 @@ def test_stay_share_follows_the_relocations_and_the_area_size():
     assert bosses.stay_share({"_boss": bosses.WORST}, 2.0, 8.0)[0] < share
     # the "fixed" row: every move the mean length, out only when longer than the reach
     assert bosses.stay_share(ash, 5.0, 8.0, moves="fixed")[0] == 1.0
+
+
+def test_worst_case_harm_reads_only_tallies_counted_enough_and_keeps_the_rest_as_a_row():
+    # the manager 26 Nov 06:32: the highest high end among tallies from two fights of 45 s+ or MEDIUM+; Zarokh's a row
+    worst = {"_boss": bosses.WORST}
+    eligible = [n for n in bosses.REAL if bosses._counted_enough(n)]
+    assert "Zarokh, the Temporal" not in eligible and eligible
+    high = max(bosses.RELOCATE_VIDEO_HIGH[n] for n in eligible)
+    rate, _, how = bosses.relocations(worst, gain=False)
+    assert abs(rate - high / 60) < 1e-9 and "two fights" in how
+    row, _, row_how = bosses.relocations(worst, "any", gain=False)
+    assert abs(row - max(bosses.RELOCATE_VIDEO_HIGH.values()) / 60) < 1e-9 and "Zarokh" in row_how
+    assert bosses.stay_share(worst, 3.1, 7.4)[0] > bosses.stay_share(worst, 3.1, 7.4, "any")[0]
+    # a gain still reads the fewest (an untallied preset: 0)
+    assert bosses.relocations(worst)[0] == 0.0

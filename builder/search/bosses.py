@@ -437,8 +437,8 @@ RELOCATE_SKILLS: dict[str, tuple[float, float, str]] = {  # (uses a minute off c
 # teleports), read by eye from 1 fps frames against arena landmarks, metres scaled from the player's and boss's bodies
 # (MEDIUM-LOW). Where a helper gave a range, the LOW END here (for gains; RELOCATE_VIDEO_HIGH below for harms). The boss follows a moving player,
 # so the count depends on the play (kiting fights read higher); the fights used are named. Not tallied (0 in the
-# headline, the "skills" ceiling a row): the Bodach (not visible in 2 videos; 2 more refused by YouTube's bot check) and
-# Kulemak (4 videos unusable: staged fight, dark arena, a minimap the skull method can't read).
+# headline, the "skills" ceiling a row): the Bodach (no usable footage in 7 videos: the boss invisible in its dark arena,
+# its minimap blank or hidden, 2 downloads refused by YouTube's bot check and skipped).
 RELOCATE_VIDEO: dict[str, tuple[float, float, float | None, str, str]] = {
     "Arbiter of Divinity": (round(0.11 * 9.4 + 0.89 * 13.5, 2), round(0.11 * 3.9 + 0.89 * 9.9, 2),
                             round(0.11 * 0.68 + 0.89 * 0.24, 2),
@@ -462,13 +462,22 @@ RELOCATE_VIDEO: dict[str, tuple[float, float, float | None, str, str]] = {
                               "by form, 43% / 57% of the fight: the first form 7.5 a minute, all its own dashes (4-5 m) "
                               "and teleports (~6 m), 75-80% in stands of 3.5 s or more (2 fights, 72 s: 0.3 Uber, 0.5); "
                               "the second form ~12, 2-4 m walks (1 fight, 29 s)", "LOW (the first form LOW-MEDIUM)"),
-    "Zarokh, the Temporal": (20.0, 4.0, None, "2 short fights (a 0.5 melee Monk ~32 s, a 0.4 druid ~45 s): 20-40 a "
-                             "minute against the melee player, 6-12 of them blinks; off the field 12-14 s a fight in "
-                             "its Trial of Time phase (not in the count)", "LOW"),
+    "Zarokh, the Temporal": (15.0, 3.5, 0.15, "3 short fights: a 0.5 melee Monk ~32 s, a 0.4 druid ~45 s (MECHD9 helper "
+                             "mv3: 20-40 a minute against the melee player, 6-12 of them blinks) and a 0.4 wolf druid "
+                             "35 s (CFhwxtukIAk, mv6: 15-22, ~3 m, it drops back in beside the player each time it "
+                             "returns); pooled 15-40, ~3-4 m, ~15% in stands of 3.5 s or more; a ranged 0.5 fight "
+                             "looked as busy (not counted). Off the field 12-14 s a fight in its Trial of Time phase "
+                             "and, in one fight, two ~17-18 s time-bubble phases (~52% of that 90 s fight; not in the "
+                             "count)", "LOW"),
     "The Raven Trickster": (12.0, 3.0, None, "1 ranged fight, ~50 s: 12-20 a minute, nearly all walks after the kiting "
                             "player, changing sides every 3-5 s", "LOW"),
     "The Aberration": (20.0, 1.5, None, "1 melee fight (0.5 Titan standing still, 48 s): its body shifted 1-3 m every "
                        "1-3 s within ~5 m, and left once (8 m+) to cast its web, back in 4-5 s", "LOW"),
+    "Vessel of Kulemak": (3.2, 3.9, 0.88, "2 melee fights, 0.5, 138 s on the field (doM34Ispb3s 45 s: 5.3-6.7 a "
+                          "minute; HPWwUlvNAJo 93 s: 3.2, one ~13 m teleport); the boss from the minimap's skull "
+                          "(MECHD9 helper mv7); it barely moves in the reduced stages (0-1 moves each), the moves come "
+                          "in the final; pooled 3.9, 3.2-6.7, mean 3.9 m (median 2 m), 88-95% in stands of 3.5 s or "
+                          "more; no ranged fight", "MEDIUM-LOW (counts MEDIUM, distances LOW)"),
     "Atziri, the Red Queen": (13.0, 4.0, 0.20, "1 ranged kiting fight (0.4, 45 s): 2-8 m, mostly walks and dashes "
                               "toward the player", "LOW"),
     "Atziri, the Fell Serpent": (17.0, 2.5, 0.10, "2 fights, 93 s: a 0.4 Uber caster, 52 s (she circles the player on a "
@@ -483,9 +492,40 @@ RELOCATE_VIDEO: dict[str, tuple[float, float, float | None, str, str]] = {
 RELOCATE_VIDEO_HIGH: dict[str, float] = {
     "Arbiter of Ash": 12.0, "Arbiter of Divinity": round(0.11 * 9.4 + 0.89 * 13.5, 2), "Olroth, Origin of the Fall": 17.0, "Xesht, We That Are One": 9.0,
     "The King in the Mists": round(0.43 * 7.5 + 0.57 * 12.0, 2), "Zarokh, the Temporal": 40.0,
-    "The Raven Trickster": 20.0, "The Aberration": 20.0, "Atziri, the Red Queen": 13.0, "Atziri, the Fell Serpent": 40.0,
+    "The Raven Trickster": 20.0, "The Aberration": 20.0, "Vessel of Kulemak": 6.7, "Atziri, the Red Queen": 13.0, "Atziri, the Fell Serpent": 40.0,
 }
-RELOCATE_READINGS = ("headline", "skills", "video")
+RELOCATE_READINGS = ("headline", "skills", "video", "any")
+# Which tallies may set the WORST CASE's movement-HARM headline (the manager 26 Nov 06:32: "don't let one LOW figure drive
+# the worst case. Headline = the highest high end among bosses counted from at least two fights or at MEDIUM or better";
+# Zarokh's 40 a minute a labelled row until more fights confirm it). A fight counts when its tallied window is 45 s or
+# more (the helpers' brief, scratch/mechd9/video_brief.md); fights tallied / fights of 45 s+, from video_mv1-7.md. Today
+# the Arbiter of Ash (61 s, 49 s) and Kulemak (45 s, 93 s) have two, and no tally is MEDIUM or better overall, so the
+# Arbiter of Ash's high end (12 a minute; Kulemak's is 6.7) sets the headline (the manager confirmed the 45 s reading,
+# 26 Nov 06:46); reading "any" (every tally) gives Zarokh's 40 as the row. Read literally ("two
+# fights", any length) the Fell Serpent (52 s + 41 s) would set it at 40, also from one (caster) fight: not taken.
+RELOCATE_FIGHTS: dict[str, tuple[int, int]] = {
+    "Arbiter of Ash": (3, 2),  # 43 s, 61 s, 49 s
+    "Arbiter of Divinity": (1, 1),  # one 14-minute kill (windows 96 s and 120 s)
+    "Olroth, Origin of the Fall": (2, 1),  # 63 s, 42 s
+    "Xesht, We That Are One": (3, 1),  # 64 s, ~35 s (half readable), 26 s
+    "The King in the Mists": (2, 1),  # 45 s, 27 s (and 29 s of the second form)
+    "Zarokh, the Temporal": (3, 1),  # ~32 s, ~45 s usable, 35 s
+    "Vessel of Kulemak": (2, 2),  # 45 s, 93 s (MEDIUM-LOW: below MEDIUM; its high end 6.7 is under the Arbiter's 12)
+    "The Raven Trickster": (1, 1),
+    "The Aberration": (1, 1),  # 48 s
+    "Atziri, the Red Queen": (1, 1),  # 45 s
+    "Atziri, the Fell Serpent": (2, 1),  # 52 s, 41 s
+}
+
+
+def _counted_enough(name: str) -> bool:
+    """Whether a tally may set the worst case's harm headline (above): two fights of 45 s+, or MEDIUM or better."""
+    video = RELOCATE_VIDEO.get(name)
+    if not video:
+        return False
+    conf = video[4].upper()
+    medium_plus = conf.startswith("HIGH") or (conf.startswith("MEDIUM") and not conf.startswith("MEDIUM-LOW"))
+    return RELOCATE_FIGHTS.get(name, (0, 0))[1] >= 2 or medium_plus
 
 
 def relocations(stats: dict | None = None, reading: str = "headline", gain: bool = True) -> tuple[float, float, str]:
@@ -494,9 +534,17 @@ def relocations(stats: dict | None = None, reading: str = "headline", gain: bool
     name = of(stats).name
     if name == WORST:
         pick = min if gain else max
-        src = pick(REAL, key=lambda n: relocations({"_boss": n}, reading, gain)[0])
-        rate, metres, how = relocations({"_boss": src}, reading, gain)
-        return rate, metres, f"the worst case reads {src}'s ({'the fewest' if gain else 'the most'}): {how}"
+        pool = REAL
+        if not gain and reading == "headline":
+            pool = tuple(n for n in REAL if _counted_enough(n)) or REAL
+        sub = "video" if reading == "any" else reading
+        src = pick(pool, key=lambda n: relocations({"_boss": n}, sub, gain)[0])
+        rate, metres, how = relocations({"_boss": src}, sub, gain)
+        which = ("the fewest" if gain else "the most among tallies from two fights of 45 s+ or MEDIUM+ (the manager "
+                 "26 Nov 06:32)" if pool != REAL else "the most")
+        return rate, metres, f"the worst case reads {src}'s ({which}): {how}"
+    if reading == "any":
+        reading = "video"
     if reading == "skills":
         uses, metres, skills = RELOCATE_SKILLS[name]
         return uses / 60, metres, (f"at most {uses:.1f} a minute against {name}, each of its own moves used off cooldown "
