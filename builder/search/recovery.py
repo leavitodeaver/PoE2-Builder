@@ -564,7 +564,10 @@ def event_income(income: Income, stats: dict, texts: list[str], *, warcries: flo
 # only its adds' Culls count (bosses.kill_stats' AddCullsPerSecond, MECH-D's; the boss's own Cull ends the fight): 0 with
 # no killable adds, and nothing where the build can't Cull. Each add is Culled once, so the Culls go to the one carrier
 # that recovers most (a lower reading where two skills share the adds, MEDIUM-LOW); the "over four seconds" is a rate
-# with the same total, counted per second as the whole amount a Cull (MEDIUM).
+# with the same total, counted per second as the whole amount a Cull (MEDIUM). (MECHC67, AUDIT39 A39-69 / A39-24) A
+# Gemling Legionnaire's alternate gem quality (Advanced Thaumaturgy) reaches this reader: the bridge builds the
+# levelStats / supportStats with altGemQuality() (784ff040); probe POE2T9623: Killing Palm 20/20's
+# recover_%_maximum_life_on_cull none without the node, 12 with it.
 CULL_STATS = {"recover_%_maximum_life_on_cull": ("Life", True), "recover_%_maximum_mana_on_cull": ("Mana", True),
               "active_skill_life_gained_on_cull": ("Life", False), "active_skill_mana_gained_on_cull": ("Mana", False)}
 

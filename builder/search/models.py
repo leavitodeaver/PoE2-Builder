@@ -17851,6 +17851,14 @@ PRESENCE_FORCED = os.environ.get("POE2_PRESENCE_FORCED", "1") != "0"
 # 647; "increased Onslaught effect" not read: a small part left in) at (1 - u) where no other Onslaught source is on (the
 # conditions' buffOnslaught box off). Its Life loss stays PoB's (defence, not DPS: named). (checked: every PoB Skills
 # entry named Savage Fury: SavageFuryPlayer and SavageFuryActivePlayer only; no other skill gives Fury.)
+# (MECHC67) Which skills PoB's buff reaches: those typed UsableWhileShapeshifted, which in PoB's data are Animus
+# Splinters, Blink, the Commands, Conductive Runes, Convalescence, the three Banners, Fragments of the Past, Grim
+# Resurrection, Hollow Form, Iron Ward, Plague Bearer, Rain of Blades, Shockwave Slam / Totem and The Stars Answer
+# (checked: every PoB Data/Skills entry's skillTypes), not the Druid's form attacks (Cross Slash, Furious Slam, ...).
+# So the overcount is on those skills only; a form-attack main skill gets nothing from PoB and nothing is negated
+# (probe POE2T9622: a Cross Slash Talisman build, 70.78 DPS with or without the group; the row 16%). The game's text
+# names no skill limit ("[Buff] grants [Onslaught] and {0}% more damage", savage_fury.csd): if the buff reaches every
+# skill, PoB UNDERCOUNTS it on form attacks (UNVERIFIED: a RESEARCH question, left as PoB's).
 SAVAGE_FURY = "Savage Fury"
 SAVAGE_FURY_CAST = 0.6
 SAVAGE_FURY_PER_FURY = 0.5
