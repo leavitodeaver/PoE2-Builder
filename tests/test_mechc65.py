@@ -37,6 +37,21 @@ def test_choice_of_power_pickup_range_is_read_by_the_walking_model():
     assert pickup == pytest.approx(2.25) and reveal == pytest.approx(7.5) and "+50%" in how
 
 
+def test_perfected_endurance_pays_on_the_supported_perfect_timing_uses_not_every_main_hit():
+    from builder.search import conditions as c
+
+    text = ("Supports skills which have a benefit for Perfect Timing. Supported Skills grant at least one Endurance "
+            "Charge when Hitting an enemy with Perfect Timing.")
+    st = {"Speed": 2.0, "HitChance": 100, "_main_types": {"Attack", "Melee"}}
+    assert c._charge_rate(text, "Endurance", st)[0] == 0.0  # (no supported Perfect Timing skill used: before, 2/s)
+    fed = dict(st, _perfected_endurance=(0.4, ("Perfect Strike",), 1))
+    rate, how = c._charge_rate(text, "Endurance", fed)
+    assert rate == pytest.approx(0.4) and "Perfect Strike" in how
+    assert c._charge_rate(text, "Endurance", dict(st, _perfected_endurance=(0.4, ("Perfect Strike",), 2)))[0] == \
+        pytest.approx(0.2)
+    assert c._charge_rate(text, "Frenzy", fed) is None
+
+
 def test_her_declaration_finds_an_ascendancy_persistent_buff_through_every_known_gem():
     # build 1 (probe POE2T9602): Virtuous Barrier (a Gemling ascendancy gem) and its granted Her Declaration are missing
     # from ctx.gems, so no Persistent Buff was found and the support read 0

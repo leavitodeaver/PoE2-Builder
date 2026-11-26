@@ -872,6 +872,8 @@ def _thaumaturgy_rate(kind: str, stats: dict) -> tuple[float, str]:
 
 def _charge_rate(text: str, kind: str, stats: dict) -> tuple[float, str] | None:
     """(charges per second, how) from one line, or None if it isn't a source of that charge."""
+    if PERFECTED_ENDURANCE_TEXT.search(text):  # (MECHC65: PERFECTED_ENDURANCE's note)
+        return perfected_endurance_rate(stats) if kind == "Endurance" else None
     if kind in THAUMATURGY_ATTR and THAUMATURGY.match(text.strip()):
         return _thaumaturgy_rate(kind, stats)  # (MECHC50: THAUMATURGY's note)
     if kind == "Power" and stats.get("_main_no_power"):
@@ -1301,6 +1303,28 @@ ENDURANCE_SUPPORT_TEXT = {
         "stun",
     "Supports Skills that Hit Enemies, causing those Hits to Break Armour based on a portion of Physical Damage dealt. On "
     "Fully Breaking Armour with Supported Skills, you have a chance to gain an Endurance Charge.": "break"}
+
+
+# Perfected Endurance (MECHC65, GEM44's MECH-C row; an OVERCOUNT before): its description, "Supported Skills grant at
+# least one Endurance Charge when Hitting an enemy with Perfect Timing" (PoB sup_dex.lua; chance_to_gain_endurance_charge_
+# on_perfect_timing_hit_% 100; requireSkillTypes PerfectTiming), reached the generic reader as "a charge on every hit of
+# the main skill", whatever skill held the support. Now: one charge per use of a supported Perfect Timing skill ("at
+# least one" a Perfectly Timed hit; each use released with Perfect Timing, the play the user's channel ruling names for
+# such skills: an upper bound, MEDIUM), the main skill at its uses x its share, another at its group's rate; split over
+# the copies of the description in the build's lines (stats["_perfected_endurance"], set by Conditions.evidence).
+PERFECTED_ENDURANCE = "Perfected Endurance"
+PERFECTED_ENDURANCE_TEXT = re.compile(r"grant at least one Endurance Charge when Hitting an enemy with Perfect Timing", re.I)
+
+
+def perfected_endurance_rate(stats: dict) -> tuple[float, str]:
+    """(Endurance Charges a second, how) from one copy of Perfected Endurance's description (see above)."""
+    uses, names, copies = stats.get("_perfected_endurance") or (0.0, (), 1)
+    if uses <= 0:
+        return 0.0, ("Perfected Endurance: no supported Perfect Timing skill is used (it needs a Perfectly Timed hit of "
+                     "the skill it supports): 0")
+    return uses / max(copies, 1), (f"Perfected Endurance on {', '.join(names)}: one a use with a Perfectly Timed hit, "
+                                   f"{uses:.3f} uses/s (every use Perfectly Timed: an upper bound, MEDIUM)"
+                                   + (f", split over {copies} copies of its text" if copies > 1 else ""))
 
 
 def endurance_support_rate(kind: str, stats: dict) -> tuple[float, str]:
@@ -12158,6 +12182,24 @@ class Conditions:
                 side_breaks += [(best[0], best[1], g["name"]) for g in gems if not g.get("support")]
         if side_breaks:
             stats["_endurance_side_breaks"] = side_breaks
+        perfected, perfected_on = 0.0, []  # (MECHC65: PERFECTED_ENDURANCE's note)
+        if any(PERFECTED_ENDURANCE_TEXT.search(line["text"]) for line in lines):
+            for each in self.build.groups():
+                if each.get("enabled") is False:
+                    continue
+                gems = [g for g in each.get("gems") or [] if g.get("enabled", True)]
+                if not any(g["name"] == PERFECTED_ENDURANCE for g in gems):
+                    continue
+                known = all_gems(self.build.ctx)
+                for n in [g["name"] for g in gems if not (known.get(g["name"]) or {}).get("support")
+                          and "PerfectTiming" in ((known.get(g["name"]) or {}).get("skillTypes") or [])]:
+                    u = (number(stats.get("Speed")) * _main_share(stats) if n == self.main_skill else
+                         self._group_uses(self.build.call("groups")["groups"], {n}).get(n, self._chosen_use(n)))
+                    if u > 0:
+                        perfected += u
+                        perfected_on.append(n)
+            stats["_perfected_endurance"] = (perfected, tuple(perfected_on), sum(
+                1 for line in lines if PERFECTED_ENDURANCE_TEXT.search(line["text"])))
         counts: dict[str, int] = {}
         for line in lines:
             if (kind := ENDURANCE_SUPPORT_TEXT.get(line["text"].strip())) is not None:
