@@ -111,8 +111,10 @@ def test_worst_case_gain_leaves_untallied_presets_out_of_its_minimum():
 
 def test_absent_is_data_with_no_guessed_zero():
     seconds, share, how = bosses.absent({"_boss": "Zarokh, the Temporal"})
-    assert seconds == 48.0 and share == 0.52 and "Trial of Time" in how
+    assert seconds == 14.5 and share is None and "Trial of Time" in how and "length unknown" in how  # bubbles uncounted
     seconds, share, how = bosses.absent({"_boss": "The King in the Mists"})
-    assert seconds == 0.0 and share is None and "length unknown" in how
+    assert seconds == 38.0 and "maze" in how
+    seconds, share, how = bosses.absent({"_boss": "Vessel of Kulemak"})
+    assert seconds == 0.0 and share == 0.45
     seconds, share, how = bosses.absent({"_boss": "Arbiter of Ash"})
     assert (seconds, share) == (0.0, None) and "no data" in how

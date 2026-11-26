@@ -464,22 +464,21 @@ RELOCATE_VIDEO: dict[str, tuple[float, float, float | None, str, str]] = {
                               "by form, 43% / 57% of the fight: the first form 7.5 a minute, all its own dashes (4-5 m) "
                               "and teleports (~6 m), 75-80% in stands of 3.5 s or more (2 fights, 72 s: 0.3 Uber, 0.5); "
                               "the second form ~12, 2-4 m walks (1 fight, 29 s)", "LOW (the first form LOW-MEDIUM)"),
-    "Zarokh, the Temporal": (15.0, 3.5, 0.15, "3 short fights: a 0.5 melee Monk ~32 s, a 0.4 druid ~45 s (MECHD9 helper "
-                             "mv3: 20-40 a minute against the melee player, 6-12 of them blinks) and a 0.4 wolf druid "
-                             "35 s (CFhwxtukIAk, mv6: 15-22, ~3 m, it drops back in beside the player each time it "
-                             "returns); pooled 15-40, ~3-4 m, ~15% in stands of 3.5 s or more; a ranged 0.5 fight "
-                             "looked as busy (not counted). Off the field 12-14 s a fight in its Trial of Time phase "
-                             "and, in one fight, two ~17-18 s time-bubble phases (~52% of that 90 s fight; not in the "
-                             "count)", "LOW"),
+    "Zarokh, the Temporal": (11.0, 3.0, 0.15, "5 fights (MECHD9 helpers mv3 / mv6 / mv8): a 0.5 melee Monk ~32 s (the "
+                             "40 a minute high end, a 15 s read: atypical), a 0.4 druid ~45 s, a 0.4 wolf druid 35 s "
+                             "(15-22), a 0.3 ranged crossbow 50 s (cX3GkMIwGN8: 11-17, ~3.5-4 m, 36% still), a 0.5 "
+                             "melee 41 s (KbhG2X5e8I4: 16-23, ~2.5-3 m, 32% still); pooled 11-40, central 15-20, "
+                             "~3 m, 15-35% in stands of 3.5 s or more (the low end). Off the field: ABSENT", "LOW"),
     "The Raven Trickster": (12.0, 3.0, None, "1 ranged fight, ~50 s: 12-20 a minute, nearly all walks after the kiting "
                             "player, changing sides every 3-5 s", "LOW"),
     "The Aberration": (20.0, 1.5, None, "1 melee fight (0.5 Titan standing still, 48 s): its body shifted 1-3 m every "
                        "1-3 s within ~5 m, and left once (8 m+) to cast its web, back in 4-5 s", "LOW"),
-    "Vessel of Kulemak": (3.2, 3.9, 0.88, "2 melee fights, 0.5, 138 s on the field (doM34Ispb3s 45 s: 5.3-6.7 a "
-                          "minute; HPWwUlvNAJo 93 s: 3.2, one ~13 m teleport); the boss from the minimap's skull "
-                          "(MECHD9 helper mv7); it barely moves in the reduced stages (0-1 moves each), the moves come "
-                          "in the final; pooled 3.9, 3.2-6.7, mean 3.9 m (median 2 m), 88-95% in stands of 3.5 s or "
-                          "more; no ranged fight", "MEDIUM-LOW (counts MEDIUM, distances LOW)"),
+    "Vessel of Kulemak": (2.0, 3.9, 0.88, "2 melee fights, 0.5 (doM34Ispb3s, HPWwUlvNAJo), each read twice from the "
+                          "minimap's skull (MECHD9 helper mv7: 5.3-6.7 and 3.2 a minute; RESEARCH65's r65k notes: 5.7 "
+                          "and 2.0-2.7); it barely moves in the reduced stages, the moves come in the final, one ~8-15 m "
+                          "teleport to the player in each; pooled 2.0-6.7, mean 3.9 m (median ~2 m), 88-89% in stands "
+                          "of 3.5 s or more; no ranged fight. Off the field: ABSENT",
+                          "MEDIUM-LOW (counts MEDIUM, distances LOW)"),
     "Atziri, the Red Queen": (13.0, 4.0, 0.20, "1 ranged kiting fight (0.4, 45 s): 2-8 m, mostly walks and dashes "
                               "toward the player", "LOW"),
     "Atziri, the Fell Serpent": (17.0, 2.5, 0.10, "2 fights, 93 s: a 0.4 Uber caster, 52 s (she circles the player on a "
@@ -511,7 +510,7 @@ RELOCATE_FIGHTS: dict[str, tuple[int, int]] = {
     "Olroth, Origin of the Fall": (2, 1),  # 63 s, 42 s
     "Xesht, We That Are One": (3, 1),  # 64 s, ~35 s (half readable), 26 s
     "The King in the Mists": (2, 1),  # 45 s, 27 s (and 29 s of the second form)
-    "Zarokh, the Temporal": (3, 1),  # ~32 s, ~45 s usable, 35 s
+    "Zarokh, the Temporal": (5, 1),  # ~32 s, ~45 s (mv3: both under 45 s usable), 35 s, 50 s, 41 s
     "Vessel of Kulemak": (2, 2),  # 45 s, 93 s (MEDIUM-LOW: below MEDIUM; its high end 6.7 is under the Arbiter's 12)
     "The Raven Trickster": (1, 1),
     "The Aberration": (1, 1),  # 48 s
@@ -832,12 +831,23 @@ def still_there(stats: dict | None, radius: float, delay: float, reading: str = 
 # RESEARCH25 #147; {name: ((seconds or None, what), ...), share seen in a timed fight or None, confidence}. Presets not
 # listed: no data (no off-field phase seen or none looked for), never a guessed 0-share.
 ABSENT: dict[str, tuple[tuple[tuple[float | None, str], ...], float | None, str]] = {
-    "Zarokh, the Temporal": (((13.0, "the Trial of Time / Sands of Time, 12-14 s (both mv3 fights and mv6's W1)"),
-                              (35.0, "two ~17-18 s 'There can be no escape!' time-bubble phases (mv6's W1 only; "
-                                     "whether short kills skip them UNVERIFIED)")),
-                             0.52, "MEDIUM for the Trial, LOW for the bubbles (one 90 s fight: ~47 s off the field)"),
-    "The King in the Mists": (((None, "the maze between its two forms: the boss immune (RESEARCH25 #147); its length "
-                                      "not found (UNVERIFIED)"),), None, "MEDIUM that it exists; no length"),
+    "Zarokh, the Temporal": (((14.5, "the Trial of Time / Sands of Time, 12-17 s each, about once per 50-70 s of "
+                                     "fight (HIGH: every one of 5 tallied fights and RESEARCH65's 6 screened; it came "
+                                     "twice in 2 of them): one counted"),
+                              (None, "the time-bubble barrage: the boss off the field ~17-18 s twice in one 0.4 fight "
+                                     "(mv6) but ON the field through it in a 0.5 fight (mv8): not counted (UNVERIFIED "
+                                     "which holds)")),
+                             None, "HIGH for the Trial; shares seen 22% (a 55 s 0.5 kill), 23-40% (a 146 s 0.3 kill), "
+                                   "52% (a 90 s 0.4 kill with the bubbles)"),
+    "The King in the Mists": (((38.0, "the maze between its two forms (RESEARCH25 #147: immune), from the first form's "
+                                      "bar vanishing to the second form's bar: 31-42 s, central ~38 s (MECHD9 helper "
+                                      "mv8, 3 fights 0.4 / 0.5; mv1's earlier 40-44 s), of it ~9-12 s the fixed "
+                                      "transformation, the rest the player's walk through the maze"),), None,
+                              "MEDIUM-HIGH"),
+    "Vessel of Kulemak": (((None, "its staged 'Gift of Kulemak' breaks between reduced stages (8-25 s each; part of it "
+                                  "the player reading the pop-ups)"),), 0.45,
+                          "MEDIUM (two fights: off the field ~50% of a 105 s and ~40% of a 146 s kill; RESEARCH65 "
+                          "r65k)"),
     "Atziri, the Fell Serpent": (((10.0, "her 'My ascension has begun!' phase at ~3-5% Life: the body leaves the floor "
                                          "~10 s under a shield bar (mv5, one fight)"),), None, "LOW (one fight)"),
     "The Bodach": (((45.0, "a scripted phase with the boss bar up and the Bodach off screen, 45 s+ (mv3, one 720p "
