@@ -10845,6 +10845,36 @@ def herald_of_plague_model(found: list[Skill], stats: dict,
                  f"it. Without it: +0; with this build's: +{added:,.0f} DPS.")}]
 
 
+# A self-centred Nova's hits only within its reach (MECH111; conditions.nova_reach's note, an OVERCOUNT): PoB scores every
+# hit of the main skill whatever the boss's distance (enemyDistance moves none of a spell's hits), so a Nova that lands
+# around you and reaches `reach` metres scores no hits with the boss further off: DPS MORE -100 there (the search's
+# distance trial then never gains by standing out of reach; the natural distance already stands within it,
+# conditions.natural_distance). Within reach: no change, said. HIGH on the geometry (the descriptions: "around you"),
+# MEDIUM on the reach (PoB's radius + the preset's hit radius, bosses.hit_radius MEDIUM).
+NOVA_REACH_ENTRY = "model-mech111-nova-reach"
+
+
+def nova_reach_model(main: Skill | None, reach: float | None, how: str, metres: float | None,
+                     forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """`reach`, `how`: conditions.nova_reach for the main skill (None: not a self-centred Nova, `how` says why when it is
+    a Nova that lands elsewhere); `metres`: the boss distance the build is calculated at (PoB's enemyDistance / 10)."""
+    if main is None or NOVA_REACH_ENTRY in forbidden or not how:
+        return [], []
+    label = f"{main.name}: lands around you, reaches the boss only within its radius*"
+    if reach is None:
+        return [], [{"label": f"{main.name}: where the Nova lands*", "value": "PoB's hits kept", "confidence": "MEDIUM",
+                     "entry": NOVA_REACH_ENTRY, "basis": f"{how} (conditions.nova_reach)"}]
+    if not metres or metres <= reach + 1e-9:
+        return [], [{"label": label, "value": "in reach: PoB's hits kept", "confidence": "MEDIUM",
+                     "entry": NOVA_REACH_ENTRY,
+                     "basis": f"{how}; the boss at {metres or 0:g} m is within it",
+                     "play": f"Stand within {reach:.1f} m of the boss: {main.name} lands around you."}]
+    return [raw_mod("DPS", "MORE", -100, main.name)], [
+        {"label": label, "value": "out of reach: x0", "confidence": "MEDIUM", "entry": NOVA_REACH_ENTRY,
+         "basis": f"{how}; the boss at {metres:g} m is beyond it, so none of its hits land",
+         "play": f"Stand within {reach:.1f} m of the boss: {main.name} lands around you."}]
+
+
 def set_dps_unscaled(sets: list[dict]) -> dict[str, float]:
     """{label: DPS} of a skill's sets as PoB scores each before this pass's DPS lines (GEM20): setRates' TotalDPS carries
     the previous pass's DPS MORE lines on the skill, its AverageDamage x Speed doesn't (TotalDPS when either is absent)."""

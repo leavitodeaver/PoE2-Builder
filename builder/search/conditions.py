@@ -1439,13 +1439,23 @@ PRESENCE_LINE = re.compile(r"\bin your presence\b", re.I)
 OUTSIDE_PRESENCE_LINE = re.compile(r"\bno enemies are in your presence\b|\boutside (?:of )?your presence\b", re.I)  # (MECH88)
 
 
-def natural_distance(main_types: set[str], skill: str = "") -> float:
+def natural_distance(main_types: set[str], skill: str = "", reach: float | None = None) -> float:
     """The distance in metres a build stands at when nothing it has depends on it. (MECH69; GEM2, PLAY_GUIDE_SPEC 1a) A
     shotgun main skill (models.SHOTGUN_SKILLS) stands at close range: its headline counts every projectile of a use on
-    the boss at point-blank (the user's 9 Nov conditional rule), so the defence checks read the same distance."""
+    the boss at point-blank (the user's 9 Nov conditional rule), so the defence checks read the same distance. (MECH111)
+    `reach`: a self-centred Nova main skill's reach (nova_reach): the build stands no further than its edge."""
     if skill in models.SHOTGUN_SKILLS:
-        return MELEE_DISTANCE
-    return MELEE_DISTANCE if "Melee" in main_types or main_types & NEAR_TYPES else RANGED_DISTANCE
+        metres = MELEE_DISTANCE
+    else:
+        metres = MELEE_DISTANCE if "Melee" in main_types or main_types & NEAR_TYPES else RANGED_DISTANCE
+    return nova_stand(metres, reach)
+
+
+def nova_stand(metres: float, reach: float | None) -> float:
+    """(MECH111) `metres`, or the edge of a Nova's `reach` (to 0.1 m below) when that is nearer."""
+    if reach is None or reach >= metres:
+        return metres
+    return max(math.floor(reach * 10) / 10, 0.1)
 
 
 def distance_candidates(lines: list[str], main_types: set[str], presence_radius: float = 0.0,
@@ -1517,6 +1527,92 @@ def projectile_reach(lines: list[str], main_types: set[str]) -> tuple[float | No
                    f"{PROJECTILE_BASE_RANGE:g} m, RESEARCH29 R29-2, MEDIUM-LOW: the base is about 12-15 m, so "
                    f"{PROJECTILE_BASE_RANGE * 1.25 * max(1 + inc / 100, 0.0):g} m at its upper end)")
 
+
+# Where a Nova lands, and how far it reaches (MECH111; the manager's 16:25 item 1, an OVERCOUNT; THE USER, 25 Nov ~14:05:
+# "the astral projection support lets you cast spells normally at your location anywhere, make sure to take that into
+# account"). A skill PoB types Nova (SkillType.Nova, read from the main skill's own types) lands around YOU (the game's
+# descriptions: Ice Nova "Conjure a wave of ice in all directions ... based on how close they are to you", Flameblast
+# "build destructive energy around you", Bone Cage "a ring of bone spikes around you", the Warcries, Arctic Howl,
+# Moment of Vulnerability "Send out a temporal Nova"; ActiveSkills 26650308), so its hits reach the boss only while the
+# boss stands within its radius (PoB's AreaOfEffectRadius, the build's area modifiers in) plus the boss's own hit radius
+# (bosses.hit_radius). PoB scores every hit whatever the distance, and the tool stood a non-melee build at 5 m
+# (RANGED_DISTANCE): an Ice Nova of 3.2 m scored hits it can't land. So the natural distance of such a build is the edge
+# of its reach (natural_distance's `reach`), and a distance past the reach scores no hits of it
+# (models.nova_reach_model, Assumptions: so the search's distance trial can't gain by standing out of it).
+# Not around you (read by stat and by group, never by name):
+# - NOVA_TARGET_STATS: "Supported Skills Cast at the targeted location instead of around you" (Astral Projection,
+#   nova_skills_cast_at_target_location, gem_stat_descriptions) and "Discharge and Voltaxic Burst are Cast at the
+#   targeted location instead of around you" (nova_spells_cast_at_target_location; Voltaxic Burst's own stats) (checked:
+#   every game table's stat columns for stats holding "nova" with "target / location / origin / cast_on", or
+#   "at_target_location": Astral Projection, Voltaxic Burst and no Mods row (Mods Stat1-6); the ModType
+#   NovaSkillsTargetLocation names the stat with no mod using it; PoB maps nova_skills_cast_at_target_location to
+#   nothing, "Display only", SkillStatMap). Voltaxic Burst is in no PoB data here, so it never is the main skill.
+# - Ice Nova cast near a Frostbolt "will cause it to originate from the Frostbolt instead of you" (its description; its
+#   stat set's ice_nova_number_of_frost_bolts_to_cast_on 1): with an enabled Frostbolt in the build, the player casts it
+#   on the Frostbolts at the boss (a play strategy: the build holds both to do so, MEDIUM), so it lands at the target.
+#   Only Frostbolt makes Frostbolts (checked: ActiveSkills names and descriptions; items grant the same skill through
+#   local_display_grants_skill_frostbolt_level).
+# - A Nova a totem uses (by_totem, UsedByTotem / SummonsTotem), a trap or mine (Trapped / RemoteMined), or a minion's
+#   (Minion): it lands around that, at the boss (NEAR_TYPES' reading).
+# A triggered Nova (Cast on Critical, ...) still lands around you unless Astral Projection moves it (then at the
+# trigger's target, the boss: RESEARCH61 R61-6, MEDIUM). Bone Cage's spikes stand on a ring at its radius ("Cage radius",
+# bone_cage.csd; RESEARCH61 R61-3, HIGH), each exploding in 1 m when touched: standing at the reach's edge (within the
+# radius + the boss's hit radius) puts the boss on the ring; nearer, inside it, isn't counted as a miss (LOW: R61-3's
+# touch question is UNVERIFIED). Spell Cascade on a Nova around you: its side areas line up through you, so only the
+# forward ones can reach the boss; the reach kept is the centre area's (the lower reading; MECH-B's spell_cascade_model
+# counts the side areas on a boss at the target, routed).
+NOVA_TARGET_STATS = ("nova_skills_cast_at_target_location", "nova_spells_cast_at_target_location",
+                     "discharge_and_voltaxic_burst_nova_spells_cast_at_target_location")
+NOVA_FROSTBOLT_STAT = "ice_nova_number_of_frost_bolts_to_cast_on"
+NOVA_ELSEWHERE_TYPES = {"UsedByTotem", "SummonsTotem", "Trapped", "RemoteMined", "Minion"}
+
+
+def nova_reach_of(main_types: set[str], radius: float, boss_radius: float, by_totem: bool = False,
+                  moved: str = "") -> tuple[float | None, str]:
+    """(metres a self-centred Nova main skill reaches, how), or (None, why not) when the main skill isn't a Nova, lands
+    elsewhere (`moved`: what moves it; a totem, trap, mine or minion), or has no radius read (the note above)."""
+    if "Nova" not in (main_types or set()):
+        return None, ""
+    if moved:
+        return None, f"lands at the target, not around you: {moved}"
+    if by_totem or (main_types & NOVA_ELSEWHERE_TYPES):
+        return None, "a totem, trap, mine or minion uses it: it lands around that, at the boss"
+    if radius <= 0:
+        return None, "no area radius read from PoB: its reach isn't limited (UNVERIFIED)"
+    reach = radius + boss_radius
+    return reach, (f"a Nova lands around you: it reaches {reach:.1f} m (its {radius:.1f} m radius, the build's area "
+                   f"modifiers in, + the boss's {boss_radius:g} m hit radius)")
+
+
+def nova_reach(build, boss: str | None = None) -> tuple[float | None, str]:
+    """nova_reach_of for the SCORED main skill (the main group's main active skill, as Assumptions.main_skill: a meta's
+    triggered Nova, Cast on Critical's Bone Cage, not the meta): its types (context.skill_types_of), its PoB radius
+    (AreaOfEffectRadius), the main group's stats and supports for what moves it (NOVA_TARGET_STATS, Ice Nova's
+    Frostbolts), its totem flag, and the scored boss's hit radius."""
+    from builder.search.context import skill_types_of
+
+    group = build.main_group() if callable(getattr(build, "main_group", None)) else None
+    if not group or not group.get("skills"):
+        return None, ""
+    main_skill = group["skills"][min(group.get("mainActiveSkill") or 1, len(group["skills"])) - 1]["name"]
+    main_types = set(skill_types_of(build.ctx, main_skill))
+    if "Nova" not in main_types:
+        return None, ""
+    index = group.get("index")
+    raw = build.call("activeSkills", levelStats=[main_skill], supportStats=list(NOVA_TARGET_STATS))["skills"]
+    rows = [s for s in raw if s["name"] == main_skill and not s.get("disabled")]
+    main = next((s for s in rows if s.get("group") == index), rows[0] if rows else {})
+    own, sup = main.get("levelStats") or {}, main.get("supportStats") or {}
+    moved = ""
+    if stat := next((s for s in NOVA_TARGET_STATS if number(sup.get(s)) or number(own.get(s))), None):
+        moved = f"{stat} (\"Cast at the targeted location instead of around you\")"
+    elif number(own.get(NOVA_FROSTBOLT_STAT)) and any(
+            s["name"] == models.FROSTBOLT and not s.get("disabled") for s in raw):
+        moved = (f"cast on the build's Frostbolts, it originates from them ({NOVA_FROSTBOLT_STAT}; MEDIUM: the player "
+                 "aims it at Frostbolts by the boss)")
+    radius = number(build.call("stats", fields=["AreaOfEffectRadius"]).get("AreaOfEffectRadius")) / 10
+    boss_radius, _ = bosses.hit_radius({"_boss": boss} if boss else None)
+    return nova_reach_of(main_types, radius, boss_radius, bool(main.get("byTotem")), moved)
 
 # Lines that depend on standing still (PoB's conditionStationary). A build with one has standing still chosen by score
 # (Search.choose_stationary), unless its dodge rolls keep it moving more than 1 - UPTIME of the time.
@@ -1594,6 +1690,9 @@ def _boss_distance(lines: list[str], stats: dict) -> tuple[float, str]:
                                        "distance for their Accuracy too), so you're assumed as close")
     else:
         metres, why = RANGED_DISTANCE, "assumed for a non-melee main skill (attacks lose Accuracy beyond 2 m)"
+    reach, reach_how = stats.get("_nova_reach") or (None, "")
+    if (near := nova_stand(metres, reach)) < metres:  # (MECH111: a Nova around you reaches the boss only so far)
+        metres, why = near, f"{reach_how}: you stand within it (beyond it its hits can't land)"
     radius = number(stats.get("PresenceRadius")) / 10
     where = "in" if radius >= metres else "outside"
     return metres * 10, f"{metres:g} m: {why}; your Presence radius is {radius:.1f} m, so the boss is {where} it"
@@ -4553,7 +4652,8 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         up = min(1.0, rate * duration)
         return up, f"{rate:.3f} Warcries/s ({how}), {duration:g} s each: {up:.0%} up"  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     if "presence" in when:
-        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or ""), ""))[0]
+        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or "",
+                                    (stats.get("_nova_reach") or (None, ""))[0]), ""))[0]
         radius = number(stats.get("PresenceRadius")) / 10
         up = 1.0 if radius >= metres else 0.0
         return up, f"the boss {metres:g} m away, your Presence {radius:.1f} m"
@@ -4577,7 +4677,7 @@ def _debuff_source(text: str, var: str, lines: list[str], stats: dict) -> tuple[
         plan = stats.get("_raised_plan")
         reach = min((float(r.group(1)) for r in [models.RAISED_REACH.search(when)] if r), default=math.inf)
         metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(),
-                                                                     stats.get("_main_skill") or ""), ""))[0]
+                                                                     stats.get("_main_skill") or "", (stats.get("_nova_reach") or (None, ""))[0]), ""))[0]
         if metres > reach:
             return 0.0, f"the boss {metres:g} m away, beyond the line's {reach:g} m in front of you: 0"
         if plan is None or plan.taps <= 0:
@@ -6149,7 +6249,8 @@ def _exposure_source(text: str, element: str, stats: dict, raised: bool = False)
             return 0.0, "Exposure while your Shield is raised: the build's shield taps weren't read (0, labelled)"
         return plan.exposure, plan.how
     elif near := re.search(r"(\d+(?:\.\d+)?) metres in front", when):
-        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or ""), ""))[0]
+        metres = (stats.get("_distance_choice") or (natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or "",
+                                    (stats.get("_nova_reach") or (None, ""))[0]), ""))[0]
         up = 1.0 if metres <= float(near.group(1)) else 0.0
         return up, f"the boss {metres:g} m away ({near.group(1)} m needed)"
     elif re.match(r"\s*minions?\b", text, re.I):
@@ -8893,7 +8994,8 @@ def _covered(uses: float, chance: float, duration: float) -> float:
 def _boss_metres(stats: dict) -> float:
     """The distance the build fights the boss from: the search's choice, else the main skill's natural one."""
     chosen = stats.get("_distance_choice")
-    return chosen[0] if chosen else natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or "")
+    return chosen[0] if chosen else natural_distance(stats.get("_main_types") or set(), stats.get("_main_skill") or "",
+                                    (stats.get("_nova_reach") or (None, ""))[0])
 
 
 def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
@@ -10190,6 +10292,7 @@ class Conditions:
         self.main_types = set((build.ctx.gems.get(main_skill) or {}).get("skillTypes") or [])
         self.active: dict[str, dict] = {}  # var -> {label, value, evidence}
         self.distance: tuple[float, str] | None = None  # (metres, why) chosen by score (Search.choose_distance)
+        self.nova_reach: tuple[float | None, str] = (None, "")  # (MECH111: nova_reach, set in evidence)
         self.parry_plan: models.ParryPlan | None = None  # the last evidence round's Parry plan (the play guide's rows)
         self.stationary_off: str | None = None  # why a build with stationary lines doesn't stand still (choose_stationary)
         self.moving = False  # (MECH86) the build walks while using skills, all fight (the search's choice, moving_candidates)
@@ -11923,14 +12026,16 @@ class Conditions:
         # (MECH99: keep the share set above, with build.main_hit_cut: this rebuilt dict used to reset it to the uncut
         # self._main_share(), so every reader below (Shocked Ground, Compounding, Flammability, the ailment uptimes) kept
         # PoB's nonstop hits whatever the cut: MECH98's hook reached only the readers between the two)
+        # (MECH111) a self-centred Nova main skill's reach (nova_reach): the natural distance stands within it
+        self.nova_reach = nova_reach(self.build, boss)
         stats = {**stats, "_has_ally": any(t & {"Minion", "CreatesMinion"} for t in gem_types.values()),  # (MECHC31, Conduit)
                  "_minion_gems": {n for n, t in gem_types.items() if "CreatesMinion" in t},  # (MECHC41, minions_in_presence)
                  "_gem_names": set(gem_types), "_boss": boss, "_events": events, "_item_uses": item_uses, "_texts": texts, "_weapon": getattr(self.build.equipped.get("Weapon 1"), "type", ""), "_consumers": consumers, "_own_kept": own_kept, "_rage_spend": rage_spend, "_consume_gains": dict(getattr(self.build, "consume_gains", None) or {}), "_side_orb_bolts": getattr(self.build, "orb_bolts", None), "_main_share": stats["_main_share"],
-                 "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance,
+                 "_main_channel_rage": self.main_skill in RAGE_PER_SECOND, "_main_types": main_types, "_main_skill": self.main_skill, "_distance_choice": self.distance, "_nova_reach": self.nova_reach,
                  "_weapon_types": [o.type for slot in ("Weapon 1", "Weapon 2")
                                    if (o := (getattr(self.build, "equipped", None) or {}).get(slot)) is not None],
                  "_stationary_off": self.stationary_off, "_rolling": self.rolling, "_moving": self.moving,
-                 "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types, self.main_skill), ""))[0])
+                 "_curse_uses": curse_uses(self.build, stats, texts, (self.distance or (natural_distance(main_types, self.main_skill, self.nova_reach[0]), ""))[0])
                  if any("AppliesCurse" in types for types in gem_types.values())
                  or any(models.CURSE_ON_HIT.search(t) for t in texts) else []}
         profusion = {}  # Charge Profusion: the descriptions of the charge-making skills it supports (_charges_held)
@@ -12212,7 +12317,7 @@ class Conditions:
 
             raw = self.build.call("activeSkills")
             found = [models.Skill.of(s) for s in raw["skills"] if not s.get("disabled")]
-            metres = (stats.get("_distance_choice") or (natural_distance(main_types, self.main_skill), ""))[0]
+            metres = (stats.get("_distance_choice") or (natural_distance(main_types, self.main_skill, (stats.get("_nova_reach") or (None, ""))[0]), ""))[0]
             held = self.main_skill if self.main_skill in recovery.ACTIVE_BLOCK_CHANNELS else ""
             stats["_raised_plan"] = models.raised_plan(found, texts, metres, models.raised_taps_on(self.build), held)
         # (MECH70: the main skill's own Daze stats, _dazed. MECH71: read for every build, not only when a line names
@@ -12752,7 +12857,7 @@ class Conditions:
         self.active = active
         metres = number(config.get("enemyDistance")) / 10
         if self.distance and metres != self.distance[0]:  # (a restored build stands where its code says)
-            self.distance = None if metres == natural_distance(self.main_types, self.main_skill) or not metres else (metres, "restored")
+            self.distance = None if metres == natural_distance(self.main_types, self.main_skill, getattr(self, "nova_reach", (None, ""))[0]) or not metres else (metres, "restored")
 
     def describe(self) -> list[dict]:
         return [{"var": var, **info} for var, info in sorted(self.active.items())]

@@ -5715,6 +5715,14 @@ class Assumptions:
                 main, number(radii.get("AreaOfEffectRadiusSecondary")) / 10, number(radii.get("AreaOfEffectRadius")) / 10,
                 number(got.get(models.ENERVATING_NOVA_STAT)), configured, forbidden)
             hand_mods, hand_notes = hand_mods + nova_mods, hand_notes + nova_notes
+        if main is not None and "Nova" in (nova_types := set(skill_types_of(build.ctx, main.name))):
+            # (MECH111: a Nova that lands around you scores no hits with the boss out of its reach, conditions.nova_reach)
+            nova_boss = getattr(getattr(build.ctx, "request", None), "boss", None) or None
+            reach, reach_how = conditions_mod.nova_reach(build, nova_boss)
+            configured = number(build.call("getConfig")["input"].get("enemyDistance")) / 10 or None
+            nr_mods, nr_notes = models.nova_reach_model(main, reach, reach_how, configured, forbidden)
+            hand_mods, hand_notes = hand_mods + nr_mods, hand_notes + nr_notes
+            hit_cut(build, nr_mods, main.name)  # (no hits out of reach: none for the ailment readers either)
         if main is not None and group and main.name == models.SHATTERING_SPITE:  # (GEM20: its lances, 20% more each)
             cap = max((float(m.group(1)) for t in texts if (m := models.SPITE_LANCE_LINE.match(t.strip()))), default=0.0)
             hits, hits_how = self.spear_hits(group["index"]) if cap > 0 else (0.0, "no Bloodstone Lance line")
