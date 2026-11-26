@@ -131,19 +131,121 @@ def test_a_measure_holds_the_server_pauses_its_probes_and_sends_new_ones_to_a_bo
     assert "HELD (MEASURING.lock is held)" in text and "hold over" in text
 
 
-def test_a_probe_held_past_its_minutes_goes_to_a_booking(server, queue_dir, tmp_path):
-    """Held while running for longer than its own minutes: stopped, and its client books it normally."""
+def _in_thread(**kwargs):
     import threading
 
     box = {}
-    worker = threading.Thread(target=lambda: box.update(r=client.probe([sys.executable, "-c", TICKER, "40"], job="POE2T0",
-                                                                         minutes=0.1, cwd=tmp_path, spool=server)))
+    worker = threading.Thread(target=lambda: box.update(r=client.probe(**kwargs)))
     worker.start()
+    return worker, box
+
+
+def test_a_probe_held_past_its_minutes_is_never_stopped_and_finishes_on_the_server(server, queue_dir, tmp_path):
+    """(PERF23; the user 26 Nov ~02:22) a hold longer than the probe's own minutes x SERVER_SLOWDOWN pauses it, never
+    stops it: its paused time doesn't count (as in the queue); it goes on after the hold and its client takes the answer."""
+    limit = 0.1 * 60 * ps.SERVER_SLOWDOWN  # 9.6 s of running allowed
+    worker, box = _in_thread(argv=[sys.executable, "-c", TICKER, "6"], job="POE2T0", minutes=0.1, cwd=tmp_path, spool=server)
     assert _wait(lambda: any("tick 1" in p.read_text() for p in (server / "out").glob("*.log")))
     (queue_dir / "HOLD_poe2").write_text("unit")  # the queue's own hold file, under PC_QUEUE_DIR
+    assert _wait(lambda: any(j.get("held") for b in ps.servers(server) for j in b.get("running") or []), 15)
+    time.sleep(limit + 3)  # held well past the probe's whole allowance
+    assert worker.is_alive() and not list((server / "out").glob("*.json"))  # not stopped, not booked: still waiting
+    (queue_dir / "HOLD_poe2").unlink()
+    worker.join(60)
+    result = box["r"]
+    assert result.via.startswith("server") and result.code == 0 and "done" in result.output
+    text = (server / "server.log").read_text(encoding="utf-8")
+    assert "HELD (" in text and "paused past" not in text
+
+
+def test_a_stale_or_unreadable_heartbeat_never_makes_the_client_book(server, tmp_path, monkeypatch):
+    """(PERF23, POE2T9501 / POE2T9604) the client took one failed heartbeat read (or a stale beat) for an ended server
+    and booked the queue while the server still ran the probe. Now only the holding server's PROCESS ending counts."""
+    from unittest import mock
+
+    original = ps._read_beat
+    calls = {"n": 0}
+
+    def flaky(path):  # the client's reads: the first lets it submit, then every read fails or is stale
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return original(path)
+        beat = original(path) if calls["n"] % 2 else None
+        if beat:
+            beat["beat"] = time.time() - 600  # stale: 'stuck'
+        return beat
+
+    with mock.patch.object(ps, "_read_beat", flaky):
+        result = client.probe(argv=[sys.executable, "-c", TICKER, "8"], job="POE2T0", minutes=1, cwd=tmp_path, spool=server)
+    assert calls["n"] > 6
+    assert result.via.startswith("server") and result.code == 0 and "done" in result.output
+
+
+def test_heartbeat_reads_survive_the_servers_replacing_it(tmp_path):
+    """The measured cause: a read while os.replace swaps the file fails (sharing violation). servers() reads again."""
+    import threading
+
+    spool = tmp_path / "race"
+    path = spool / "servers" / "R.json"
+    ps._write_json(path, {"job": "R", "pid": os.getpid(), "beat": time.time(), "state": "accepting"})
+    stop = threading.Event()
+
+    def writer():
+        while not stop.is_set():
+            try:
+                ps._write_json(path, {"job": "R", "pid": os.getpid(), "beat": time.time(), "state": "accepting", "pad": "x" * 600})
+            except OSError:
+                pass
+            time.sleep(0.005)
+
+    thread = threading.Thread(target=writer, daemon=True)
+    thread.start()
+    raw_failures = seen = 0
+    end = time.time() + 4
+    try:
+        while time.time() < end:
+            raw_failures += ps._read_json(path) is None
+            beats = ps.servers(spool)
+            seen += 1
+            assert len(beats) == 1 and beats[0]["state"] in ("accepting", "unreadable"), beats
+    finally:
+        stop.set()
+        thread.join(5)
+    assert seen > 100  # (raw_failures, the bug's trigger, is usually > 0 here; the guard above holds either way)
+
+
+def test_a_cancel_stops_the_probe_and_the_client_books_only_after_the_servers_answer(server, tmp_path, monkeypatch):
+    """A client that gives up (here: the probe overruns the server's own stop) cancels it ON THE SERVER first, and books
+    only once the server answers that it stopped it: the work can't run twice."""
+    monkeypatch.setattr(client, "OVERDUE_SECONDS", -0.1 * 60 * ps.SERVER_SLOWDOWN + 2)  # overdue after ~2 s of running
+    started = time.time()
+    result = client.probe(argv=[sys.executable, "-c", TICKER, "200"], job="POE2T0", minutes=0.1, cwd=tmp_path, spool=server)
+    assert result.via.startswith("booking refused") and time.time() - started < 60
+    text = (server / "server.log").read_text(encoding="utf-8")
+    assert "cancelled by its client" in text
+    assert not list((server / "cancel").iterdir())  # the server cleared the cancel with its answer
+    answers = [json.loads(p.read_text(encoding="utf-8")) for p in (server / "out").glob("*.json")]
+    assert [a["error"] for a in answers] == ["cancelled by its client (the client books it normally)"]
+
+
+def test_a_cancelled_request_never_starts(tmp_path):
+    srv = ps.Server("unit", tmp_path / "spool")
+    (srv.spool / "cancel" / "r9").write_text("x")
+    srv._start({"id": "r9", "argv": [sys.executable, "-c", "print(1)"], "cwd": str(tmp_path), "minutes": 1})
+    answer = ps._read_json(srv.spool / "out" / "r9.json")
+    assert not srv.running and answer["error"].startswith("cancelled by its client before it started")
+    assert not (srv.spool / "cancel" / "r9").exists()
+
+
+def test_the_client_books_once_the_holding_servers_process_is_gone(server, tmp_path, monkeypatch):
+    worker, box = _in_thread(argv=[sys.executable, "-c", TICKER, "200"], job="POE2T0", minutes=2, cwd=tmp_path, spool=server)
+    assert _wait(lambda: any("tick 1" in p.read_text() for p in (server / "out").glob("*.log")))
+    assert _wait(lambda: any(b.get("running") for b in ps.servers(server)), 15)  # (the next heartbeat lists it)
+    holder = next(b for b in ps.servers(server) if b.get("running"))
+    os.kill(int(holder["pid"]), 9)  # the server's process alone (TerminateProcess): its job object ends the probe
     worker.join(60)
     assert box["r"].via.startswith("booking refused")
-    assert "paused past the probe's own minutes" in (server / "server.log").read_text(encoding="utf-8")
+    assert not ps._alive(int(holder["running"][0]["pid"]))  # its probe ended with it: nothing runs twice
 
 
 def test_the_server_confines_itself_below_normal_off_the_users_processors():

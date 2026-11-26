@@ -15,9 +15,17 @@ From Python:
 Falls back to a normal booking (`tools/pc_queue.py run <job> test <minutes> ...`) when: no server is up; the server is
 HELD (a measuring window, MEASURING.lock, HOLD_poe2, the user in VR: the queue would hold it too) or stopping; it is
 busy (BUSY_WAITING probes already waiting); `gate=True` / --gate (a probe that needs 8 GB or 6 engines); the server
-stopped the probe (it ended, or a hold paused the probe past its own minutes); or the probe ran short of the server's
+stopped the probe (it ended, or the probe passed 2 GB or its own running minutes); or the probe ran short of the server's
 engines or memory (PoolFull / MemoryError, the server's 4 GB and 6 slots being shared by 2 probes). A probe already
-running when a hold starts is paused with the server and goes on after it, as a booked run would.
+running when a hold starts is paused with the server and goes on after it, as a booked run would: the client waits
+however long the hold lasts and never books it meanwhile (PERF23; a paused probe's minutes don't run).
+
+NEVER TWICE (PERF23): once the server has taken the probe, this client books the queue only after the server's answer
+says it ended the probe, or once the server's PROCESS that took it is gone (checked GONE_SECONDS apart; its job object
+ends the probe with it). A heartbeat file it can't read, a stale heartbeat or a hold is never taken for an ended server
+(before PERF23 one failed read did that: POE2T9501, POE2T9604 were booked while the server still ran them). If a server
+lives but overruns its own stop, the client CANCELS the probe there (SPOOL\cancel\<id>) and books only after the
+server confirms.
 
 SMALL TARGETED TEST RUNS go the same way (the user, 25 Nov ~01:18):
     python tools/probe.py POE2T<n> <minutes> "<LANE>: <JOB> targeted" -- uv run python -m pytest -q -p no:cacheprovider <files>
@@ -78,8 +86,19 @@ def _server_can_take(spool: Path, minutes: float) -> str | None:
     return None
 
 
-FALLBACK_ERRORS = ("stopped: the server", "stopped: paused", "stopped: past", "could not start", "refused")
+FALLBACK_ERRORS = ("stopped: the server", "stopped: paused", "stopped: past", "could not start", "refused", "cancelled by its client")
+GONE_SECONDS = 4.0  # (PERF23) the server's process found ended, and still ended this long after: it is gone
+OVERDUE_SECONDS = 300.0  # running (not paused) past the server's own stop by this much with no answer: cancel it there
 FALLBACK_OUTPUT = ("PoolFull", "MemoryError", "not enough memory")  # the server's 4 GB / 6 slots, shared by 2 probes
+
+
+def _cancel(spool: Path, rid: str) -> None:
+    """Ask the server to stop (or never start) this probe; it answers "cancelled by its client" (PERF23)."""
+    try:
+        (spool / "cancel").mkdir(parents=True, exist_ok=True)
+        (spool / "cancel" / rid).write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _booking(argv: list[str], job: str, minutes: int, what: str, gate: bool, cwd: Path) -> Result:
@@ -115,8 +134,19 @@ def probe(argv: list[str], job: str, minutes: int = 12, what: str = "probe", gat
                "label": what, "asked": asked, "fallback_job": job}
     ps._write_json(spool / "inbox" / f"{rid}.json", request)
     answer_path, log_path = spool / "out" / f"{rid}.json", spool / "out" / f"{rid}.log"
-    said_paused = False
+    watched = {int(b["pid"]) for b in ps.servers(spool) if b.get("state") not in ("gone", "unreadable") and b.get("pid")}
+    said: set[str] = set()
+    not_taking = 0  # polls in a row on which no readable server was accepting (an unclaimed probe)
+    gone_since: float | None = None
+    holder: int | None = None
+    cancelled = False
     shown = 0
+
+    def say_once(key: str, text: str) -> None:
+        if key not in said:
+            said.add(key)
+            _say(text)
+
     while True:
         answer = ps._read_json(answer_path)
         if echo and log_path.exists():
@@ -126,9 +156,17 @@ def probe(argv: list[str], job: str, minutes: int = 12, what: str = "probe", gat
             shown = len(text)
         if answer:
             break
+        beats = ps.servers(spool)
+        mine = None
+        for beat in beats:
+            for job_info in beat.get("running") or []:
+                if job_info.get("id") == rid:
+                    holder, mine = int(beat["pid"]), {**job_info, "state": beat.get("state", "")}
         if (spool / "inbox" / f"{rid}.json").exists():  # not claimed yet
-            beats = ps.servers(spool)
-            if not any(b.get("state") == "accepting" for b in beats):
+            readable = [b for b in beats if b.get("state") != "unreadable"]
+            taking = any(b.get("state") == "accepting" for b in readable)
+            not_taking = 0 if taking or len(readable) < len(beats) else not_taking + 1
+            if not_taking >= 2:  # (PERF23) seen on two polls in a row, every heartbeat read: never one failed read
                 why = next((b["state"] for b in beats if b.get("state", "").startswith("held")), "stopping or gone")
                 try:
                     os.remove(spool / "inbox" / f"{rid}.json")  # take it back (a server may just have claimed it)
@@ -137,16 +175,32 @@ def probe(argv: list[str], job: str, minutes: int = 12, what: str = "probe", gat
                     continue
                 _say(f"the probe server can't start it now ({why}): booking it normally")
                 return _booking(argv, job, minutes, what, gate, cwd)
-        elif not any(b.get("state") not in ("gone", "stuck") for b in ps.servers(spool)) and not answer_path.exists():
-            time.sleep(2)  # the answer may be written in the server's last moment
-            if not answer_path.exists():
-                _say("the probe server ended while running this probe: booking it normally")
+            time.sleep(0.5)
+            continue
+        claimed = ps._read_json(spool / "claimed" / f"{rid}.json") or {}
+        if claimed.get("claimed_by"):
+            holder = int(claimed["claimed_by"])
+        pids = {holder} if holder else watched
+        if pids and not any(ps._alive(pid) for pid in pids):  # the holding server's PROCESS, never its heartbeat file
+            gone_since = gone_since or time.time()
+            if time.time() - gone_since >= GONE_SECONDS and not answer_path.exists():
+                _cancel(spool, rid)  # (its job ended the probe with it; the cancel keeps any later server off it)
+                _say("the probe server ended while running this probe (its process is gone): booking it normally")
                 return _booking(argv, job, minutes, what, gate, cwd)
-        elif not said_paused:
-            held = [b["state"] for b in ps.servers(spool) if b.get("state", "").startswith("held")]
-            if held:
-                _say(f"the probe server is {held[0]}: this probe is paused, as a booking would be")
-                said_paused = True
+        else:
+            gone_since = None
+        if mine and mine["state"].startswith("held"):
+            say_once("held", f"the probe server is {mine['state']}: this probe is paused, as a booking would be; "
+                             "waiting for it (never booked meanwhile)")
+        elif any(b.get("state") == "stuck" and int(b.get("pid", 0)) in pids for b in beats):
+            say_once("stuck", "the probe server's heartbeat is stale but its process lives: still waiting for this probe")
+        if mine and not mine.get("held") and not cancelled and mine.get("minutes") is not None:
+            ran = time.time() - float(mine["since"]) - float(mine.get("paused_s") or 0)
+            if ran > float(mine["minutes"]) * 60 * ps.SERVER_SLOWDOWN + OVERDUE_SECONDS:
+                _cancel(spool, rid)
+                cancelled = True
+                _say("the probe is past the server's own stop and still running: cancelled it there; booking it normally "
+                     "once the server confirms")
         time.sleep(0.5)
     output = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
     if echo:

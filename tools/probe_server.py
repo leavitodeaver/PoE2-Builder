@@ -28,12 +28,19 @@ THE OTHER PROJECTS' SAFETY (the user's condition):
   `_window_open(...)` (a measuring window open); and also while Beastking's MEASURING.lock exists (pc_queue.MEASURING).
   Held: no probe starts, and running probes are SUSPENDED (every process of them), as the queue pauses a PoE2 run;
   they go on GRACE_SECONDS (30, the queue's GAME_GRACE_S) after the hold ends. While CompanionVR's gpu_test.lock exists
-  no probe starts (the queue starts nothing then either). A probe held longer than its own minutes is stopped and its
-  client books it normally.
+  no probe starts (the queue starts nothing then either). A paused probe is NEVER stopped for its paused time, however
+  long the hold (PERF23, the user 26 Nov ~02:22: "I don't like when jobs just have their results thrown away"): its
+  minutes count running time only, as the queue excludes paused time from its stops; a booking would wait out the same
+  hold. Only the memory stop and the running-time stop end a probe early.
+
+CANCELS (PERF23): a client that gives up on a probe writes SPOOL\cancel\<id>; the server stops that probe (or never
+starts it) and answers "cancelled by its client". The client books the queue only after that answer, after another
+answer that ends the probe, or once the server's process is gone (its job object ended the probe with it): never while
+the server may still run the probe, so the same work can't run twice.
 
 Spool (one folder for every lane): SPOOL\inbox\<id>.json (requests), SPOOL\claimed\, SPOOL\out\<id>.log and
 <id>.json (the answer), SPOOL\servers\<name>.json (the heartbeat), SPOOL\keeper.json, SPOOL\server.log (the log),
-SPOOL\STOP (written by `stop`).
+SPOOL\STOP (written by `stop`), SPOOL\cancel\<id> (a client's cancel).
 """
 
 from __future__ import annotations
@@ -60,6 +67,7 @@ CPU_PERCENT = 25  # a hard cap on the whole job (4 of the 16 logical processors'
 GRACE_SECONDS = float(os.environ.get("POE2_PROBE_HOLD_GRACE") or 30)  # the queue's GAME_GRACE_S
 BEAT_SECONDS = 2.0
 STALE_SECONDS = 20.0  # a heartbeat older than this: the server is gone or stuck
+READ_TRIES = 6  # (PERF23) a heartbeat read that fails is tried again: os.replace makes it briefly unreadable on Windows
 HOLD_POLL_SECONDS = 3.0
 FORWARDED = ("POE2_", "PYTHON", "UV_")  # the client's own settings that reach its probe (and only the client's)
 CREATE_NO_WINDOW, NEW_GROUP, BREAKAWAY = 0x08000000, 0x00000200, 0x01000000
@@ -276,13 +284,29 @@ def _tree_memory_mb(root: int) -> float:
     return total / (1024 * 1024)
 
 
+def _read_beat(path: Path) -> dict | None:
+    """A heartbeat file, read again on a failure (PERF23). The server replaces it every BEAT_SECONDS (os.replace); on
+    Windows a read at that moment fails with a sharing violation, which _read_json turns into None: measured 117 empty
+    reads in 183,323 against a file replaced 778 times (scratch/perf23/race.py). One such read made the client think the
+    server had ended (POE2T9501, POE2T9604) and book a probe the server still ran."""
+    for attempt in range(READ_TRIES):
+        beat = _read_json(path)
+        if beat or not path.exists():
+            return beat
+        time.sleep(0.05 * (attempt + 1))
+    return None
+
+
 def servers(spool: Path = SPOOL) -> list[dict]:
     """Every server heartbeat; its "state" is the server's own ('accepting', 'held: <why>', 'draining'), or 'gone'
-    (process ended) or 'stuck' (heartbeat stale while the process lives)."""
+    (process ended), 'stuck' (heartbeat stale while the process lives) or 'unreadable' (the file is there but every read
+    failed: NOT gone; a caller must not take it for an ended server)."""
     found = []
     for path in sorted((spool / "servers").glob("*.json")):
-        beat = _read_json(path)
+        beat = _read_beat(path)
         if not beat:
+            if path.exists():
+                found.append({"job": path.stem, "pid": 0, "state": "unreadable", "running": []})
             continue
         if not _alive(int(beat.get("pid", 0))):
             beat["state"] = "gone"
@@ -452,7 +476,7 @@ class Server:
         self.no_start: str | None = None  # why no probe starts now
         self.clear_since: float | None = None
         self.confined: dict = {}
-        for folder in ("inbox", "claimed", "out", "servers"):
+        for folder in ("inbox", "claimed", "out", "servers", "cancel"):
             (spool / folder).mkdir(parents=True, exist_ok=True)
 
     def state(self) -> str:
@@ -463,11 +487,21 @@ class Server:
         return "accepting"
 
     def beat(self) -> None:
+        for attempt in range(3):  # (PERF23) a reader holding the file makes os.replace fail: try again, don't skip the beat
+            try:
+                return self._beat_once()
+            except OSError:
+                if attempt == 2:
+                    raise
+                time.sleep(0.1)
+
+    def _beat_once(self) -> None:
         _write_json(self.beat_path, {
             "job": self.name, "pid": os.getpid(), "started": self.started, "beat": _now(), "state": self.state(),
             "stop_at": self.end_at, "jobs_at_once": self.jobs_at_once, "confined": self.confined,
             "waiting": len(list((self.spool / "inbox").glob("*.json"))),
-            "running": [{"id": rid, "label": job["request"].get("label", ""), "since": job["since"],
+            "running": [{"id": rid, "label": job["request"].get("label", ""), "since": job["since"], "pid": job["proc"].pid,
+                         "minutes": job["minutes"], "held": bool(job["paused_at"]),
                          "paused_s": round(job["paused"] + ((_now() - job["paused_at"]) if job["paused_at"] else 0), 1)}
                         for rid, job in self.running.items()],
             "done": self.done})
@@ -483,11 +517,21 @@ class Server:
                 os.replace(path, self.spool / "claimed" / path.name)  # atomic: one claimer gets it
             except OSError:
                 continue
+            try:  # (PERF23) who holds it: its client watches THIS process, not every heartbeat, to tell "gone"
+                _write_json(self.spool / "claimed" / path.name, {**request, "claimed_by": os.getpid(), "server": self.name})
+            except OSError:
+                pass
             return request
         return None
 
+    def _cancelled(self, rid: str) -> bool:
+        return (self.spool / "cancel" / rid).exists()
+
     def _start(self, request: dict) -> None:
         rid = request["id"]
+        if self._cancelled(rid):  # (PERF23) its client gave up before the server got to it
+            self._finish(rid, request, None, _now(), "cancelled by its client before it started (the client books it normally)")
+            return
         log = open(self.spool / "out" / f"{rid}.log", "w", encoding="utf-8", errors="replace")
         argv = list(request["argv"])
         found = shutil.which(argv[0], path=request.get("path")) or shutil.which(argv[0]) if argv else None
@@ -524,10 +568,11 @@ class Server:
             "id": rid, "code": code, "error": error, "server": self.name, "asked": request.get("asked"),
             "started": since, "ended": _now(), "label": request.get("label", ""), "peak_mb": round(peak_mb),
             "junit": str(junit) if junit.exists() else None})
-        try:
-            (self.spool / "claimed" / f"{rid}.json").unlink()
-        except OSError:
-            pass
+        for leftover in (self.spool / "claimed" / f"{rid}.json", self.spool / "cancel" / rid):
+            try:
+                leftover.unlink()
+            except OSError:
+                pass
         self.done += 1
         _log(self.spool, f"run {rid} ended: exit {code}, peak {peak_mb:.0f} MB{'; ' + error if error else ''}")
 
@@ -576,15 +621,17 @@ class Server:
                 if not job["paused_at"] and _now() - job["measured"] >= 2:
                     job["measured"] = _now()
                     job["peak_mb"] = max(job["peak_mb"], _tree_memory_mb(job["proc"].pid))
-                if job["peak_mb"] > MEMORY_STOP_MB:
+                if self._cancelled(rid):
+                    error = "cancelled by its client (the client books it normally)"
+                elif job["peak_mb"] > MEMORY_STOP_MB:
                     error = (f"stopped: past {MEMORY_STOP_MB} MB ({job['peak_mb']:.0f} MB): too big for the server "
                              "(the client books it normally)")
                 elif ran > limit and job["test"]:
                     error = "stopped: past the test run's own minutes on the server (the client books it normally)"
                 elif ran > limit:
                     error = "stopped: the probe's own minutes ran out"
-                elif paused > limit:
-                    error = "stopped: paused past the probe's own minutes by a hold (the client books it normally)"
+                # (PERF23) NO stop for paused time: a hold's pause costs nothing, and stopping threw away the work
+                # (MECH112's b15 and GEM46's Vine Arrow set, 26 Nov 02:17 / 02:28); the queue excludes paused time too
                 else:
                     continue
                 self._pause(job, resume=True)  # (resume before ending it)
@@ -733,6 +780,9 @@ def main(argv: list[str]) -> int:
         keeper_up = bool(info and _alive(int(info.get("pid", 0))))
         print(f"keeper: {'running, pid %s' % info['pid'] if keeper_up else 'not running'}{'; STOP is set' if (spool / 'STOP').exists() else ''}")
         for beat in servers(spool):
+            if beat["state"] == "unreadable":
+                print(f"server {beat['job']}: its heartbeat could not be read just now (try again)")
+                continue
             print(f"server {beat['job']}: {beat['state']}, pid {beat['pid']}, up {(_now() - float(beat['started'])) / 60:.0f} min, "
                   f"{len(beat.get('running', []))} running, {beat.get('waiting', 0)} waiting, {beat.get('done', 0)} done; "
                   f"confined {beat.get('confined')}")
