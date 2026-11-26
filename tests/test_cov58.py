@@ -18,8 +18,11 @@ def test_cov58_readers_are_marked():
     for stat in ("twister_hit_interval_ms", "entangle_vines_maximum_number_of_vines_allowed", "entangle_vine_duration_ms",
                  "melee_strike_bonus_attack_distance"):
         assert sum(len(v) for s, v in covered.items() if s == stat) == 1  # one entry per stat
-    for stat in ("entangle_apply_vines_every_X_ms", "entangle_duration_speed_+%_when_wet"):  # (left open on purpose)
-        assert coverage.stat_covered(covered, stat, "Entangle") is None
+    assert coverage.stat_covered(covered, "entangle_apply_vines_every_X_ms", "Entangle") is None  # (left open on purpose)
+    # (COV60: TRAIN 150's MECHB65 takes the Overgrown +3 into the headline and settles the slower expiry as moving no
+    # number: items-cov60.yaml; the Overgrown pair was open here before)
+    assert coverage.stat_covered(covered, "entangle_duration_speed_+%_when_wet", "Entangle") == (
+        "ledger", "gem-cov60-entangle-slower-expiry")
 
 
 def test_cov58_second_wind_life_is_marked():

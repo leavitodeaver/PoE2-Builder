@@ -5,7 +5,8 @@
 # hits a second assume the attach rate outruns the cap, so the interval is a premise, not read); its two Overgrown stats
 # entangle_vines_additional_number_of_vines_allowed_when_wet (+3: FISSURE_VINES' 6.0 is a row only, COV55's ruling for
 # rows) and entangle_duration_speed_+%_when_wet (the game's text: "Overgrown fissures expire 25% slower"; nothing reads it:
-# the headline counts no Overgrown, the lower reading).
+# the headline counts no Overgrown, the lower reading). (COV60, TRAIN 150: MECHB65 now reads both; marked in
+# items-cov60.yaml.)
 
 - id: model-read-cov58-twister-hit-interval
   title: "Twister hits an enemy at most once every 0.66 s (recovery.TWISTER_INTERVAL, MECHC33 / MECHC35)"

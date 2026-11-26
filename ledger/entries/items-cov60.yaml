@@ -1,0 +1,80 @@
+# COV60 (26 Nov 2026; the manager's 00:28 order): TRAIN 150's readers (MECHB65's and MECHC63's "for COV-A" lists:
+# workers/MECHB65.report.md 12:58 Handover part 7, workers/MECHC63.report.md turn 2 part 7), each checked against the
+# landed code on origin/main d374dcae (COV43's rule: the stat's value is used in the scored number, as a named constant
+# or a read of the stat id). Left OPEN on purpose (checked at d374dcae): Seismic Cry's
+# seismic_cry_slam_skill_additional_aftershocks, Triskelion Cascade's two stats and Flame Breath's
+# wyvern_devour_empowered_flame_breath_rage_consumption_+% (no reader in builder/ or engine/bridge.lua yet: grep of each
+# id); Killing Palm's skill_grant_X_power_charges_against_rare / _unique_monsters (COV58's reason holds: the presets'
+# adds are Normal, R26-55, and the boss's own death ends the fight; MECHC63 says the same). Mark of Siphoning II's two
+# leech stats were marked by COV58 (items-cov58c.yaml).
+
+- id: model-read-cov60-trigger-flags
+  title: "Trigger flags held by their models: Pounce's and Hand of Chayula's lent Mark, Infernal Cry's Combust"
+  kind: model
+  model: skill_models
+  stats: ["triggered_by_cross_slash", "triggered_by_hand_of_chayula", "triggered_by_infernal_cry"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code (MECHB65, TRAIN 150): the flags carry no number; their rate is the model's. triggered_by_cross_slash
+    (SupportWolfPouncePlayer, Pounce's support lending its socketed Mark) and triggered_by_hand_of_chayula
+    (SupportHandOfChayulaPlayer): models.mark_use (models.py 2700; the reader named beside MARK_CARRIERS, 2683-2690):
+    the meta is pressed when the Mark needs applying again, on demand, its cast time taken from the main skill; nothing
+    flat. triggered_by_infernal_cry (Combust, InfernalCryCorpseExplosionPlayer): models.side_trigger_keep (models.py
+    25400; its comment 25385): one Combust a death of an enemy the cry reached = the boss preset's adds killed a second
+    (models.kill_rate; 0 on a lone boss) x the cry's fresh share (LOW, the model's own label). A link only.
+  sources: ["builder/search/models.py (MARK_CARRIERS, mark_use, side_trigger_keep)", "workers/MECHB65.report.md part 7"]
+  status: proposed
+
+- id: model-read-cov60-minion-and-fissure
+  title: "Infernal Legion's burning radius and Entangle's Overgrown vines held by their models"
+  kind: model
+  model: skill_models
+  stats: ["infernal_legion_minion_burning_effect_radius", "entangle_vines_additional_number_of_vines_allowed_when_wet"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code (MECHB65, TRAIN 150): models.LEGION_RADIUS_STAT (models.py 13236) read from each supported
+    minion skill's support_stats (bridge.lua modelSupportStats lists the stat, bridge.lua 5951) in
+    infernal_legion_ignited's radius() and passed to minion_near (Infernal Legion I-III 15 / 20 / 20, Catha's
+    Brilliance; the Infernal Hound 25): a minion whose attack range is past the radius Ignites nothing (0).
+    entangle_vines_additional_number_of_vines_allowed_when_wet (+3, Entangle's Vines): models.FISSURE_VINES
+    {"Entangle": ("Vines", 3.0, 6.0)} (models.py 25578), the headline's vine hits a second 3 + 3 x overgrown_share
+    (models.py 25714-25719; assumptions.fissure_overgrown, the build's own Thunderstorm / "chance to Overgrow" lines).
+    A link only.
+  sources: ["builder/search/models.py (LEGION_RADIUS_STAT, infernal_legion_ignited, FISSURE_VINES)",
+            "builder/search/assumptions.py (fissure_overgrown)", "engine/bridge.lua (modelSupportStats)"]
+  status: proposed
+
+- id: gem-cov60-entangle-slower-expiry
+  title: "entangle_duration_speed_+%_when_wet (Entangle): Overgrown fissures expiring 25% slower moves no number in our model"
+  kind: gem_stat
+  match: '^entangle_duration_speed_\+%_when_wet$'
+  replace: []
+  stats: ["entangle_duration_speed_+%_when_wet"]
+  skill: [Entangle]
+  confidence: MEDIUM
+  notes: >-
+    MECHB65's reading (models.py 25576-25577, TRAIN 150), checked in the code: "Overgrown fissures expire 25% slower"
+    (-25, EntanglePlayer: 8 s -> 10.7 s) only lengthens a fissure cover the headline already takes as FULL (a fissure
+    under the boss all fight from the build's own uses, MEDIUM: fissure_count_model / FISSURE_VINES), so no number moves
+    in our model (checked: the vine branch of the fissure model, models.py 25714-25719, takes no duration). Not
+    counted: fewer Entangle presses needed to keep the cover where Overgrown (a small time gain for the main skill,
+    UNVERIFIED size). Decided, with a reason; reopen if the model ever takes the cover as part-time.
+  sources: ["builder/search/models.py (FISSURE_VINES' comment)", "workers/MECHB65.report.md part 7"]
+  status: proposed
+
+- id: model-read-cov60-romira-and-verisium
+  title: "Romira's Requital's Life recoup and Powered by Verisium's Infusion duration held by their models"
+  kind: model
+  model: recovery
+  stats: ["loyalty_%_of_redirected_damage_recouped_as_life_for_owner", "verisium_infusion_duration_+%"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code (MECHC63, TRAIN 150): recovery.LOYALTY_RECOUP_STAT (recovery.py 200) read by
+    recovery.companion_recoups (647-653) with COMPANION_REDIRECT_STAT: the boss's damage taken x the redirect share x
+    the recoup % as Life a second (hit_income's companion_recoup; assumptions.py 8942 passes each supported skill's
+    stats); a Life recovery number. assumptions.VERISIUM_DURATION_STAT (assumptions.py 378) read in verisium_infusions
+    (390) from the gem's level / quality stats, lengthening the Verisium Infusions that skill grants (MEDIUM, the model's
+    own label). A link only.
+  sources: ["builder/search/recovery.py (LOYALTY_RECOUP_STAT, companion_recoups)",
+            "builder/search/assumptions.py (VERISIUM_DURATION_STAT, verisium_infusions)", "workers/MECHC63.report.md"]
+  status: proposed
