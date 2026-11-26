@@ -1337,29 +1337,10 @@ class Jewels:
     def shard_helmet(self, slot: str, option: ItemOption) -> ItemOption | None:
         """(JEWEL1) The helmet with a Raven-Touched Shard in a free socket or in place of its last rune, so it takes an
         anoint (anoints.capacity; RESEARCH52 R52-6: 9 of the user's 14 example builds with Zarokh's Gift anoint it on a
-        helmet, 17 of 20 helmets carry the shard). Built as Gear.shard_trial builds it (its rules: no Corrupted /
-        Sanctified helmet, a socket-bound rune never replaced, one shard per character, the rune catalog's price), or
-        None when the helmet can't take one."""
-        gear, ctx = self.gear, self.ctx
-        if anoints.SHARD in option.runes or anoints.SEALED.search(option.raw):
-            return None
-        base = ctx.bases_by_name.get(option.base)
-        count = socket_count(base, option.unique, unique_text(ctx, option)) if base else 0
-        if count == 0 or anoints.SHARD not in gear.runes.candidates(base, option.unique, option.raw):
-            return None
-        limit = gear.runes.limit(anoints.SHARD)
-        if limit and sum(1 for s, o in self.build.equipped.items() if s != slot and o is not None
-                         for n in o.runes if (gear.runes.limit(n) or ("",))[0] == limit[0]) >= limit[1]:
-            return None
-        runes = list(option.runes)
-        dropped = runes[count - 1:] if len(runes) >= count else []
-        if any(n in option.bound for n in dropped):
-            return None
-        new = runes[:count - 1] + [anoints.SHARD] if dropped else runes + [anoints.SHARD]
-        price = option.price
-        if price is not None:
-            price += (gear.runes.price(anoints.SHARD) or 0.0) - sum(gear.runes.price(n) or 0.0 for n in dropped)
-        return dataclasses.replace(option, raw=with_runes(option.raw, new), runes=tuple(new), price=price)
+        helmet, 17 of 20 helmets carry the shard), or None when the helmet can't take one. (JEWEL5, SEARCHB8's ask) Built
+        by Gear.shard_version, shard_trial's own builder (its rules: no Corrupted / Sanctified helmet, a socket-bound rune
+        never replaced, one shard per character, the rune catalog's price), not by a copy of it."""
+        return self.gear.shard_version(slot, option)
 
     def version_floor(self, version: ItemOption) -> ItemOption:
         """(JEWEL1) A version the price feed can't tell apart priced at its own trade floor where one is known: Voices'
