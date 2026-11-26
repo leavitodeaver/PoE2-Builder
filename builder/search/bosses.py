@@ -416,7 +416,9 @@ def moving_ceiling(stats: dict | None = None) -> tuple[float, str]:
 RELOCATE_SKILLS: dict[str, tuple[float, float, str]] = {  # (uses a minute off cooldown, metres up to, the skills)
     "Arbiter of Ash": (33.0, (17 + 0) / 10, "Teleport 10 s, Dash Slash Left 8 s / Right 8 s / Forward 10 s, Jump Slam "
                        "Combo 10 s"),
-    "Arbiter of Divinity": (10.35, 32 / 10, "Swoop Slam 16.5 s, Blink Slam 12 s, Storm Blink 35 s"),
+    "Arbiter of Divinity": (10.35, 32 / 10, "Swoop Slam 16.5 s, Blink Slam 12 s, Storm Blink 35 s; NOT a true ceiling: "
+                            "its phase-2 Dodge Left / Right have no cooldown (RESEARCH65 R65-9: the .act maps them to "
+                            "ascended_blink animations), uncounted here"),
     "Xesht, We That Are One": (6.0, 14 / 10, "Teleport Start 10 s"),
     "The King in the Mists": (round(0.43 * 37.5, 2), (15 + 15) / 10,
                               "first form only (43%): Teleport 8 s (+1.5 m beyond its target), Teleport Flee 3 s, four "
@@ -537,10 +539,16 @@ def relocations(stats: dict | None = None, reading: str = "headline", gain: bool
         pool = REAL
         if not gain and reading == "headline":
             pool = tuple(n for n in REAL if _counted_enough(n)) or REAL
+        elif gain and reading in ("headline", "video", "any"):
+            # (AUDIT40 A40-44, the manager 26 Nov 10:35) an untallied preset's 0 is "no data", not "never moves" (its
+            # skills table shows it does): left out of the worst case's minimum, so gain readers on the default boss
+            # read the fewest among the TALLIED presets; the 0 stays only when a request names that boss
+            pool = tuple(n for n in REAL if n in RELOCATE_VIDEO) or REAL
         sub = "video" if reading == "any" else reading
         src = pick(pool, key=lambda n: relocations({"_boss": n}, sub, gain)[0])
         rate, metres, how = relocations({"_boss": src}, sub, gain)
-        which = ("the fewest" if gain else "the most among tallies from two fights of 45 s+ or MEDIUM+ (the manager "
+        which = ("the fewest among the presets counted on video (untallied ones left out: no data isn't no moves)"
+                 if gain and pool != REAL else "the fewest" if gain else "the most among tallies from two fights of 45 s+ or MEDIUM+ (the manager "
                  "26 Nov 06:32)" if pool != REAL else "the most")
         return rate, metres, f"the worst case reads {src}'s ({which}): {how}"
     if reading == "any":
@@ -816,6 +824,38 @@ def still_there(stats: dict | None, radius: float, delay: float, reading: str = 
     p = math.exp(-rate * out * delay)
     return p, (f"{p:.0%} still inside a {radius:g} m area {delay:g} s after it was placed on it ({rate * 60:.1f} moves "
                f"a minute, {metres:g} m each, LOW; {how})")
+
+
+# Time the boss is OFF THE FIELD (untargetable / gone) in a fight (MECHD9; the manager 26 Nov 10:35: data only, read by
+# the fight-length readers: ramp-ups, charges, MECH-C's flask stock over the fight). DPS is a rate, so this lengthens the
+# fight rather than lowering the DPS. From the video helpers' tallies (scratch/mechd9/video_mv3.md, mv5.md, mv6.md) and
+# RESEARCH25 #147; {name: ((seconds or None, what), ...), share seen in a timed fight or None, confidence}. Presets not
+# listed: no data (no off-field phase seen or none looked for), never a guessed 0-share.
+ABSENT: dict[str, tuple[tuple[tuple[float | None, str], ...], float | None, str]] = {
+    "Zarokh, the Temporal": (((13.0, "the Trial of Time / Sands of Time, 12-14 s (both mv3 fights and mv6's W1)"),
+                              (35.0, "two ~17-18 s 'There can be no escape!' time-bubble phases (mv6's W1 only; "
+                                     "whether short kills skip them UNVERIFIED)")),
+                             0.52, "MEDIUM for the Trial, LOW for the bubbles (one 90 s fight: ~47 s off the field)"),
+    "The King in the Mists": (((None, "the maze between its two forms: the boss immune (RESEARCH25 #147); its length "
+                                      "not found (UNVERIFIED)"),), None, "MEDIUM that it exists; no length"),
+    "Atziri, the Fell Serpent": (((10.0, "her 'My ascension has begun!' phase at ~3-5% Life: the body leaves the floor "
+                                         "~10 s under a shield bar (mv5, one fight)"),), None, "LOW (one fight)"),
+    "The Bodach": (((45.0, "a scripted phase with the boss bar up and the Bodach off screen, 45 s+ (mv3, one 720p "
+                           "video)"),), None, "MEDIUM-LOW (one video; the boss is hard to see in its arena)"),
+}
+
+
+def absent(stats: dict | None = None) -> tuple[float, float | None, str]:
+    """(known off-field seconds a fight, the share seen in a timed fight or None, how); (0, None, "no data") for a
+    preset without an entry (ABSENT). Seconds of an event with no known length count 0, said."""
+    name = of(stats).name
+    entry = ABSENT.get(name)
+    if not entry:
+        return 0.0, None, f"no data on {name} leaving the field (none seen or none looked for; not a measured 0)"
+    events, share, conf = entry
+    seconds = sum(t for t, _ in events if t)
+    how = "; ".join(f"{t:g} s: {w}" if t else f"length unknown: {w}" for t, w in events)
+    return seconds, share, f"off the field ~{seconds:g} s a fight against {name} ({how}; {conf})"
 
 
 def still_share(stats: dict | None = None) -> tuple[float | None, str]:

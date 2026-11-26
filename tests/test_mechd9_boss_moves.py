@@ -61,8 +61,8 @@ def test_video_tallies_feed_the_headline_and_the_still_share():
     assert bosses.still_share({"_boss": "Arbiter of Ash"})[0] == 0.55
     assert bosses.still_share({"_boss": "The Bodach"})[0] is None
     assert bosses.relocations({"_boss": "The Bodach"})[0] == 0.0  # not tallied: 0, the ceiling a row
-    # the worst case reads the fewest for a gain: an untallied preset's 0
-    assert bosses.relocations({"_boss": bosses.WORST})[0] == 0.0
+    # the worst case reads the fewest TALLIED preset for a gain (AUDIT40 A40-44: an untallied 0 isn't counted)
+    assert bosses.relocations({"_boss": bosses.WORST})[0] > 0.0
 
 
 def test_stay_share_follows_the_relocations_and_the_area_size():
@@ -93,5 +93,26 @@ def test_worst_case_harm_reads_only_tallies_counted_enough_and_keeps_the_rest_as
     row, _, row_how = bosses.relocations(worst, "any", gain=False)
     assert abs(row - max(bosses.RELOCATE_VIDEO_HIGH.values()) / 60) < 1e-9 and "Zarokh" in row_how
     assert bosses.stay_share(worst, 3.1, 7.4)[0] > bosses.stay_share(worst, 3.1, 7.4, "any")[0]
-    # a gain still reads the fewest (an untallied preset: 0)
-    assert bosses.relocations(worst)[0] == 0.0
+    # a gain reads the fewest among the tallied presets (never an untallied 0: AUDIT40 A40-44)
+    assert bosses.relocations(worst)[0] > 0.0
+
+
+def test_worst_case_gain_leaves_untallied_presets_out_of_its_minimum():
+    # AUDIT40 A40-44: the Bodach's untallied 0 must not make every gain reader on the default boss read 0
+    worst = {"_boss": bosses.WORST}
+    tallied = [n for n in bosses.REAL if n in bosses.RELOCATE_VIDEO]
+    rate, _, how = bosses.relocations(worst)
+    assert rate > 0 and abs(rate - min(bosses.RELOCATE_VIDEO[n][0] for n in tallied) / 60) < 1e-9
+    assert "untallied ones left out" in how
+    # a request that names an untallied boss still reads 0, with its skills ceiling beside it
+    rate, _, how = bosses.relocations({"_boss": "The Bodach"})
+    assert rate == 0.0 and "upper bound" in how
+
+
+def test_absent_is_data_with_no_guessed_zero():
+    seconds, share, how = bosses.absent({"_boss": "Zarokh, the Temporal"})
+    assert seconds == 48.0 and share == 0.52 and "Trial of Time" in how
+    seconds, share, how = bosses.absent({"_boss": "The King in the Mists"})
+    assert seconds == 0.0 and share is None and "length unknown" in how
+    seconds, share, how = bosses.absent({"_boss": "Arbiter of Ash"})
+    assert (seconds, share) == (0.0, None) and "no data" in how
