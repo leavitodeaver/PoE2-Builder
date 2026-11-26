@@ -5447,6 +5447,16 @@ function bridge.useRates(args)
 			if env.minion and type(env.minion.output.Life) == "number" then
 				entry.minionLife = jsonNumber(env.minion.output.Life)
 			end
+			-- (MECHB67 / MECHB68, the manager's item 4; probe POE2T9065) the group's minion's Cooldown Recovery for its
+			-- Command skills: every MinionModifier PoB gave it (initMinionModDB, built for the main skill's minion only):
+			-- items' "Minions have N% increased Cooldown Recovery Rate", the tree's "... for Command Skills" lines (tagged
+			-- Condition CommandableSkill: SkillStatMap 2678-2686, ModCache 6283), as PoB's calculation of the Command's
+			-- own minion skill reads them (example build 6's Gas Arrow: 6 s / 2.79 = 2.15 s, PoB's 2.178 s after its
+			-- server-tick rounding)
+			if env.minion and env.minion.modDB then
+				entry.commandRecovery = jsonNumber(calcLib.mod(env.minion.modDB, { skillCond = { CommandableSkill = true } },
+					"CooldownRecovery"))
+			end
 			-- (MECHB65, COV58: models.infernal_legion_model) where the minion stands: its counted skill's Melee flag as
 			-- PoB resolves it by the minion's weapon (CalcActiveSkill 537-540: a Bow drops it, so the Skeletal Sniper's
 			-- MinionMeleeBow is not melee), and its monster's attackRange (Data/Minions.lua / Spectres.lua, 10 a metre)

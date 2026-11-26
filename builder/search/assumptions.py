@@ -1687,14 +1687,18 @@ def pressed_group(group: dict, gems: dict[str, dict], granted: dict[str, dict] |
     return any(presses(g) for g in active)
 
 
-def minion_lives(build: Build, found: list[models.Skill]) -> dict[str, float]:
+def minion_lives(build: Build, found: list[models.Skill], rows: dict | None = None) -> dict[str, float]:
     """{Reviving minion skill: its minion's maximum Life} when a skill in the build has Minion Pact (models.pact_uses_per_kill;
-    PoB calculates a minion's Life only as the main skill, so the bridge's useRates sets each minion group as main)."""
+    PoB calculates a minion's Life only as the main skill, so the bridge's useRates sets each minion group as main).
+    `rows`: Assumptions.minion_rows' cached rows by skill name (MECHB68), read instead of a new useRates."""
     if not any(models.number(s.support_stats.get(models.MINION_PACT_STAT)) > 0 for s in found) and not any(
             s.name in (models.ETERNAL_MARCH, models.ARSONIST) for s in found):  # (MECHB41: Eternal March's revives read
         # the Life too; MECHB68: Explosive Demise's 8% of the detonated minion's Life)
         return {}
     wanted = {s.name for s in found if s.summon and s.summon.get("persistent") and not models.number(s.summon.get("duration"))}
+    if rows is not None:
+        lives = {name: models.number((rows.get(name) or {}).get("minionLife")) for name in wanted}
+        return {name: life for name, life in lives.items() if life > 0}
     indices, actives, names = [], [], []
     for group in build.groups():
         for n, skill in enumerate(group["skills"], 1):
@@ -3888,6 +3892,10 @@ class Assumptions:
         # (MECHB68, models.explosive_demise_model) Explosive Demise's chosen presses a second (None: on cooldown), the
         # build key it was chosen for, the most a second, the trials' {rate: DPS}, and whether a new choice is due
         self.demise: dict = {"key": None, "rate": None, "most": 0.0, "trials": {}, "due": False, "memo": {}}
+        # (MECHB68, item 4) the minion groups' useRates rows by summon skill name, and the build key they were read for
+        # (minion_rows); the Commands' recovery mods of the last pass (command_recovery)
+        self.minion_cache: tuple = (None, {})
+        self.command_mods: list[dict] = []
 
     def main_skill(self) -> str | None:
         group = self.build.main_group()
@@ -3905,6 +3913,8 @@ class Assumptions:
         group = build.main_group()
         name = self.main_skill()
         found = [models.Skill.of(s) for s in skills if not s["disabled"]]
+        rows = self.minion_rows(found)  # (MECHB68: the minion groups' useRates, once per build key)
+        found = self.command_recovery(found, rows)  # (MECHB68, item 4: the Commands' own Cooldown Recovery)
         found = self.demise_press(found)  # (MECHB68: Explosive Demise's chosen press rate, before any reader)
         main = next((s for s in found if group and s.group == group["index"] and s.name == name), None)
         main_gems = {g["name"] for g in group["gems"]} if group else set()
@@ -3913,7 +3923,8 @@ class Assumptions:
         from builder.search import bosses  # (MECH-D: the request's boss, its add kills / Culls per second, for the models)
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         stats = {**stats, **bosses.kill_stats(boss)}
-        build.minion_lives = minion_lives(build, found)  # (MECHB12, A25-2: Minion Pact's Kills read the minions' Life)
+        build.minion_lives = minion_lives(build, found, rows)  # (MECHB12, A25-2: Minion Pact's Kills read the minions'
+        # Life; MECHB68: from the cached rows)
         # (MECHB12, A25-41: each curse's own duration, PoB's with the build's modifiers, for curse_uses)
         build.curse_durations = {s["name"]: s["curseDuration"] for s in skills if s.get("curseDuration")}
         # (MECH86: each curse's activation delay, PoB's with the build's modifiers, for curse_uses / hexblast_model)
@@ -5141,7 +5152,7 @@ class Assumptions:
                 passive_models.echo_chance(main, echo_types, echo_supports, echo_texts, echo_totem,
                                            passive_models.main_quality(build, main)),
                 passive_models.seal_rate(main, echo_types, echo_supports, stats, echo_totem),
-                bosses.hit_radius(stats))
+                bosses.hit_radius(stats), around_you=self.around_you(found, main, echo_texts))
             hand_mods, hand_notes = hand_mods + echo_mods, hand_notes + echo_notes
             hit_cut(build, echo_mods, main.name)
         count_mods, count_notes = models.hazard_count_model(main, stats)  # (MECHB33: a use's hazards on the boss)
@@ -5388,7 +5399,7 @@ class Assumptions:
         # itself are dead part of the fight; PoB counted them alive: an OVERCOUNT)
         hand_mods, hand_notes = hand_mods + alive_mods, hand_notes + alive_notes
         demise, demise_mods, demise_notes = self.explosive_demise(found, main)  # (MECHB68: its rate and explosion)
-        hand_mods, hand_notes = hand_mods + demise_mods, hand_notes + demise_notes
+        hand_mods, hand_notes = hand_mods + demise_mods + self.command_mods, hand_notes + demise_notes
         tawhoa_groups: set[int] = set()
         if any(s.name == models.TAWHOA for s in found):  # (MECHB40: Tawhoa's Vengeance at its totems' deaths; PoB: 0)
             totem_out: dict = {}
@@ -12165,6 +12176,17 @@ class Assumptions:
                 out[curse.name] = (limit, models.CURSE_AREAS_WHY)
         return out
 
+    def around_you(self, found: list, main, texts: list[str]) -> bool:
+        """(MECHB68) The main skill is a Nova (PoB type) cast around you: no support, line or Frostbolt moves it to the
+        target (models.nova_lands_at_target)."""
+        types = set(((self.build.ctx.gems.get(main.name) or {}) if main is not None else {}).get("skillTypes") or [])
+        if main is None or "Nova" not in types:
+            return False
+        row = next((x for x in self.build.call("activeSkills", supportStats=[models.NOVA_AT_TARGET_STAT])["skills"]
+                    if x["name"] == main.name and x.get("group") == main.group), {})
+        return not models.nova_lands_at_target(main, row.get("supportStats") or {}, texts, {s.name for s in found},
+                                               spell=bool(main.spell))
+
     def cascade_nova(self, found: list, main, texts: list[str]) -> dict:
         """(MECHB65) spell_cascade_model's `nova` (the main skill's PoB type Nova) and `at_target` (why it lands at the
         target instead: models.nova_lands_at_target, its group's support stat read through activeSkills)."""
@@ -13421,6 +13443,79 @@ class Assumptions:
         self.monster_seen = seen
         self.monster_notes = notes
         return changed
+
+    def minion_rows(self, found: list[models.Skill]) -> dict[str, dict]:
+        """(MECHB68, item 4) {summon skill name: its group's bridge useRates row} for the minion groups the models read:
+        every Command-bearing summon (models.COMMANDS: its commandRecovery) and, with Minion Pact, Eternal March or a
+        Skeletal Arsonist, every Reviving summon (minionLife). PoB builds a minion's modifiers only for the main skill,
+        so each group is calculated as main once; read again only when the build key changes: the build's source lines
+        (items, tree, jewels), its groups' gems, levels and qualities, and the config's inputs (the minion's Life and
+        Cooldown Recovery move only with those). Not in the key (labelled): the tool's own assumption mods (none of them
+        is a minion Life or Cooldown Recovery line today)."""
+        build = self.build
+        reviving = {s.name for s in found if s.summon and s.summon.get("persistent")
+                    and not number(s.summon.get("duration"))}
+        lives = (any(number(s.support_stats.get(models.MINION_PACT_STAT)) > 0 for s in found)
+                 or any(s.name in (models.ETERNAL_MARCH, models.ARSONIST) for s in found))
+        names = {s.name for s in found if s.summon and any(m in s.name for m in models.COMMANDS)}
+        names |= reviving if lives else set()
+        if not names:
+            return {}
+        groups = build.groups()
+        spots: dict[str, tuple[int, int]] = {}
+        for g in groups:
+            for n, skill in enumerate(g["skills"], 1):
+                if skill["name"] in names and skill["name"] not in spots:
+                    spots[skill["name"]] = (g["index"], n)
+        key = (tuple(sorted(spots.items())),
+               tuple((g["index"], g.get("enabled"), tuple((x.get("name"), x.get("level"), x.get("quality"),
+                                                          x.get("enabled", True)) for x in g.get("gems") or []))
+                     for g in groups),
+               tuple(sorted(e["text"] for e in build.call("sourceLines")["lines"])),
+               tuple(sorted((k, repr(v)) for k, v in (build.call("getConfig")["input"] or {}).items())))
+        if key == self.minion_cache[0]:
+            return self.minion_cache[1]
+        rows: dict[str, dict] = {}
+        if spots:
+            order = list(spots.items())
+            got = build.call("useRates", indices=[i for _, (i, _) in order], actives=[a for _, (_, a) in order])["rates"]
+            by = {(r["index"], r.get("active")): r for r in got}
+            rows = {name: by.get(spot) or {} for name, spot in order}
+        self.minion_cache = (key, rows)
+        return rows
+
+    def command_recovery(self, found: list[models.Skill], rows: dict[str, dict]) -> list[models.Skill]:
+        """(MECHB67's find, MECHB68: the manager's item 4, approved; probe POE2T9065 on example build 6) Each
+        Command-bearing summon's Cooldown Recovery as its Commands get it: PoB's minion modifiers for Command skills
+        (useRates commandRecovery: items' "Minions have N% increased Cooldown Recovery Rate" and the tree's "... for
+        Command Skills" lines), times Archon of Undeath's Command MORE where its model gave one (it rides on the summon
+        skill). The summon's own (player) Cooldown Recovery doesn't reach its minion's skills (none of it in Gas Arrow's
+        2.178 s), so it is replaced: a CooldownRecovery MORE on the summon skill (COMMAND_RECOVERY_TAG, kept in
+        self.command_mods for the models' mods) makes PoB's own skill list say the same, so Conditions' Death Storm /
+        Shattering Roar and the gem ranking read it too; this pass reads it at once. Readers: models.command_uses (Puppet
+        Master, Archon of Undeath's gains), Death Storm, Explosive Demise, Shattering Roar, different Commands. Not in
+        it (the lower reading): modifiers tagged to one Command skill by name or type; PoB's server-tick rounding of the
+        cooldown (example build 6: 2.15 -> 2.178 s, about 1% more uses here). Unread: kept as PoB gave it."""
+        mods: list[dict] = []
+        out = []
+        for k in found:
+            recovery = number((rows.get(k.name) or {}).get("commandRecovery")) if k.summon else 0.0
+            if recovery > 0 and any(m in k.name for m in models.COMMANDS):
+                archon, mine = 1.0, 1.0
+                for m in self.mods or []:
+                    if m.get("skill") == k.name and m.get("name") == "CooldownRecovery" and m.get("type") == "MORE":
+                        if m.get("tag") == models.UNDEATH_COMMAND_TAG:
+                            archon *= 1 + number(m.get("value")) / 100
+                        elif m.get("tag") == models.COMMAND_RECOVERY_TAG:
+                            mine *= 1 + number(m.get("value")) / 100
+                player = (k.cooldown_recovery or 1.0) / (archon * mine)  # (PoB's own, without these two)
+                if player > 0:
+                    mods.append(models.raw_mod("CooldownRecovery", "MORE", 100.0 * (recovery / player - 1), skill=k.name,
+                                               tag=models.COMMAND_RECOVERY_TAG))
+                k = dataclasses.replace(k, cooldown_recovery=recovery * archon)
+            out.append(k)
+        self.command_mods = mods
+        return out
 
     def demise_press(self, found: list[models.Skill]) -> list[models.Skill]:
         """(MECHB68) The build's Skill list with the Arsonist's chosen Explosive Demise rate (self.demise; PoB's own

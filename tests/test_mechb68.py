@@ -163,3 +163,65 @@ def test_the_press_override_reaches_the_bridge_s_skill_list(engine):
     hit = build.call("minionSkillHit", index=next(g["index"] for g in build.groups() if any(
         s["name"] == models.ARSONIST for s in g["skills"])), active=1, skill=models.EXPLOSIVE_DEMISE_ID)
     assert hit.get("name") == "Explosive Demise", hit
+
+
+def test_mystic_avalanche_on_a_nova_cast_around_you_reaches_the_boss_part_of_the_time():
+    """MECH111 / the manager 22:20: a Nova cast around you puts the final Echo's side areas on a random axis through you
+    (nova_side_share), not both on the boss; cast at the target both land (the targeted rule)."""
+    nova = models.Skill("Ice Nova", 1, spell=True, support_stats={models.ECHO_COUNT_STAT: 1})
+    stats = {"Speed": 1.0, "CastRate": 1.0, "AreaOfEffectRadius": 30}
+    texts = ["Final Echo of Cascadable Spells also Cascades to either side of the targeted Area along a random axis"]
+    _, at = models.spell_echo_model(nova, {"Cascadable", "Nova"}, stats, texts, boss=(1.0, "test"))
+    _, around = models.spell_echo_model(nova, {"Cascadable", "Nova"}, stats, texts, boss=(1.0, "test"), around_you=True)
+    share = models.nova_side_share(3.0, 0.0, 1.0, 1.0, 3.0)
+    gain_at = float(at[-1]["value"][1:])
+    gain_around = float(around[-1]["value"][1:])
+    assert gain_at == pytest.approx(1 + 2 / 2, abs=1e-3)
+    assert gain_around == pytest.approx(1 + 2 * share / 2, abs=1e-3) and gain_around < gain_at
+    assert "a random axis through you" in around[-1]["basis"]
+
+
+class _RowsBuild:
+    """groups / sourceLines / getConfig / useRates for minion_rows; counts the useRates calls."""
+
+    def __init__(self, rows):
+        self.rows, self.uses, self.lines = rows, 0, ["Minions have 28% increased Cooldown Recovery Rate"]
+
+    def groups(self):
+        return [{"index": 1, "enabled": True, "gems": [{"name": "Skeletal Arsonist", "level": 20, "quality": 0}],
+                 "skills": [{"name": models.ARSONIST}]},
+                {"index": 2, "enabled": True, "gems": [{"name": "Raise Zombie", "level": 20, "quality": 0}],
+                 "skills": [{"name": "Raise Zombie"}]}]
+
+    def call(self, method, **kw):
+        if method == "sourceLines":
+            return {"lines": [{"text": t} for t in self.lines]}
+        if method == "getConfig":
+            return {"input": {"enemyFireResist": 50}}
+        assert method == "useRates"
+        self.uses += 1
+        return {"rates": [{"index": i, "active": a, **self.rows[i]} for i, a in zip(kw["indices"], kw["actives"])]}
+
+
+def test_the_command_recovery_is_the_minion_s_read_once_per_build_key():
+    """Item 4 (MECHB67's find): each Command-bearing summon's cooldown_recovery is its minion's Command recovery x
+    Archon of Undeath's MORE (the player's own recovery replaced, by a CooldownRecovery MORE on the summon skill for
+    PoB's own list); the minion groups' useRates is read again only when the build key changes."""
+    from builder.search.assumptions import Assumptions
+
+    build = _RowsBuild({1: {"commandRecovery": 2.79, "minionLife": 3600}, 2: {"minionLife": 5000}})
+    a = Assumptions(build)
+    zombies = models.Skill("Raise Zombie", group=2, summon={"limit": 8, "duration": 0, "persistent": True})
+    found = [arsonist(1.84 * 1.2 * 1.5), zombies]  # (PoB's: Archon x1.84, the player's own x1.2, last pass's mine x1.5)
+    a.mods = [models.raw_mod("CooldownRecovery", "MORE", 84.0, skill=models.ARSONIST, tag=models.UNDEATH_COMMAND_TAG),
+              models.raw_mod("CooldownRecovery", "MORE", 50.0, skill=models.ARSONIST, tag=models.COMMAND_RECOVERY_TAG)]
+    rows = a.minion_rows(found)
+    assert set(rows) == {models.ARSONIST, "Raise Zombie"} and build.uses == 1
+    out = a.command_recovery(found, rows)
+    assert out[0].cooldown_recovery == pytest.approx(2.79 * 1.84) and out[1] is zombies
+    assert a.command_mods == [models.raw_mod("CooldownRecovery", "MORE", 100 * (2.79 / 1.2 - 1), skill=models.ARSONIST,
+                                             tag=models.COMMAND_RECOVERY_TAG)]
+    assert a.minion_rows(found) is rows and build.uses == 1  # (the same key: no new read)
+    build.lines = ["Minions have 40% increased Cooldown Recovery Rate"]
+    a.minion_rows(found)
+    assert build.uses == 2  # (an item line changed: read again)

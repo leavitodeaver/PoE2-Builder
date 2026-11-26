@@ -1135,6 +1135,10 @@ EXPLOSIVE_DEMISE_LIFE_PCT = 8.0
 # every reader of activeSkills (Conditions' Death Storm and kill readers, gems' Cast on Minion Death ranking) presses them
 # as the score does. Only Explosive Demise is chosen today (Assumptions.choose_demise); none: on cooldown.
 COMMAND_PRESS = "LedgerCommandPress"
+# (MECHB68, the manager's item 4) The Commands' own Cooldown Recovery (the minion's modifiers, bridge useRates
+# commandRecovery) put on the summon skill as a CooldownRecovery MORE with this tag, so Skill.cooldown_recovery is the
+# Commands' everywhere (Assumptions.command_recovery).
+COMMAND_RECOVERY_TAG = "CommandRecovery"
 DEMISE_TAG = "ExplosiveDemisePress"
 # The press rates tried, as shares of the most (on cooldown): each scored by the whole models pass, then the halves
 # around the best (Assumptions.choose_demise).
@@ -1369,6 +1373,8 @@ def explosive_demise_model(rate: float, most: float, hit: float, life: float, li
     life_part = EXPLOSIVE_DEMISE_LIFE_PCT / 100 * life * (1 - fire_resist / 100)
     each = hit + life_part
     added = rate * each
+    zero = (" (PoB gives 0 for its Attack part here: not counted, an UNDERCOUNT; why PoB reads 0 is UNVERIFIED)"
+            if hit <= 0 else "")
     share = min(1.0, rate * EXPLOSIVE_DEMISE_CAST)
     mods = [line("Minions deal 1% more Damage", -100.0 * share, skill=ARSONIST)]
     minion_main = main is not None and bool(main.summon)
@@ -1379,7 +1385,7 @@ def explosive_demise_model(rate: float, most: float, hit: float, life: float, li
             "basis": (f"pressed {rate:.3f} times a second ("
                       + (f"chosen by the build's DPS, below the most, once every {1 / most:.2f} s" if chosen else
                          f"on its cooldown, once every {1 / most:.2f} s: the build's DPS is highest there")
-                      + f"){rows}. Each explosion: {hit:,.0f} (PoB's Attack part) + {EXPLOSIVE_DEMISE_LIFE_PCT:g}% of a "
+                      + f"){rows}. Each explosion: {hit:,.0f} (PoB's Attack part{zero}) + {EXPLOSIVE_DEMISE_LIFE_PCT:g}% of a "
                         f"{life:,.0f}-Life minion ({life_how}) through the boss's {fire_resist:g}% Fire resistance "
                         f"({life_part:,.0f}; the Arsonist's damage modifiers not applied, UNVERIFIED) = {each:,.0f}: "
                         f"+{added:,.1f} DPS. Charged: its {EXPLOSIVE_DEMISE_CAST:g} s cast, {share:.0%} of the Arsonists' "
@@ -22642,6 +22648,11 @@ def spell_cascade_model(main: Skill | None, stats: dict, boss_radius: float, bos
 # Tul's Echoes as seal_echo_share), a chance Echo's side areas at the same 0.95. Rows: areas edge to edge (the side
 # areas miss unless the area's radius is at most the boss's hit radius); not counted with Spell Cascade on the same
 # spell (R-B23: whether its final Echo adds sides twice is UNVERIFIED; the lower reading, said).
+# (MECHB68; MECH111's note, the manager 25 Nov 22:20, an OVERCOUNT) A NOVA cast around you (PoB SkillType Nova, no
+# Astral Projection or other move to the target: Assumptions.cascade_nova) has no target under the boss: the final
+# Echo's side areas land "to either side of the targeted Area along a random axis" through YOU, as Spell Cascade's do
+# (2aef0340): each reaches the boss nova_side_share of the time (the side area the Echo's own size, centred one radius
+# out; a ring Nova (BONE_CAGE_RING) as its outer line), not always.
 ECHO_COUNT_STAT = "support_spell_echo_number_of_echo_cascades"
 MYSTIC_AVALANCHE = re.compile(r"^Final Echo of Cascadable Spells also Cascades to either side of the targeted Area "
                               r"along a random axis$", re.I)
@@ -22650,11 +22661,12 @@ ECHO_PLAY = "Target the boss's centre so the Echo and its side areas land on it"
 
 
 def spell_echo_model(main: Skill | None, main_types: set[str], stats: dict, texts: list[str],
-                     chance: tuple[float, str] = (0.0, ""), seals: float = 0.0, boss: tuple[float, str] = (0.0, "")
-                     ) -> tuple[list[dict], list[dict]]:
+                     chance: tuple[float, str] = (0.0, ""), seals: float = 0.0, boss: tuple[float, str] = (0.0, ""),
+                     around_you: bool = False) -> tuple[list[dict], list[dict]]:
     """Spell Echo's / Zarokh's Refrain's Echoes as hits and Mystic Avalanche's side areas (see above). `chance`: the
     main spell's chance a cast Echoes and from what (passive_models.echo_chance); `seals`: Tul's Avalanche's Seals a
-    second (passive_models.seal_rate); `boss`: (hit radius in m, how) for the edge-to-edge row."""
+    second (passive_models.seal_rate); `boss`: (hit radius in m, how) for the edge-to-edge row; `around_you`: a Nova
+    cast around you (its side areas on a random axis through you, MECHB68)."""
     if main is None or not main.spell or "Cascadable" not in main_types:
         return [], []
     echoes = max(0.0, number(main.support_stats.get(ECHO_COUNT_STAT)))
@@ -22699,6 +22711,11 @@ def spell_echo_model(main: Skill | None, main_types: set[str], stats: dict, text
             else:  # (a chance Echo at the ledger's 0.95, its side areas too; Tul's Echoes as seal_echo_share's 1)
                 counted = 1 + ECHO_CHANCE_WEIGHT * p_chance + (1 - p_chance) * tul
                 side = 2 * (ECHO_CHANCE_WEIGHT * p_chance + (1 - p_chance) * tul)
+            reach = 1.0
+            if around_you and radius > 0:  # (MECHB68: a Nova cast around you, the side areas on an axis through you)
+                inner = radius if main.name in BONE_CAGE_RING else 0.0
+                reach = nova_side_share(radius, inner, boss[0], 1.0, radius)
+                side *= reach
             gain = 1 + side / counted
             factor *= gain
             source = ("Spell Echo / Zarokh's Refrain" if echoes > 0 else
@@ -22707,7 +22724,12 @@ def spell_echo_model(main: Skill | None, main_types: set[str], stats: dict, text
             notes.append({"label": label, "value": f"x{gain:.3f}", "confidence": "MEDIUM-LOW",
                           "basis": (f"{p:.0%} of casts Echo ({source}); the final Echo also lands 2 side areas, each the "
                                     f"Echo's size and damage, centred one radius from the target (R-B23, RESEARCH51: "
-                                    f"MEDIUM-LOW spacing), so a boss on the target is inside both: +{side:.2f} hits over "
+                                    f"MEDIUM-LOW spacing), "
+                                    + (f"so a boss on the target is inside both" if not around_you else
+                                       f"but {main.name} is a Nova cast around you: they land on a random axis through "
+                                       f"you, each reaching the boss (anywhere the main area touches it) {reach:.0%} of "
+                                       f"the time (MECHB68, MEDIUM-LOW; both on it if cast at the boss: a row)")
+                                    + f": +{side:.2f} hits over "
                                     f"the {counted:.2f} a cast already counted. Row, areas edge to edge: the side areas "
                                     + (f"still reach the boss ({radius:.2f} m area, {boss[1]})" if edge else
                                        f"miss ({radius:.2f} m area, {boss[1]}): x1")),
