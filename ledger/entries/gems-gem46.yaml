@@ -55,8 +55,7 @@
   title: "The Flame Pillar support: a supported skill's hit Consumes the boss's Ignite to make a pillar dealing 25% of the Ignite's remaining damage"
   kind: model
   model: flame_pillar
-  stats: ["support_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage",
-          "pillar_of_flame_consume_ignite_to_create_X_pillars"]
+  stats: ["support_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage"]
   skill: [Flame Pillar]
   confidence: MEDIUM
   notes: >-
@@ -76,6 +75,10 @@
     supported skill can't Ignite); an added source. Probe POE2T9727 (scratch/gem46/probe_pillar2.log; a level-90
     Boneshatter + Flame Pillar main, a stated Ignite of 5,000 a second on the boss 60% of the fight, one every 2 s):
     0.57 uses a second x 60% x 3,750 a pillar: 82.45 -> 1,353.95 (the skeleton's own Fireball never Ignites the boss: 0).
+    The support's other stat, pillar_of_flame_consume_ignite_to_create_X_pillars (which this model also reads, as
+    models.FLAME_PILLAR_STAT, to find the supported skills), is claimed once, by COV59's link
+    model-read-cov59-skill-models (items-cov59.yaml: conditions' consume table), not here (GEM47, the manager 26 Nov
+    06:27: tests/test_ledger.py's one-entry-per-stat rule).
   sources: ["builder/search/models.py (grisly_pyre_model, FLAME_PILLAR)", "builder/search/assumptions.py (grisly_pyre)"]
   test_in_game: "Not needed beyond Grisly Pyre's reading (the pillar isn't scaled again by your modifiers: UNVERIFIED either way, the lower reading)."
   status: proposed
