@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 from builder.search import boss_hits, bosses, models
 from builder.search.context import gem_of
-from builder.search.objective import number
+from builder.search.objective import AVERAGE_FIELDS, MAIN_DPS_FIELDS, main_dps, number
 from builder.search.state import EPSILON, Build
 
 AILMENT_WINDOW = 4.0  # seconds "recently" looks back for a crit
@@ -8259,6 +8259,19 @@ def _enemy_full_life(lines: list[str], stats: dict) -> tuple[object, str]:
     return _box(share, f"the boss on Full Life {share:.0%} of the fight ({how})")
 
 
+# (MECH112; the manager's pending check on b2, an UNDERCOUNT) The readers that probe PoB's DPS with a box on and off
+# (Open Weakness, the boss on Full Life, Uruk's fight length, the Presence ramp) read FullDPS, which is 0 for a build
+# with no group in Full DPS (b2), so they gave up ("no DPS read: 0") and zeroed the mechanic. Objective.dps scores
+# such a build on its main skill's DPS (objective.main_dps): these read the same, FullDPS else the main skill's.
+PROBE_DPS_FIELDS = ["FullDPS", *MAIN_DPS_FIELDS, *AVERAGE_FIELDS, *(f"Minion.{f}" for f in AVERAGE_FIELDS)]
+
+
+def probe_dps(stats: dict) -> float:
+    """The DPS a box-on / box-off probe compares: PoB's FullDPS, else the main skill's (as Objective.dps scores it)."""
+    full = number(stats.get("FullDPS"))
+    return full if full > 0 else main_dps(stats)
+
+
 def _open_weakness(presence: bool) -> Callable[[list[str], dict], tuple[object, str]]:
     def value(lines: list[str], stats: dict) -> tuple[object, str]:
         found = stats.get("_open_weakness")
@@ -10918,6 +10931,27 @@ class Conditions:
         share, how = model(found, main, stats)
         return min(max(float(share), 0.0), 1.0), (f"Infernal Legion's minions ({how})" if how else "")
 
+    def _legion_burn(self) -> float:
+        """(MECH112, item 3) The strongest burn a supported minion Ignites the boss as though dealing: its Life (PoB's
+        useRates minionLife, the minion group set as main) x its share (Infernal Legion / Catha's Brilliance 10%, the
+        Infernal Hound 20%), as models.infernal_legion_model takes it (MECHB65); 0 when no Life is read."""
+        indices, actives, shares = [], [], []
+        for group in self.build.groups():
+            if not group["enabled"]:
+                continue
+            legion = models.LEGION_LIFE_SHARE if any(g["name"] in models.INFERNAL_LEGION and g.get("enabled", True)
+                                                     for g in group["gems"]) else 0.0
+            for n, skill in enumerate(group["skills"], 1):
+                share = models.HOUND_LIFE_SHARE if skill["name"] == models.INFERNAL_HOUND else legion
+                if share > 0:
+                    indices.append(group["index"]); actives.append(n); shares.append(share)
+        if not indices:
+            return 0.0
+        rows = self.build.call("useRates", indices=indices, actives=actives)["rates"]
+        by = {(r["index"], r.get("active")): r for r in rows}
+        return max((number((by.get((i, a)) or {}).get("minionLife")) * s for i, a, s in zip(indices, actives, shares)),
+                   default=0.0)
+
     def shattering_roar(self, texts: list[str]) -> tuple[float, str] | None:
         """(MECH76) (share of the fight the boss is Intimidated by the Skeletal Brutes' Shattering Roar, how), from
         MECHB30's models.shattering_roar (its note: one Roar a cooldown, pressed as a Command, 4 s x the Intimidate
@@ -11215,12 +11249,12 @@ class Conditions:
         saved = {var: before.get(var) for var in OPEN_WEAKNESS_VARS}
         more = sum(float(m.group(1)) for t in texts if (m := OPEN_WEAKNESS_MORE.match(t.strip()))) / 100.0
         try:
-            on = number(self.build.call("setConfig", vars=dict.fromkeys(OPEN_WEAKNESS_VARS, True),
-                                        fields=["FullDPS"])["stats"].get("FullDPS"))
-            bare = number(self.build.call("setConfig", vars={OPEN_WEAKNESS_VARS[0]: False}, fields=["FullDPS"])[
-                "stats"].get("FullDPS")) if more > 0 else on
-            off = number(self.build.call("setConfig", vars=dict.fromkeys(OPEN_WEAKNESS_VARS, False),
-                                         fields=["FullDPS"])["stats"].get("FullDPS"))
+            on = probe_dps(self.build.call("setConfig", vars=dict.fromkeys(OPEN_WEAKNESS_VARS, True),
+                                        fields=PROBE_DPS_FIELDS)["stats"])
+            bare = probe_dps(self.build.call("setConfig", vars={OPEN_WEAKNESS_VARS[0]: False},
+                                             fields=PROBE_DPS_FIELDS)["stats"]) if more > 0 else on
+            off = probe_dps(self.build.call("setConfig", vars=dict.fromkeys(OPEN_WEAKNESS_VARS, False),
+                                         fields=PROBE_DPS_FIELDS)["stats"])
         finally:
             self.build.call("setConfig", vars={v: (s if s is not None else False) for v, s in saved.items()},
                             fields=["FullDPS"])
@@ -11253,10 +11287,10 @@ class Conditions:
             return 0.0, f"{boss} has no Energy Shield, so it's on Full Life only before your first hit: 0"
         saved = self.build.call("getConfig")["input"].get(ENEMY_FULL_LIFE_VAR)
         try:
-            on = number(self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: True},
-                                        fields=["FullDPS"])["stats"].get("FullDPS"))
-            off = number(self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: False},
-                                         fields=["FullDPS"])["stats"].get("FullDPS"))
+            on = probe_dps(self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: True},
+                                        fields=PROBE_DPS_FIELDS)["stats"])
+            off = probe_dps(self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: False},
+                                         fields=PROBE_DPS_FIELDS)["stats"])
         finally:
             if saved:
                 self.build.call("setConfig", vars={ENEMY_FULL_LIFE_VAR: saved}, fields=["FullDPS"])
@@ -11738,7 +11772,7 @@ class Conditions:
             return 0.0, f"{URUK}'s Physical Damage taken stat not read: 0"
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         pool = boss_pool(boss)
-        dps = number(self.build.call("stats", fields=["FullDPS"]).get("FullDPS"))
+        dps = probe_dps(self.build.call("stats", fields=PROBE_DPS_FIELDS))  # (MECH112: FullDPS else the main's)
         if pool <= 0 or dps <= 0:
             return 0.0, f"{URUK}: no fight length (the build's Full DPS is 0): 0"
         share, how = uruk_taken(per, rate, pool / dps)
@@ -11933,8 +11967,8 @@ class Conditions:
         samples = []
         try:
             for s in PRESENCE_SAMPLES:
-                got = self.build.call("setConfig", vars={PRESENCE_SECONDS_VAR: s}, fields=["FullDPS"])["stats"]
-                samples.append((float(s), number(got.get("FullDPS"))))
+                got = self.build.call("setConfig", vars={PRESENCE_SECONDS_VAR: s}, fields=PROBE_DPS_FIELDS)["stats"]
+                samples.append((float(s), probe_dps(got)))  # (MECH112: FullDPS else the main skill's)
         finally:
             self.build.call("setConfig", vars={PRESENCE_SECONDS_VAR: before if before is not None else False},
                             fields=["FullDPS"])
@@ -12715,6 +12749,16 @@ class Conditions:
                 t.strip() for t in texts if PRESENCE_IGNITE.match(t.strip()))).group(1)), FLAMMABILITY_SECONDS)
             aura = (aura[0] * reach, f"{aura[1]}; it Ignites only at 50% Flammability: {how}")
         legion = self.minion_ignite(names)
+        if legion[0] > 0:  # (MECH112, item 3: the 50% Flammability gate on the minions' Ignited share)
+            burn = self._legion_burn()
+            if burn > 0:
+                if "_flammability_mod" not in stats:
+                    stats["_flammability_mod"] = self.build.call("flammabilityMagnitude") or {}
+                reach, how = no_hit_ignite(stats, burn, FLAMMABILITY_SECONDS)
+                legion = (legion[0] * reach, f"{legion[1]}; they Ignite only at 50% Flammability: {how}")
+            else:
+                legion = (legion[0], f"{legion[1]}; the minion's Life wasn't read, so the 50% Flammability gate isn't "
+                                     "applied (an overcount possible)")
         # (MECH100, R47-2: a main Whirlwind skill carries the ground's debuff 8 s past it: whirlwind_carry)
         carried, carry_how = whirlwind_carry(ground_pieces, self.main_skill,
                                              1.0 if time_share is None else number(time_share))

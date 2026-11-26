@@ -105,3 +105,13 @@ def test_death_spreads_are_zero_on_a_lone_boss_and_shock_conduction_needs_thunde
     assert "undercount" in with_adds[0]["basis"]
     assert models.death_spread_notes([], {"Spark"}, {}) == []
     assert models.death_spread_notes([], {"Contagion"}, {}, {models.DEATH_SPREAD_ENTRY}) == []
+
+
+# The box-on / box-off DPS probes read the main skill's DPS when no group is in Full DPS (MECH112, the b2 check) -------
+
+def test_probe_dps_falls_back_to_the_main_skill_when_full_dps_is_zero():
+    assert conditions.probe_dps({"FullDPS": 1234.0, "CombinedDPS": 5.0}) == 1234.0
+    assert conditions.probe_dps({"FullDPS": 0, "CombinedDPS": 5.0}) == 5.0
+    assert conditions.probe_dps({"FullDPS": 0, "CombinedDPS": 5.0, "Minion.CombinedDPS": 9.0}) == 9.0
+    assert conditions.probe_dps({}) == 0.0
+    assert set(conditions.PROBE_DPS_FIELDS) >= {"FullDPS", "CombinedDPS", "Minion.CombinedDPS"}
