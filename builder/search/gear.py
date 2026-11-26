@@ -39,7 +39,7 @@ from builder.search.rares import (
     catalyst_matches, catalysed_text, catalyst_quality, implicit_tags, aldur_implicit_row, mod_lines, roll,
     INHERENT_SKILL,
 )
-from builder.search.objective import NO_DAMAGE_OFFSET
+from builder.search.objective import NO_DAMAGE_OFFSET, POINTS_OVER
 from builder.search.state import EPSILON, Build
 from builder.search.conditions import FULL_UPTIME, SWITCH_ON
 
@@ -2296,7 +2296,13 @@ class Gear:
             allocated = {n["id"] for n in self.build.call("allocatedNodes")["nodes"]}
             banned = self.ctx.compiled.filters.forbidden_passives
             keys = [(name, i) for name, (i, _) in recipes.items() if i not in allocated and name not in banned]
-            scored = self.build.node_deltas([{"add": [node_id]} for _, node_id in keys])
+            # An anoint allocates its notable WITHOUT a passive point, but a node what-if counts the added node as
+            # allocated (bridge setPointsOver: pointsOver over env.allocNodes), so on a tree with all its points spent
+            # every notable read one point over the level's budget, a hard deficit (~ -22.8 on 2b75b's and 2b75e's
+            # delivered builds, SPEED4's POE2T7899, SEARCHB10's POE2T8476), and the screen kept nothing. Each what-if
+            # keeps the build's own PassivePointsOver ("extra": applied after PoB's stats, Build._scored)
+            over = {POINTS_OVER: (self.build.stats or {}).get(POINTS_OVER) or 0}
+            scored = self.build.node_deltas([{"add": [node_id], "extra": dict(over)} for _, node_id in keys])
             ranked = sorted(((s - self.lam * self.anoint_cost(name), name) for (s, _), (name, _) in zip(scored, keys)),
                             key=lambda x: -x[0])
             self._anoint_screen = [name for value, name in ranked if value > self.build.score + EPSILON]
