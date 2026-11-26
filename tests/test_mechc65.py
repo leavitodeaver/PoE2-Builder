@@ -96,3 +96,8 @@ def test_her_declaration_finds_an_ascendancy_persistent_buff_through_every_known
     assert c.her_declaration(groups, ctx.gems, [], stats, 2.0) is None  # (the old lookup)
     up, how = c.her_declaration(groups, c.all_gems(ctx), [], stats, 2.0)
     assert up > 0 and "Virtuous Barrier" in how
+
+
+def test_no_forced_move_clause_without_forced_moves():
+    how = models.presence_reentries([], {"PresenceRadius": 40, "MovementSpeedMod": 1.0}, 2.0)[1]
+    assert "already outside" not in how and "forced moves" not in how

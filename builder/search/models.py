@@ -16761,8 +16761,8 @@ def presence_reentries(texts: list[str], stats: dict, metres: float) -> tuple[fl
     every = 2 * DODGE_EVERY  # (rolling out and back, you're outside half the time: a forced move then adds no entry)
     return 1.0 / every + forced / 2, (f"rolling out of your {radius:.1f} m Presence and back in (a {roll:.1f} m roll "
                                       f"every {DODGE_EVERY:g} s, the boss {metres:g} m away): it enters once every "
-                                      f"{every:g} s (a way to play the build: MEDIUM){forced_text}, half of them while "
-                                      "you're already outside")
+                                      f"{every:g} s (a way to play the build: MEDIUM){forced_text}"
+                                      + (", half of them while you're already outside" if forced > 0 else ""))
 AGGRAVATE_MODEL = "aggravate"  # (custom-models.yaml entries feeding these lines to aggravate_model)
 AGGRAVATE_LINE = "1% more Magnitude of Bleeding you inflict"  # (MECH103: PoB's Aggravated box, probe POE2T6497)
 
