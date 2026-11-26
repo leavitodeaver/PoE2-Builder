@@ -11260,7 +11260,9 @@ def death_spread_notes(found: list[Skill], gems: set[str], stats: dict,
             "basis": ("only Thunderstorm Drenches enemies (checked: every game table's drench / wet stats)"
                       + ("; the build casts it (Thunderstorm's row gives its uptime), but the always-Shock while the "
                          "boss is Drenched isn't added to the Shock chance yet (an undercount)" if storm
-                         else "; the build has none, so the line never applies")),
+                         else "; the build has none, so the line never applies")
+                      + "; the gem can no longer be obtained (patch 0.5.0; context.py's gone list): the search never "
+                        "offers it, only an imported build holds it (MECH113)"),
             "play": ("Cast Thunderstorm on the boss: while it's Drenched, the supported skill always Shocks it."
                      + ("" if storm else " Without Thunderstorm: 0."))})
     return rows

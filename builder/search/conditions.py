@@ -766,6 +766,14 @@ BLIND_LINE = re.compile(r"\bblind", re.I)
 # minions probably carry a Blind support of their group, "Supports any skill that Hits enemies"; still 0 here: no rate
 # of their zaps is read, so no row can be worked out from the build; never a flat rate.)
 BLIND_HIT_STATS = ("global_chance_to_blind_on_hit_%", "attacks_chance_to_blind_on_hit_%")
+# PALM_BLIND (MECH113; AUDIT39 A39-16, an UNDERCOUNT): Staggering Palm's quality is attacks_chance_to_blind_on_hit_% 2% a
+# point (GrantedEffectQualityStats, 26650308) on its second granted effect StaggeringPalmProjectilePlayer (PoB's hidden
+# "Projectile" skill in the Palm's group, Gems.lua additionalGrantedEffectId1). The reader found the stat by stat (probe
+# POE2T8992: 40% at quality 20) but no side row reads the Projectile's hits, so it counted 0. Its hits a second are
+# MECHB51's reading of the game (Assumptions.staggering_palm, RESEARCH41 R41-14): while the buff a Heavy Stun by the Palm
+# grants is up, each hitting Quarterstaff Attack fires one (models.staggering_palm_keep: Heavy Stuns x the buff's
+# duration = its uptime, x the hitting attacks a second: the main skill's when it's a Quarterstaff Attack, else the
+# Palm's own uses); each Projectile taken to hit the boss (LOW, as that model).
 # (a Blind support beside Repulsion: its Repulsion Wave, "Deals Physical Attack damage in an area around the Cursed
 # target", PoB other.lua, hits the boss once a detonation; no side row reads it, so its rate comes from the curse's model;
 # MECH111: that the wave hits the Cursed target itself is MEDIUM-HIGH, RESEARCH60 R60-18: "Other targets are Knocked
@@ -6600,7 +6608,11 @@ def _consumer(subject: str) -> str:
 # 28%. Now the share of the fight with a critical hit in the past 4 s ("Recently", RECENTLY): the main skill's hits at its
 # share of the fight (AT_MAIN_SHARE) x its CritChance and each other group's side_hit_rows hits and crits, evenly spaced
 # (periodic_absent, MECHB54), the skills independent; weighed into the headline at that share (Search.weigh_uptimes), on
-# from MIN_UPTIME as the other shared boxes. Minions' crits aren't yours (not counted). Skills crit recently: the same.
+# from MIN_UPTIME as the other shared boxes. Minions' crits aren't yours (not counted) (MECH113, AUDIT39 A39-17's tag:
+# checked: every 26650308 Stats id holding minion / ally / allies with crit and recent / count / as_yours / you_: none, so
+# no line makes a minion's Critical Hit count as yours; KeywordPopups Minion: "summoned Allies which ... fight alongside
+# you"; PoB's stat descriptions hold no "minion ... Critical ... Recently / count as yours" text; patch notes: no hit, not
+# proof of absence). Skills crit recently: the same.
 def crit_recently_share(stats: dict) -> float:
     """Share of the fight you've dealt a critical hit in the past 4 s (CRIT_RECENTLY's note)."""
     main = models.at_main_share(stats)
@@ -10841,13 +10853,42 @@ class Conditions:
                                                         f"{use.share:.0%} of the fight x {hits:.2f} hits/s (the main "
                                                         f"skill's {own:.2f}" + (f" + {minion_how}" if number(minions) > 0
                                                                                  else "") + ")")
+        if any(f[0] == models.STAGGERING_PROJECTILE for f in found) and (palm := self._palm_projectiles(stats)):
+            extra[models.STAGGERING_PROJECTILE] = palm  # (MECH113, A39-16: PALM_BLIND's note)
         got = self._on_hit_events(found, stats, main_types, side_rows, main_index, attacks_only=False, extra=extra)
         if not got:
             return None
         up = 1.0 - math.prod(periodic_absent(1.0 - miss, hits * duration) for miss, hits in got[0])
         return up, (f"Blind on Hit from the skills' own stats: {'; '.join(got[1])}; {duration:g} s each: {up:.0%} up "
-                    "(MECH109: Twister's / Flash Grenade's attacks_chance_to_blind_on_hit_%, the Blind supports' "
-                    "global_chance_to_blind_on_hit_%; minions' own Blind not read)")
+                    "(MECH109: Twister's / Flash Grenade's / Staggering Palm's Projectile's attacks_chance_to_blind_on_"
+                    "hit_%, the Blind supports' global_chance_to_blind_on_hit_%; minions' own Blind not read)")
+
+    def _palm_projectiles(self, stats: dict) -> tuple[float, str] | None:
+        """(MECH113; PALM_BLIND's note) (Staggering Palm's Projectiles a second on the boss, how), or None with no Palm
+        group or no Quarterstaff hits: MECHB51's reading (Assumptions.staggering_palm, models.staggering_palm_keep)."""
+        from builder.search.context import skill_types_of
+
+        groups = self.build.call("groups")["groups"]
+        spot = next(((g["index"], pos) for g in groups if g.get("enabled", True) is not False
+                     for pos, s in enumerate(g.get("skills") or (), start=1) if s["name"] == models.STAGGERING_PALM), None)
+        if spot is None:
+            return None
+        row = next(iter(self.build.call("useRates", indices=[spot[0]], actives=[spot[1]])["rates"]), {})
+        duration = number(row.get("duration")) or models.STAGGERING_DURATION
+        stuns, stun_how = models.heavy_stun_rate(stats)
+        main = models.at_main_share(stats)
+        if (self.main_skill and "Attack" in set(skill_types_of(self.build.ctx, self.main_skill))
+                and "Staff" in ((self.build.ctx.gems.get(self.main_skill) or {}).get("weaponTypes") or [])):
+            attacks = models.hits_per_second(main) if "HitChance" in main else number(main.get("Speed"))
+            who = f"{self.main_skill}'s {attacks:.2f} hitting attacks a second"
+        else:
+            attacks = number(row.get("speed")) * min(number(row.get("HitChance")) or 100.0, 100.0) / 100
+            who = f"Staggering Palm's own {attacks:.2f} hitting uses a second"
+        _, uptime, game = models.staggering_palm_keep(stuns, duration, attacks, 0.0)
+        if game <= 0:
+            return None
+        return game, (f"its buff up {uptime:.0%} of the fight (Heavy Stuns {stuns:.3f}/s, {stun_how}; {duration:.2f} s "
+                      f"each), one Projectile a hitting Quarterstaff attack then: {who} (MECHB51's reading, LOW)")
 
     def _leap_ground(self, stats: dict) -> tuple[float, float, str] | None:
         """(MECH105) (Leaps a second that Detonate a Spear, chance, how) for shocked_ground, or None with no quality chance

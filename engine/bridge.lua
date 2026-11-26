@@ -811,7 +811,18 @@ local function ailmentChancePerHit(output, skill, enemyDB, ailment, roll)
 				end
 				return (1 - (p or 0)) * even / w + (p or 0) * lucky
 			end
-			-- each type's chance to roll Lucky, as PoB's damage pass reads it (CalcOffence 4259-4266)
+			-- each type's chance to roll Lucky, as PoB's damage pass reads it (CalcOffence 4259-4266). (MECH113, RESEARCH64
+			-- R64-5, correcting d9fc7df8's "no Lightning-only Lucky stat": the game's Lucky stats hold "extra_damage_roll",
+			-- not "luck") <Type>LuckyHitsChance / LuckyHitsChance carry chance_for_extra_damage_roll_with_lightning_damage_%
+			-- (the Lightning Rod notable 30%, an anoint; Heart of the Well's prefix 15-25%; Lightning Arrow's and Gathering
+			-- Storm's alternate quality, 1500 permille a point: 1.5% a point, the reading UNVERIFIED per R64-5) and
+			-- chance_for_extra_damage_roll_% (The Spring Hare notable 20%, all hit damage, an anoint) through PoB's
+			-- SkillStatMap 797-802 and ModCache lines (checked: every 26650308 table's stat columns for Stats ids holding
+			-- extra_damage_roll / luck: the other dealt-Lucky rows are Defy / the hand wrap while Surrounded, the Heavy
+			-- Stunned / Low Life notables, spell crits' Lucky uniques, a Soul Core's Thorns; the rest are damage TAKEN,
+			-- monsters' or have no carrier; second source RESEARCH64 R64-5, poe2db agreeing on Heart of the Well). Probe
+			-- (POE2T8989, Lightning Rod anointed): b01's Shock 32.77% -> 35.09% a hit, b14 76.18 -> 77.31, b16 94.71 ->
+			-- 94.99; b05 unchanged (already Lucky: Defy II).
 			local function luck(kind, crits)
 				if mods:Flag(cfg, "LuckyHits") or (not crits and kind == "Lightning" and mods:Flag(cfg, "LightningNoCritLucky"))
 					or (crits and mods:Flag(cfg, "CritLucky"))
@@ -824,8 +835,10 @@ local function ailmentChancePerHit(output, skill, enemyDB, ailment, roll)
 			-- factor), each rolled apart: "Each Damage Type has its damage value rolled separately" (KeywordPopups
 			-- BooleanDamageRoll; RESEARCH61 R61-12). Esh's Prowess's Lightning rolls its minimum or maximum, the maximum
 			-- at 50% (HIGH: the keyword's "with a 50% chance for each"), 75% when Lucky ("picking the maximum if either
-			-- roll had that result"); no source makes damage dealt Unlucky (checked: every Stats id holding "luck",
-			-- 26650308: only damage / crits TAKEN are Unlucky).
+			-- roll had that result"); no source makes damage dealt Unlucky (checked: every Stats id holding "luck" or
+			-- "extra_damage_roll", 26650308, through every table's stat columns: a negative base_extra_damage_rolls ("Damage
+			-- with Hits is Unlucky") has no Mods row and only monster skills' stat sets; the other Unlucky lines are damage /
+			-- crits TAKEN; MECH113 widened MECH111's "luck" search after R64-5).
 			local function over(pob, crits, pts)
 				local fixed, varying, avg = 0, { }, 0
 				for _, kind in ipairs({ "Physical", "Lightning", "Cold", "Fire", "Chaos" }) do
