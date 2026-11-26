@@ -109,7 +109,9 @@ PRESS_RATES = (0.0, 0.25, 0.5, 1.0, 2.0)
 UPKEEP_PRESS = os.environ.get("POE2_SEARCH_UPKEEP", "1") != "0"
 UPKEEP_TYPES_CHARGED = frozenset({"AppliesCurse", "Mark", "Warcry"})
 UPKEEP_MOST = 0.9  # the most of the fight upkeep may take (as models.WARCRY_PRESS_MOST)
-DISTANCE_SETTLES = 4  # (SEARCH41) settle rounds per boss-distance candidate at most (Search.choose_distance)
+DISTANCE_SETTLES = 4  # (SEARCH41) settle rounds per boss-distance candidate at most, where the choice is final
+# (finalize_task, fresh_score, gate4's fair scoring: Search.distance_settles); mid-search one settle, as before: the
+# manager's 26 Nov bar (~2-3% of a pass) was missed (POE2T7561, b16: +35 s on a ~80 s conditions round)
 
 
 def totem_row(row: dict) -> bool:
@@ -1158,8 +1160,8 @@ class Search:
             conditions.distance = None if metres == natural else (metres, "")
             # (SEARCH41; MECH108's POE2T8811 / 8816: a Presence build's Withered / Presence numbers keep moving over further
             # settles, so one settle could rank the distances on half-moved numbers) each candidate is settled to rest,
-            # up to DISTANCE_SETTLES rounds (the finished-build scoring's 4 in fresh_score / gate4._score_finished)
-            for _ in range(DISTANCE_SETTLES):
+            # up to self.distance_settles rounds (DISTANCE_SETTLES where the choice is final, 1 mid-search)
+            for _ in range(getattr(self, "distance_settles", 1)):
                 if not self.settle():
                     break
             scores[metres] = self.build.objective.value(self.build.stats)
@@ -2422,6 +2424,7 @@ def fresh_score(engine: Any, payload: dict, skeleton: dict, xml: str) -> float:
     preset's config, then the steps finalize_task runs on a finished build (gate4.fair_reference's, which scores the
     references the same way). Nothing of the finished search's state (its assumption mods, conditions, rates) is kept."""
     fresh = Search(engine, None, payload, skeleton, 0, full=True)
+    fresh.distance_settles = DISTANCE_SETTLES
     build = fresh.build
     build.call("loadXml", xml=xml)
     build.call("resetConfig", **boss_config(fresh.ctx.request))
@@ -2494,6 +2497,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     use_cpu_clock(payload, engine)
     deadline = clock.now() + seconds
     search = Search(engine, report, payload, skeleton, 1, full=True)
+    search.distance_settles = DISTANCE_SETTLES  # (the finished build: its distance settled to rest)
     search.load(state)
     search.resume_step, search.line_passes = None, 0  # (its polish starts a sweep pass, as before M1)
     search.tree_rebuilt = True  # (M2: no tree rebuild in finalize's short polish)

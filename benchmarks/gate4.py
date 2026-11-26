@@ -142,6 +142,9 @@ def fair_reference(engine: PobEngine, xml: str, request: BuildRequest, legal: bo
 
 def _score_finished(search) -> None:
     """The search's scoring steps on a finished build, as finalize_task runs them (fair_reference)."""
+    from builder.search.inner import DISTANCE_SETTLES
+
+    search.distance_settles = DISTANCE_SETTLES  # (as finalize_task: the distance settled to rest)
     for _ in range(4):
         if not search.settle():
             break

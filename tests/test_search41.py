@@ -121,9 +121,27 @@ def test_each_distance_candidate_is_settled_to_rest_before_it_is_scored(monkeypa
                             call=lambda m, **kw: {"lines": []} if m == "sourceLines" else {"PresenceRadius": 40})
     search = object.__new__(inner.Search)
     search.build, search.settle = build, settle
+    search.distance_settles = inner.DISTANCE_SETTLES  # (as finalize_task sets it; mid-search it is 1)
     search.conditions = SimpleNamespace(distance=None, main_types={"Spell"}, main_skill="Spark")
     search.choose_distance()
     # (6 m: 3 settles to rest; 4 m: 1 (already at rest, `moving` <= 0); the chosen one applied: 1)
     assert calls["n"] == 5
     assert 1 <= inner.DISTANCE_SETTLES <= 6
 
+
+
+def test_mid_search_a_distance_candidate_gets_one_settle_and_the_finished_build_settles_to_rest():
+    """(the manager's 26 Nov bar: the to-rest settles cost ~+35 s a pass on b16, POE2T7561) the search's own conditions
+    rounds settle each candidate once; finalize_task / fresh_score / gate4's fair scoring set DISTANCE_SETTLES."""
+    import inspect
+    import sys
+
+    from builder.search import inner
+
+    sys.path.insert(0, str(ROOT / "benchmarks"))
+    import gate4
+
+    assert getattr(object.__new__(inner.Search), "distance_settles", 1) == 1
+    assert "getattr(self, \"distance_settles\", 1)" in inspect.getsource(inner.Search.choose_distance)
+    for fn in (inner.finalize_task, inner.fresh_score, gate4._score_finished):
+        assert "distance_settles = DISTANCE_SETTLES" in inspect.getsource(fn), fn.__name__
