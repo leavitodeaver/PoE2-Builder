@@ -6,7 +6,8 @@ Shield or Dual Daggers): "Prepare yourself to bait an attack": the next time a n
 Darkness is Triggered on them and others within 2.5 m, you teleport behind them in Stealth, and a Shade (327 Life) is left
 in your place to take the Hit and retaliate. Avoiding damage this way builds Heavy Stun, and nothing else happens if the
 Hit Heavy Stuns you. No cost, cast time, cooldown, duration or Shade limit is shown. Engulf in Darkness (the Duplicity /
-Blade of Night block: 94%; its own level-18 page: 127%): 6 s; explodes when the target dies or is Immobilised; the
+Blade of Night block: 94%; its own level-18 page: 127%: the triggered Engulf follows the triggering gem's level, 9-13
+shown on those pages vs 18, R65-18 MEDIUM; 94% kept): 6 s; explodes when the target dies or is Immobilised; the
 explosion (1.8 m) leaves a Remnant (12 s) that grants 5 Darkness when collected; Impaling an Engulfed enemy grants 1
 Darkness.
 
@@ -18,7 +19,9 @@ Duplicity stands in the attack on purpose, since the Shade takes the Hit (a play
 Rows: every boss hit (no evade or block), and the press rate alone.
 LOW / UNVERIFIED, each labelled: no wait between the press and the Hit (pressed as the boss's attack is telegraphed;
 row: half the boss's cadence); the Heavy Stun clause not counted (an OVERCOUNT on a build a pinnacle hit Heavy Stuns);
-Duplicity's own 125% (the Shade's retaliation?) not counted (its hitter is unclear: an UNDERCOUNT); its Shade taken to die
+Duplicity's own 125% read as its Shade's retaliation (RESEARCH65 R65-18, MEDIUM-LOW: the Engulf part is listed apart at
+94%, so the 125% is the Shade's), one hit a trigger, scored against the main skill's damage effectiveness at its gem level
+(the bridge's LedgerBaseMultiplier; the Shade taken to carry the main skill's modifiers, LOW; row: 0); its Shade taken to die
 to the Hit it takes (327 Life against a pinnacle hit), so it doesn't repeat Ambushes (row: it lives 6 s, as Shroud's).
 """
 
@@ -32,6 +35,7 @@ DUPLICITY = "Duplicity"
 BLADE_OF_NIGHT = "Blade of Night"
 ENGULF_SECONDS = 6.0
 ENGULF_PCT = 94.0
+RETALIATION_PCT = 125.0  # (R65-18: the Shade's retaliation, MEDIUM-LOW)
 REMNANT_DARKNESS = 5.0
 IMPALE_DARKNESS = 1.0
 SHADE_LIFE = 327
@@ -76,20 +80,26 @@ def duplicity_rate(build: Any, stats: dict) -> tuple[float, dict]:
                   "group": group, "speed": models.number((row or {}).get("speed"))}
 
 
-def idle_play(d: dict, main_name: str, ambush: float, darkness: float, conceal: bool) -> str:
+def retaliation(hit: float, own_pct: float, rate: float) -> float:
+    """(R65-18) DPS of Duplicity's Shade retaliating once a trigger at 125% against the main skill's own damage
+    effectiveness (`own_pct`, %); 0 without a yardstick."""
+    return rate * hit * RETALIATION_PCT / own_pct if own_pct > 0 and rate > 0 else 0.0
+
+
+def idle_play(d: dict, main_name: str, ambush: float, darkness: float, conceal: bool, retaliate: float = 0.0) -> str:
     """(PREVIEW6; the manager, 26 Nov 06:32) The play line for a Duplicity the build holds but never presses (the search
     tried its press rates and kept 0): why, with the without / with numbers. `ambush` = the average more damage the main
     skill would get from Ambushes with Duplicity pressed on each of the boss's landing Hits (stealth.ambush_more);
     each press takes 1 / its speed from the main skill (as the press model charges it)."""
     rate, speed = d.get("hits", 0.0), d.get("speed", 0.0)
     busy = min(1.0, rate / speed) if speed > 0 else 1.0
-    net = (1 + ambush) * (1 - busy) - 1
+    net = (1 + ambush + retaliate) * (1 - busy) - 1
     return (f"Don't press Duplicity here: the search tried it and kept 0 presses. Without it: {main_name} as it is "
             f"(+0%). With it pressed on each of the boss's landing Hits ({rate:.3f}/s): Ambushes add {ambush:+.1%} to "
             f"{main_name} ({darkness:.3g} Darkness an Ambush{'' if conceal else ', no Conceal on it'}; its Shade is taken "
-            f"to die to the Hit, so no Shade repeats), but the presses take {busy:.0%} of the time ({1 / speed if speed > 0 else 0:.2f} s "
-            f"each, the weapon's attack time: Duplicity's own use time isn't published, LOW): {net:+.1%} in all. Its own "
-            f"125% isn't counted (an UNDERCOUNT){ASTERISK}")
+            f"to die to the Hit, so no Shade repeats) and its Shade's retaliation {retaliate:+.1%} (125%, R65-18's "
+            f"reading, MEDIUM-LOW), but the presses take {busy:.0%} of the time ({1 / speed if speed > 0 else 0:.2f} s "
+            f"each, the weapon's attack time: Duplicity's own use time isn't published, LOW): {net:+.1%} in all{ASTERISK}")
 
 
 def duplicity_note(rate: float, d: dict) -> dict:
@@ -102,7 +112,7 @@ def duplicity_note(rate: float, d: dict) -> dict:
         basis = (f"pressed {d['pressed']:.3f}/s ({d['press_how']}) and triggered by the boss's next landing Hit "
                  f"({d['hits']:.3f}/s: {d['how']}): {rate:.3f} triggers a second, each Engulfing the boss (6 s) and "
                  f"putting you in Stealth (LOW: no wait between the press and the Hit; the Heavy Stun clause not counted, "
-                 f"an OVERCOUNT where the Hit Heavy Stuns you; its 125% not counted, an UNDERCOUNT). Rows: every boss hit "
+                 f"an OVERCOUNT where the Hit Heavy Stuns you; its 125% counted as its Shade's retaliation in skills.py). Rows: every boss hit "
                  f"{min(d['pressed'], d['all_hits']):.3f}/s; a wait of half the boss's cadence a trigger")
     return {"label": f"Duplicity's triggers{ASTERISK}", "value": round(rate, 3), "confidence": "LOW",
             "basis": basis + ASTERISK,

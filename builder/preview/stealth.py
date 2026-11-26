@@ -136,7 +136,9 @@ def ambush_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[d
             cycle = 1 / rate + 1 / speed
             dark = min(DARKNESS_MAX, DARKNESS_ON_STEALTH * _concealed(baiter) + gain * cycle)
             more, _, _ = ambush_more(1 / cycle, uses, dark, 0)
-            extra[0]["play"] = dup.idle_play(bait, name, more, dark, _concealed(baiter))
+            own = models.number(read.get("LedgerBaseMultiplier")) * 100  # (R65-18: its Shade's 125% retaliation)
+            back = rate * dup.RETALIATION_PCT / own / uses if own > 0 and uses > 0 else 0.0
+            extra[0]["play"] = dup.idle_play(bait, name, more, dark, _concealed(baiter), back)
         return [], [{"label": LABEL, "value": 0, "confidence": "MEDIUM",
                      "basis": ("Shroud / Duplicity is in the build but isn't used"
                                + (f" (Shroud: no rate read{': ' + why if why else ''})" if group is not None else "")

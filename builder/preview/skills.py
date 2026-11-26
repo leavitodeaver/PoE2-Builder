@@ -8,7 +8,8 @@
   0, said. Scored against Blade of Night's own 144% (the same modifiers taken to apply, LOW).
 - Shadow Assault: three strikes; the Final Strike makes a Shade that dashes (Shade Dash 177%), and the other Shades
   teleport to the target and repeat the dash. A use is read as one strike, so a Final Strike every third use (LOW:
-  PoB scores the gem as one hit a use); Shades alive from that cadence (stealth.shades_alive: 6 s, limit 3); each dash
+  PoB scores the gem as one hit a use; RESEARCH65 R65-18 reads the text as three strikes a use: a row, until a video
+  shows which); Shades alive from that cadence (stealth.shades_alive: 6 s, limit 3); each dash
   scored against Shadow Assault's 78% (LOW: the Shade's dash taken at its full 177%, no 50% less: the Ambush rule's
   "50% less" is for Shades repeating your Ambush, not their own dash, UNVERIFIED).
 No flat rates: each from the main skill's own uses (PoB's Speed at its main share) and the build's own Immobilises.
@@ -70,7 +71,8 @@ def skill_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[di
                       "basis": (f"every hit Engulfs the boss (6 s), which explodes when Immobilised: the build's own "
                                 f"Immobilises, {rate:.3f}/s ({how or 'none'}), each {ENGULF_PCT:g}% against Blade of "
                                 f"Night's {BLADE_OF_NIGHT_PCT:g}%, {each:,.0f} (the same modifiers taken to apply; 94% "
-                                f"not its own page's 127%: UNVERIFIED). No Immobilise source: 0. Its Remnants' Darkness "
+                                f"at the levels shown, 127% on its own level-18 page: the triggering gem's level, "
+                                f"R65-18 MEDIUM). No Immobilise source: 0. Its Remnants' Darkness "
                                 f"(+5 each) goes to the Ambush (stealth.py){ASTERISK}"),
                       "play": (f"Freeze, Electrocute, Pin or Heavy Stun the boss while it is Engulfed: each one blows the "
                                f"Engulf up ({rate:.3f} a second here){ASTERISK}")})
@@ -79,21 +81,42 @@ def skill_model(build: Any, main: Any, stats: dict) -> tuple[list[dict], list[di
         each = hit * DASH_PCT / SHADOW_ASSAULT_PCT
         dps = finals * shades * each
         added += dps
+        # (PREVIEW6; RESEARCH65 R65-18 reads "Strike rapidly three times" as all three strikes in one use, MEDIUM text;
+        # whether one press is one strike or three is a question for a reveal video (THE USER's visuals rule): a row)
+        finals3, shades3 = shade_dashes(3 * uses)
+        three = 2 * hit * uses + finals3 * shades3 * each
         notes.append({"label": f"Shadow Assault's Shade dashes{ASTERISK}", "value": f"{dps:,.0f} DPS", "confidence": "LOW",
                       "basis": (f"a Final Strike every third use ({finals:.3f}/s from {uses:.2f} uses/s; LOW: a use read as "
                                 f"one strike) makes a Shade that dashes, and the other Shades repeat it: {shades} dash(es) "
                                 f"each ({shades} Shade(s) alive, 6 s, limit 3), each {DASH_PCT:g}% against its "
                                 f"{SHADOW_ASSAULT_PCT:g}%, {each:,.0f} (full damage, no 50% less: UNVERIFIED). Row: one "
-                                f"dash a Final Strike, {finals * each:,.0f} DPS{ASTERISK}"),
+                                f"dash a Final Strike, {finals * each:,.0f} DPS. Row (RESEARCH65 R65-18's reading of 'Strike rapidly three "
+                                f"times': all three strikes in one use, MEDIUM text, not seen in a video): two more "
+                                f"strikes a use and a Final Strike every use, {three:+,.0f} DPS instead of {dps:+,.0f} (about "
+                                f"x{(hit * uses + three) / (hit * uses + dps) if hit * uses + dps > 0 else 1:.2f} on the skill "
+                                f"if so){ASTERISK}"),
                       "play": f"Keep the three-strike combo going: every Final Strike sends your Shades through the boss{ASTERISK}"})
     # (PREVIEW5) Duplicity's Engulf on the boss explodes on the build's own Immobilises (Blade of Night's own counted above)
     from builder.preview import duplicity as dup
 
-    if main.name != dup.BLADE_OF_NIGHT and dup._group(build, dup.DUPLICITY) is not None:
+    if main.name != dup.DUPLICITY and dup._group(build, dup.DUPLICITY) is not None:
         read = {**build.call("stats", fields=dup.FIELDS), **stats}
         baited, bait = dup.duplicity_rate(build, read)
-        explosions, how = dup.engulf_explosions(read, main.name, baited)
         own = models.number(read.get("LedgerBaseMultiplier")) * 100
+        # (PREVIEW6; RESEARCH65 R65-18) its 125% = its Shade's retaliation, once a trigger, any main skill
+        back = dup.retaliation(hit, own, baited)
+        added += back
+        notes.append({"label": f"Duplicity's Shade retaliating{ASTERISK}", "value": f"{back:,.0f} DPS",
+                      "confidence": "LOW",
+                      "basis": (f"each Duplicity trigger ({baited:.3f}/s) leaves a Shade that takes the Hit and "
+                                f"retaliates: its 125% read as that retaliation (RESEARCH65 R65-18, MEDIUM-LOW: the "
+                                f"Engulf part is listed apart at 94%), against {main.name}'s {own:g}% (its damage "
+                                f"effectiveness at its gem level; the Shade taken to carry the main skill's modifiers, "
+                                f"LOW), one hit a trigger. Row: 0 if the 125% is something else. No trigger or no "
+                                f"yardstick: 0{ASTERISK}"),
+                      "play": f"Press Duplicity into the boss's attacks: its Shade hits back each time{ASTERISK}"})
+    if main.name not in (dup.BLADE_OF_NIGHT, dup.DUPLICITY) and dup._group(build, dup.DUPLICITY) is not None:
+        explosions, how = dup.engulf_explosions(read, main.name, baited)
         each = hit * dup.ENGULF_PCT / own if own > 0 else 0.0
         dps = explosions * each
         added += dps

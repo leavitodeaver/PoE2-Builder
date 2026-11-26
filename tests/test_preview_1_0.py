@@ -653,6 +653,8 @@ def test_earthrend_blade_of_night_shadow_assault_and_galvanising(engine):
     sa = engine.call("stats", fields=fields)
     _, notes, added = skill_model(Build(), SimpleNamespace(name="Shadow Assault"), sa)
     assert added > 0 and "Final Strike" in notes[0]["basis"]
+    # (PREVIEW6, R65-18) the three-strikes-a-use reading is a row, not the headline
+    assert "R65-18" in notes[0]["basis"] and "all three strikes in one use" in notes[0]["basis"]
 
 
 def test_duplicity_and_engulf_darkness_readings():
@@ -674,7 +676,12 @@ def test_duplicity_and_engulf_darkness_readings():
     # 1.10 x 0.75 - 1 = -17.5%
     line = dup.idle_play({"hits": 0.5, "speed": 2.0}, "Blade of Night", 0.10, 0.4, False)
     assert "(0.500/s)" in line and "+10.0%" in line and "25% of the time (0.50 s each" in line and "-17.5% in all" in line
-    assert "no Conceal on it" in line and "0.4 Darkness an Ambush" in line and "UNDERCOUNT" in line
+    assert "no Conceal on it" in line and "0.4 Darkness an Ambush" in line and "retaliation +0.0%" in line
+    # (R65-18) its Shade's 125% retaliation, once a trigger, against the main skill's own %: 0.5/s x 1000 x 125/144
+    assert dup.retaliation(1000.0, 144.0, 0.5) == pytest.approx(0.5 * 1000 * 125 / 144)
+    assert dup.retaliation(1000.0, 0.0, 0.5) == 0 and dup.retaliation(1000.0, 144.0, 0.0) == 0
+    line = dup.idle_play({"hits": 0.5, "speed": 2.0}, "Blade of Night", 0.10, 0.4, False, 0.05)
+    assert "retaliation +5.0%" in line and "-13.7% in all" in line  # (1.15 x 0.75 - 1)
 
 
 def test_duplicity_triggers_from_the_bosss_hits(engine):
@@ -725,8 +732,14 @@ def test_duplicity_triggers_from_the_bosss_hits(engine):
     pressed = next(n for n in notes if "Duplicity's triggers" in n["label"])["play"]
     assert pressed.startswith("Press Duplicity as the boss winds up")  # (pressed: the old play line, not the idle one)
     # its Engulf explosions (0 without an Immobilise: said) and its Shade's Volatile blast
-    _, notes, _ = skill_model(build({"Duplicity": 1.0}), SimpleNamespace(name="Viper Strike"), {**stats, "_boss": None})
+    _, notes, added = skill_model(build({"Duplicity": 1.0}), SimpleNamespace(name="Viper Strike"), {**stats, "_boss": None})
     assert any(n["label"].startswith("Duplicity's Engulf") for n in notes)
+    # (PREVIEW6, R65-18) its Shade retaliates once a trigger at 125% against Viper Strike's own damage effectiveness
+    back = next(n for n in notes if n["label"].startswith("Duplicity's Shade retaliating"))
+    assert added > 0 and float(back["value"].split()[0].replace(",", "")) > 0 and "R65-18" in back["basis"]
+    assert back["basis"].endswith(preview.ASTERISK) and "Row: 0" in back["basis"]
+    _, notes, _ = skill_model(build({}), SimpleNamespace(name="Viper Strike"), {**stats, "_boss": None})
+    assert next(n for n in notes if n["label"].startswith("Duplicity's Shade retaliating"))["value"] == "0 DPS"
     _, notes, added = support_model(build({"Duplicity": 1.0}), SimpleNamespace(name="Viper Strike"), stats)
     blast = next(n for n in notes if n["label"].startswith("Volatile Shades on Duplicity"))
     assert added > 0 and "Row: 0" in blast["basis"]
