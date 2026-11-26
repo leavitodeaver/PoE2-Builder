@@ -127,7 +127,9 @@ run_turn_once() {   # one turn. $1: new or more, $2: the text
 		if [ -n "$POE2_WORKER_DIR" ]; then echo "$POE2_WORKER_DIR" > "$W/$JOB.dir"; else rm -f "$W/$JOB.dir"; fi
 	fi
 	local dir; dir=$(cat "$W/$JOB.dir" 2>/dev/null); [ -n "$dir" ] || dir="/c/PROJECTS/PoE2 Builder"
-	(cd "$dir" && MSYS_NO_PATHCONV=1 env $CLEAR CLAUDE_CONFIG_DIR="C:\\Users\\conve\\.claude-account$ACCOUNT" \
+	# (26 Nov 2026, the manager) A print-mode session stops its own background tasks 10 min after its last turn ("Background
+	# tasks still running 10m after the last turn ...; stopping them"): MECHD9 lost two video helpers so. Wait up to 3 hours.
+	(cd "$dir" && MSYS_NO_PATHCONV=1 env $CLEAR CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=10800000 CLAUDE_CONFIG_DIR="C:\\Users\\conve\\.claude-account$ACCOUNT" \
 		"$EXE" "${args[@]}" < /dev/null > "$W/$JOB.last.json" 2>&1)   # (no stdin: else it waits 3 s and prints a warning before the JSON)
 	local code=$?
 	cp -f "$W/$JOB.last.json" "$W/$JOB.turn_$(count turn_started).json" 2>/dev/null
