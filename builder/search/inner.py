@@ -1006,6 +1006,7 @@ class Search:
         saved = [(owner, self.gems.plain_state(owner)) for owner in (self.conditions, self.assumptions) if owner]
         self.gems.choose_active_skill()
         self.choose_distance()
+        self.weigh_life()  # (SEARCH41: the Low Life factor in the state just chosen, LIFE_AFTER_PRESS)
         self.weigh_uptimes()
         after_key = objective.choice_key(build.stats)
         higher = (after_key[:2] > before_key[:2]
@@ -1096,6 +1097,11 @@ class Search:
                      f"included); the movement-speed penalty while using skills isn't scored", "confidence": "theory"}
         return conditions.moving != before
 
+    # (SEARCH41; SPEED3's POE2T7883, the manager 25 Nov 00:14) LIFE_AFTER_PRESS: weigh_life ran only inside choose_play,
+    # BEFORE the press round chose the rates, and never again: example build 15's damage comes from its pressed
+    # Incinerate, so finalize / fresh_score / gate4's fair scoring kept a factor measured on the unpressed build (x1.0873;
+    # x1.0018 once measured on the pressed one: an OVERCOUNT of +8.5% on b15's first scoring, its whole -7.9% drift on a
+    # second). So it is measured again after each finished-state press round and after final_choices' re-choice.
     def weigh_life(self) -> None:
         """The boss's Low Life is fight-decided (the spec, item 1c): its last 35% of life ("Low Life if it has 35% of its
         Maximum Life or less", KeywordPopups) takes 0.35 / (DPS on Low Life) of the time per unit of life, so the headline is
@@ -2206,6 +2212,7 @@ def fresh_score(engine: Any, payload: dict, skeleton: dict, xml: str) -> float:
     fresh.choose_play()
     fresh.resolve()
     fresh.press_round(float("inf"))
+    fresh.weigh_life()  # (SEARCH41: LIFE_AFTER_PRESS)
     fresh.weigh_uptimes()
     if fresh.gems.refresh_infused():
         fresh.weigh_uptimes()
@@ -2361,6 +2368,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     trace.append(["press rates", round(build.score, 4)])
     if search.include_granted():  # (SEARCH25, A36-14: a granted pressed skill, judged on the finished build only)
         trace.append(["granted presses", round(build.score, 4)])
+    search.weigh_life()  # (SEARCH41: the Low Life factor on the pressed build, LIFE_AFTER_PRESS)
     search.weigh_uptimes()  # exact for the finished build
     trace.append(["uptimes", round(build.score, 4)])
     if search.final_choices():  # (SEARCH39: the stat set and the distance chosen again in the finished state)

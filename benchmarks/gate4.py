@@ -148,6 +148,7 @@ def _score_finished(search) -> None:
     search.choose_play()
     search.resolve()
     search.press_round(float("inf"))
+    search.weigh_life()  # (SEARCH41: the Low Life factor on the pressed build, as finalize_task: inner.LIFE_AFTER_PRESS)
     search.weigh_uptimes()
     search.final_choices()  # (SEARCH39: the stat set and the distance chosen again in the finished state, as finalize_task)
     if search.gems.refresh_infused():  # (the Infused factor in the finished state, as finalize_task: SEARCH28)
