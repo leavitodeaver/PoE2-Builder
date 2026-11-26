@@ -12488,7 +12488,17 @@ class Conditions:
                 or side_wither):
             # (Withered from gems, _withered_stacks: the main skill's own, Withering Touch on it, Withering Presence;
             # MECH110: the other groups' Wither / Chaos Bolt and Withering Touch, at their own hits, SIDE_WITHER's note)
-            main_group = self.build.call("groups").get("mainSocketGroup")
+            groups_w = self.build.call("groups")
+            main_group = groups_w.get("mainSocketGroup")
+            # (MECH113, an UNDERCOUNT: the main stats are the main group's SCORED active skill's, which can differ from
+            # the request's main skill: build 10's Despair group scores Doedre's Undoing's Dark Consequences (its
+            # mainActiveSkill 3, the 0.83 hits/s and 150,208 Chaos hit of the main stats; probe POE2T6704), and only it
+            # carries Withering Touch's stats (a curse isn't a skill that Hits). So Withering Touch is read from that
+            # skill's row too; it was read from the request's main skill alone, and counted 0 there.)
+            grp_w = next((g for g in groups_w.get("groups") or () if g.get("index") == main_group), {})
+            skills_w = grp_w.get("skills") or []
+            scored = (skills_w[min(grp_w.get("mainActiveSkill") or 1, len(skills_w)) - 1]["name"] if skills_w
+                      else self.main_skill)
             raw = self.build.call("activeSkills", levelStats=[self.main_skill, WITHERING_PRESENCE, *side_wither],
                                   supportStats=list(WITHER_SUPPORT_STATS))
             stats["_wither_side"] = []
@@ -12506,9 +12516,13 @@ class Conditions:
                         stats["_wither_side"].append((skill.get("group"), skill["name"], own, support))
                     continue
                 if skill["name"] == self.main_skill:
-                    stats["_wither_support"] = skill.get("supportStats") or {}
+                    if skill.get("supportStats") or scored == self.main_skill:
+                        stats["_wither_support"] = skill.get("supportStats") or {}
                     if self.main_skill in WITHER_ON_HIT_SKILLS:
                         stats["_wither_main"] = (self.main_skill, {s: got.get(s) for s in WITHER_SKILL_STATS})
+                elif skill["name"] == scored:  # (MECH113: the scored skill's own supports, above)
+                    if skill.get("supportStats") and not stats.get("_wither_support"):
+                        stats["_wither_support"] = skill["supportStats"]
                 elif skill["name"] == WITHERING_PRESENCE:
                     # (MECH107, MECHC60's find, an UNDERCOUNT: the duration WITH the skill's own modifiers, PoB's
                     # output.Duration for its group (bridge useRates, as Assumptions.malice_rate), e.g. Prolonged
