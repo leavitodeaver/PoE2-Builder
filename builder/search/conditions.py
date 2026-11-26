@@ -761,10 +761,14 @@ BLIND_LINE = re.compile(r"\bblind", re.I)
 # share; another group's at side_hit_rows' hits: 0 where no row is read, said), each Blind 4 s (KeywordPopups Blind)
 # x the "increased Blind Duration" lines, combined as independent with the text lines' Blind. Blindside's
 # cannot_inflict_blind on a skill stops its Blind. A supported skill with no hit rate read (Living Lightning's minions,
-# a skill no side row reads) counts 0, said in the basis.
+# a skill no side row reads) counts 0, said in the basis. (MECH111, RESEARCH60 R60-19, MEDIUM-LOW: Living Lightning's
+# minions probably carry a Blind support of their group, "Supports any skill that Hits enemies"; still 0 here: no rate
+# of their zaps is read, so no row can be worked out from the build; never a flat rate.)
 BLIND_HIT_STATS = ("global_chance_to_blind_on_hit_%", "attacks_chance_to_blind_on_hit_%")
 # (a Blind support beside Repulsion: its Repulsion Wave, "Deals Physical Attack damage in an area around the Cursed
-# target", PoB other.lua, hits the boss once a detonation; no side row reads it, so its rate comes from the curse's model)
+# target", PoB other.lua, hits the boss once a detonation; no side row reads it, so its rate comes from the curse's model;
+# MECH111: that the wave hits the Cursed target itself is MEDIUM-HIGH, RESEARCH60 R60-18: "Other targets are Knocked
+# back" sets the Cursed one apart, and its stun multiplier per Fragility "on special object" needs it hit)
 REPULSION_WAVE = "Repulsion Wave"
 
 
