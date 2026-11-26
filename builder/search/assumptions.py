@@ -4999,6 +4999,17 @@ class Assumptions:
             from builder.search import flasks  # (MECHC66: flasks.STOCK's note: the starting stock's row)
 
             hand_notes = hand_notes + flasks.stock_note(build, flasks.Charges.of(build))
+        if any(s.get("skillId") == "SavageFuryActivePlayer" and not s.get("disabled") for s in skills):
+            # (MECHC66: models.SAVAGE_FURY's note: the frenzy at its earned share)
+            fury_skills = build.call("activeSkills", levelStats=[models.SAVAGE_FURY])["skills"]
+            fury_group = next((s.get("group") for s in fury_skills if s.get("skillId") == "SavageFuryActivePlayer"), None)
+            fury_rate = next((r for r in build.call("useRates", indices=[fury_group])["rates"]
+                              if number(r.get("duration")) > 0), {}) if fury_group else {}
+            fury_types = set(skill_types_of(build.ctx, name)) if name else set()
+            fury_mods, fury_notes = models.savage_fury_model(
+                fury_skills, stats, fury_types, "Attack" in fury_types,
+                bool(build.call("getConfig")["input"].get("buffOnslaught")), number(fury_rate.get("duration")) or None)
+            hand_mods, hand_notes = hand_mods + fury_mods, hand_notes + fury_notes
         jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         unbound_mods, unbound_notes = models.unbound_model([e["text"] for e in source_lines])  # (MECHC10)

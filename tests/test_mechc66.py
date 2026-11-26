@@ -180,3 +180,34 @@ def test_dread_banners_flask_charges_count_at_the_banners_share():
     off = {"flask": 0.2, "flaskBanner": 0.5, "bannerOn": False}  # (the box off: under 7%)
     assert flasks.banner_flask(SimpleNamespace(banner_share=0.05), off)["flask"] == pytest.approx(0.2 + 0.05 * 0.5)
     assert flasks.banner_flask(SimpleNamespace(), on)["flask"] == 0.7  # (no share read yet: PoB's)
+
+
+
+# Savage Fury's frenzy at its earned share (models.SAVAGE_FURY's note)
+FURY_SKILLS = [{"name": "Savage Fury", "skillId": "SavageFuryPlayer", "group": 3,
+                "levelStats": {"wild_beast_maximum_energy": 20, "wild_beast_energy_per_hit": 1}},
+               {"name": "Savage Fury", "skillId": "SavageFuryActivePlayer", "group": 3,
+                "levelStats": {"wild_beast_damage_+%_final": 29}}]
+
+
+def test_savage_fury_frenzy_counts_at_the_share_its_attacks_earn():
+    from builder.search import models
+
+    stats = {"Speed": 2.0, "HitChance": 100}
+    # 20 Fury at 2 Fury/s = 10 s, then a 10 s frenzy and its 0.6 s release: 10 / 20.6
+    up = 10 / 20.6
+    mods, rows = models.savage_fury_model(FURY_SKILLS, stats, {"Attack", "UsableWhileShapeshifted"}, True, False, None)
+    damage = next(m for m in mods if m["name"] == "Damage")
+    assert damage["type"] == "MORE" and damage["value"] == pytest.approx(100 * ((1 + up * 0.29) / 1.29 - 1), abs=0.01)
+    speed = next(m for m in mods if m["name"] == "Speed")
+    assert speed["value"] == pytest.approx(-20 * (1 - up), abs=0.01)
+    assert rows[0]["value"] == f"{up:.0%}" and "without it" in rows[0]["play"]
+    # another Onslaught source on: only the damage comes off
+    mods, _ = models.savage_fury_model(FURY_SKILLS, stats, {"Attack", "UsableWhileShapeshifted"}, True, True, None)
+    assert [m["name"] for m in mods] == ["Damage"]
+    # a spell main skill builds no Fury: the frenzy never comes, all of it off
+    mods, rows = models.savage_fury_model(FURY_SKILLS, stats, {"Spell", "UsableWhileShapeshifted"}, False, False, None)
+    assert next(m for m in mods if m["name"] == "Damage")["value"] == pytest.approx(100 * (1 / 1.29 - 1), abs=0.01)
+    assert rows[0]["value"] == "0%"
+    # not in the build: nothing
+    assert models.savage_fury_model(FURY_SKILLS[:1], stats, set(), True, False, None) == ([], [])

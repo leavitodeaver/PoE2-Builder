@@ -17834,6 +17834,76 @@ BEETLEBITE = re.compile(r"^Aggravate Bleeding on Enemies when they Enter your Pr
 PRESENCE_FORCED = os.environ.get("POE2_PRESENCE_FORCED", "1") != "0"
 
 
+# Savage Fury's frenzy (MECHC66; the manager 26 Nov 02:31: an OVERCOUNT for every build the search gives it). PoB's
+# SavageFuryActivePlayer (act_str.lua) puts its buff on whenever the skill is in the build: Damage MORE
+# wild_beast_damage_+%_final (20-29%, levels 1-20; quality +0.25 a point) and Onslaught on skills of type
+# UsableWhileShapeshifted, plus LifeDegen 180%/min (non-lethal); no config box switches it (checked: ConfigOptions.lua
+# and the Calc modules hold no Savage Fury / Fury entry). The game's text (PoB StatDescriptions savage_fury.lua, the
+# game's stat descriptions): "Gain 1 Fury on Attack Hit, no more than once per Skill use" (wild_beast_energy_per_hit 1;
+# alternate quality +0.05 a point), "20 maximum Fury" (wild_beast_maximum_energy), "Buff duration is 0.5 seconds per
+# Fury" (base_skill_effect_duration 500), "You cannot gain Fury while in a frenzy", "The frenzy ends immediately if you
+# return to human form"; the release has a 0.6 s cast. So the frenzy is up D = F x d of each cycle D + F / f + 0.6 s, F
+# the maximum Fury, d PoB's duration a Fury (the build's duration modifiers in it, useRates), f the Fury a second the
+# build's attacks give: the main skill's uses that hit (an Attack: Speed x hit chance x Fury a hit, no rate guessed; a
+# non-Attack main skill gives none: 0, said). Other attacks' Fury isn't read (the lower reading, named). The unearned
+# share comes off with negating mods: the frenzy's Damage MORE m on the main skill (only where its types hold
+# UsableWhileShapeshifted, as PoB's buff) to (1 + u m) / (1 + m), and Onslaught's attack speed (PoB's 2 x 10, CalcPerform
+# 647; "increased Onslaught effect" not read: a small part left in) at (1 - u) where no other Onslaught source is on (the
+# conditions' buffOnslaught box off). Its Life loss stays PoB's (defence, not DPS: named). (checked: every PoB Skills
+# entry named Savage Fury: SavageFuryPlayer and SavageFuryActivePlayer only; no other skill gives Fury.)
+SAVAGE_FURY = "Savage Fury"
+SAVAGE_FURY_CAST = 0.6
+SAVAGE_FURY_PER_FURY = 0.5
+SAVAGE_FURY_MAX = 20
+SAVAGE_FURY_ONSLAUGHT_SPEED = 20.0
+
+
+def savage_fury_uptime(fury_rate: float, fury_max: float, per_fury: float) -> tuple[float, str]:
+    """(the frenzy's share of the fight, how) for `fury_rate` Fury a second outside it (the note above)."""
+    if fury_rate <= 0 or fury_max <= 0 or per_fury <= 0:
+        return 0.0, "no Attack hits build Fury: the frenzy never comes"
+    up_time, build_time = fury_max * per_fury, fury_max / fury_rate
+    share = up_time / (up_time + build_time + SAVAGE_FURY_CAST)
+    return share, (f"{fury_max:g} Fury in {build_time:.1f} s ({fury_rate:.2f} Fury/s from your attacks), then a "
+                   f"{up_time:.1f} s frenzy and its {SAVAGE_FURY_CAST:g} s release: up {share:.0%} of the fight")
+
+
+def savage_fury_model(skills: list[dict], stats: dict, main_types: set, main_attack: bool, onslaught_box: bool,
+                      duration: float | None) -> tuple[list[dict], list[dict]]:
+    """Savage Fury's negating mods and row (the note above). `skills`: bridge activeSkills rows with levelStats for
+    Savage Fury; `duration`: PoB's frenzy duration a Fury (useRates), None for the base 0.5 s."""
+    frenzy = next((s for s in skills if s.get("skillId") == "SavageFuryActivePlayer" and not s.get("disabled")), None)
+    if frenzy is None:
+        return [], []
+    builder = next((s for s in skills if s.get("skillId") == "SavageFuryPlayer"), {}) or {}
+    more = number((frenzy.get("levelStats") or {}).get("wild_beast_damage_+%_final"))
+    fury_max = number((builder.get("levelStats") or {}).get("wild_beast_maximum_energy")) or SAVAGE_FURY_MAX
+    per_hit = number((builder.get("levelStats") or {}).get("wild_beast_energy_per_hit")) or 1.0
+    per_fury = duration if duration and duration > 0 else SAVAGE_FURY_PER_FURY
+    rate = hits_per_second(stats) * per_hit if main_attack else 0.0
+    up, how = savage_fury_uptime(rate, fury_max, per_fury)
+    mods, cut = [], []
+    shifted = "UsableWhileShapeshifted" in main_types
+    if shifted and more > 0 and up < 1:
+        scale = (1 + up * more / 100) / (1 + more / 100)
+        mods.append(raw_mod("Damage", "MORE", 100 * (scale - 1), tag="SavageFury"))
+        cut.append(f"its {more:g}% more Damage x{scale:.3f}")
+    if shifted and not onslaught_box and up < 1:
+        mods.append(raw_mod("Speed", "INC", -SAVAGE_FURY_ONSLAUGHT_SPEED * (1 - up), tag="SavageFury"))
+        cut.append(f"Onslaught's {SAVAGE_FURY_ONSLAUGHT_SPEED:g}% attack speed at {up:.0%}")
+    if not shifted:
+        cut.append("the main skill isn't usable while shapeshifted, so the frenzy's buff never reaches it in PoB either")
+    row = {"label": "Savage Fury: the frenzy's share of the fight*",
+           "value": f"{up:.0%}",
+           "basis": (f"{how}; PoB counts the frenzy all fight: {'; '.join(cut) or 'nothing to take off'}. Fury from "
+                     "the main skill's hitting uses only (other attacks not read: the lower reading); its Life loss "
+                     "left as PoB's"),
+           "confidence": "MEDIUM (the game's own Fury and duration numbers; the main skill's rate)",
+           "play": (f"Build Fury with your attacks, release Savage Fury at {fury_max:g} Fury and stay in animal form: "
+                    f"with it up {up:.0%} of the fight; without it (never released): its damage and Onslaught 0%")}
+    return mods, [row]
+
+
 def presence_forced_moves(stats: dict) -> tuple[float, str]:
     """(the boss's forced moves a second that carry you out of your Presence and back, how); see PRESENCE_FORCED."""
     from builder.search import boss_hits, bosses
