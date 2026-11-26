@@ -77,3 +77,78 @@ def test_searchb10_polish_hook_runs_only_with_its_switch(monkeypatch):
     monkeypatch.setattr(gear_module, "polish_on", lambda: True, raising=False)
     assert inner.polish_finished(search, 60.0, trace) is True
     assert calls == ["weigh", "polish"] and trace == [["gear polish", 1.0]]
+
+
+class _Any:
+    """Any attribute is a do-nothing callable (the steps' functions; the patched step never calls them)."""
+
+    def __getattr__(self, name):
+        return lambda *a, **k: False
+
+
+def _pass_search(monkeypatch, tail, step_seconds=10.0):
+    from builder import clock
+    from builder.search import inner
+
+    now = [0.0]
+    monkeypatch.setattr(clock, "now", lambda: now[0])
+    monkeypatch.setattr(inner, "TASK_TAIL", tail)
+    calls = []
+
+    def step(self, phase, fn, *args):
+        calls.append((phase, args))
+        now[0] += step_seconds
+        return False
+    monkeypatch.setattr(inner.Search, "step", step)
+    search = object.__new__(inner.Search)
+    for name in ("gear", "tree", "gems", "jewels", "sources"):
+        setattr(search, name, _Any())
+    search.build = SimpleNamespace(equipped={})
+    search.skeleton = SimpleNamespace(swap=None)
+    search.kicked, search.passes, search.passes_done, search.line_passes = set(), 0, 0, 1  # (not a sweep pass)
+    search.resume_step = search.current_step = None
+    search.task_start, search.tail_done = 0.0, False
+    return search, calls, now
+
+
+def test_task_tail_off_runs_the_pass_as_before(monkeypatch):
+    search, calls, _ = _pass_search(monkeypatch, [])
+    search.blocks(100.0)
+    phases = [c[0] for c in calls]
+    assert not any("(tail)" in p for p in phases)
+    assert phases[:3] == ["gear", "supports", "tree rebuild"] and "ascendancy" not in phases  # (not a sweep)
+    assert dict(calls)["jewels"][0] == 100.0  # (the steps keep the task's deadline)
+
+
+def test_task_tail_runs_the_unreached_steps_in_the_time_kept_back_once(monkeypatch):
+    """A 100 s task keeps 15 s back: the steps stop at 85 s; press rates ran (70-80 s), prune and regrow didn't: it runs
+    in the tail, and the line's pass resumes where it stopped."""
+    search, calls, now = _pass_search(monkeypatch, ["press rates", "prune and regrow"])
+    search.blocks(100.0)
+    phases = [c[0] for c in calls]
+    assert phases[-1] == "prune and regrow (tail)" and "press rates (tail)" not in phases
+    assert "press rates" in phases and "prune and regrow" not in phases
+    assert search.resume_step == "granted metas" and search.tail_done
+    assert dict(calls)["jewels"][0] == 85.0  # (the steps stop at the tail's limit)
+    assert dict(calls)["prune and regrow (tail)"][0] == 100.0
+    # (once per task: the next pass in the same task runs as with the tail off)
+    calls.clear()
+    now[0] = 0.0
+    search.resume_step = None
+    search.blocks(100.0)
+    assert not any("(tail)" in c[0] for c in calls) and dict(calls)["jewels"][0] == 100.0
+
+
+def test_late_sweep_reruns_the_sweep_only_steps_in_order_until_its_deadline(monkeypatch):
+    from builder.search import inner
+
+    search, calls, now = _pass_search(monkeypatch, [])
+    assert inner.LATE_SWEEP is False  # (OFF by default)
+    assert search.late_sweep(1000.0) == []
+    assert [c[0] for c in calls] == [f"{p} (late)" for p in inner.SWEEP_ONLY]
+    calls.clear()
+    now[0] = 0.0
+    search.late_sweep(25.0)  # (10 s a step: three run, 0-30 s)
+    assert [c[0] for c in calls] == [f"{p} (late)" for p in inner.SWEEP_ONLY[:3]]
+    src = __import__("inspect").getsource(inner.finalize_task)
+    assert src.find('trace.append(["polish"') < src.find("search.late_sweep(") < src.find("spend_ascendancy")

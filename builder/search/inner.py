@@ -194,6 +194,24 @@ GEAR_FIRST_EMPTY = GEAR_FIRST_MODE == "empty"
 # 2b75e's finished the pass and its next gear round filled every slot (passes 2, done 1: POE2T7422 / 7434), and both
 # the full and the narrow forms lost 2b75e by ~x0.5 (POE2T7423 / 7435 / 7436) by running the gear before that pass
 GEAR_FIRST_LAST = GEAR_FIRST_MODE in ("last", "last_empty")
+# (SEARCH42; SPEED4's research/speed-starved-rounds.md, ranked items 2-3, the manager's 05:34) A TASK TAIL: each task keeps
+# TASK_TAIL_SHARE of its time back from the pass's steps (they stop at that limit); if the pass hasn't reached the tail's
+# steps by then, they run in the time kept back, once per task, and the line's pass then goes on where it stopped as
+# before. Why: prune and regrow gains in 89-100% of its runs but runs 1.0-1.8 times per line per gate (passes finished
+# per task 0.33-0.91); press rates gain in ~80% of runs on 2b75d / e and sit right after 'conditions', the commonest
+# stop point (206 of 564 tasks on 2b75e). POE2_SEARCH_TASK_TAIL=prune / press / press,prune picks the steps (run in
+# the pass's own order); empty: OFF, the passes as before. TASK_TAIL_SHARE: LOW, a search-effort setting
+TASK_TAIL_PHASES = {"prune": "prune and regrow", "press": "press rates"}
+TASK_TAIL = [TASK_TAIL_PHASES[w.strip()] for w in os.environ.get("POE2_SEARCH_TASK_TAIL", "").split(",")
+             if w.strip() in TASK_TAIL_PHASES]
+TASK_TAIL_SHARE = 0.15
+# (SEARCH42; SPEED4's ranked item 4) The sweep-only steps (ascendancy, condition sources, meta gems / spells, totems,
+# marks, mirages, roar) run once per line per gate, in pass 0 on a half-built build, and are never revisited: with
+# POE2_SEARCH_LATE_SWEEP=1 finalize_task runs each once more on the finished build, after its polish, on its own time
+# past finalize's (min(LATE_SWEEP_SECONDS, finalize's seconds): LOW, a search-effort setting). OFF until a gate set
+LATE_SWEEP = os.environ.get("POE2_SEARCH_LATE_SWEEP", "0") == "1"
+LATE_SWEEP_SECONDS = 30.0
+SWEEP_ONLY = ("ascendancy", "condition sources", "meta gems", "meta spells", "totems", "marks", "mirages", "roar")
 # (SEARCH40; SEARCH38's next try, its 13:55 report: on 2b75b `last`'s kept-back time went to the cut round from Body
 # Armour and all 6 empty slots stayed empty, POE2T7449) POE2_SEARCH_GEAR_FIRST=last_empty: `last`, its kept-back time on
 # the EMPTY slots only (the narrow form's `only`); the cut round keeps its place for the line's next gear step. OFF
@@ -1565,6 +1583,18 @@ class Search:
                     steps.insert(0, ("gear", self.gear.gear_round, (cut, True, list(empty))))
                 else:  # (SEARCH35: the cut round goes on first)
                     steps.insert(0, ("gear", self.gear.gear_round, (cut, True)))
+        gear_last = limit < deadline  # (GEAR_FIRST_LAST's kept-back time, before the task tail's)
+        tail_at = None
+        if TASK_TAIL and not getattr(self, "tail_done", True):
+            start = getattr(self, "task_start", None)
+            start = clock.now() if start is None else start
+            tail_at = max(clock.now(), deadline - TASK_TAIL_SHARE * max(0.0, deadline - start))
+            if tail_at < limit:
+                cap = tail_at
+                steps = [(phase, fn, tuple(min(a, cap) if isinstance(a, float) and a >= cap else a for a in args))
+                         for phase, fn, args in steps]
+                limit = tail_at
+        ran: set[str] = set()
         for phase, fn, args in steps:
             if clock.now() > limit:
                 finished = False
@@ -1577,12 +1607,15 @@ class Search:
                 continue
             if IDLE_SKIP and self.idle_skip(phase):
                 continue
+            ran.add(phase)
             gained = self.step(phase, fn, *args)
             if IDLE_SKIP and phase in IDLE_STEPS:
                 entry = self.idle.setdefault(phase, [0, 0])
                 entry[0] = 0 if gained else entry[0] + 1
             improved = gained or improved
-        if limit < deadline and not finished and clock.now() <= deadline:  # (SEARCH37 GEAR_FIRST_LAST: the pass
+        if tail_at is not None and not finished and clock.now() <= deadline:  # (TASK_TAIL: once per task)
+            improved = self.task_tail(deadline, ran) or improved
+        if gear_last and not finished and clock.now() <= deadline:  # (SEARCH37 GEAR_FIRST_LAST: the pass
             # didn't end in time, so it won't reach its gear step this task: the cut round goes on in the time kept back)
             self.current_step = "gear"
             only = (list(empty),) if GEAR_FIRST_LAST_EMPTY else ()  # (SEARCH40: last_empty, the empty slots alone)
@@ -1591,6 +1624,36 @@ class Search:
         self.kicked.clear()
         self.passes_done += finished
         return improved
+
+    def task_tail(self, deadline: float, ran: set[str]) -> bool:
+        """(TASK_TAIL) The tail's steps this pass didn't reach, in the time the task kept back; once per task. The line's
+        pass still resumes where it stopped (resume_step), so they run again in their place when it gets there."""
+        self.tail_done = True
+        calls = {"press rates": (self.press_round, (deadline,)), "prune and regrow": (self.tree.swap_round, (deadline,))}
+        improved = False
+        for phase in TASK_TAIL:
+            if phase in ran or clock.now() > deadline:
+                continue
+            self.current_step = None  # (a hard stop inside the tail keeps the pass's own resume_step)
+            fn, args = calls[phase]
+            improved = self.step(f"{phase} (tail)", fn, *args) or improved
+        return improved
+
+    def late_sweep(self, deadline: float) -> list[str]:
+        """(LATE_SWEEP) The sweep-only steps once more on the finished build (finalize_task); the steps that gained."""
+        calls = {"ascendancy": (self.tree.ascendancy_round, (deadline,)),
+                 "condition sources": (self.sources.round, (deadline,)),
+                 "meta gems": (self.gems.meta_round, (deadline,)), "meta spells": (self.gems.meta_spell_round, (deadline,)),
+                 "totems": (self.gems.totem_round, (deadline,)), "marks": (self.gems.mark_round, (deadline,)),
+                 "mirages": (self.gems.mirage_round, (deadline,)), "roar": (self.gems.roar_round, (deadline,))}
+        gained = []
+        for phase in SWEEP_ONLY:
+            if clock.now() > deadline:
+                break
+            fn, args = calls[phase]
+            if self.step(f"{phase} (late)", fn, *args):
+                gained.append(phase)
+        return gained
 
     def idle_skip(self, phase: str) -> bool:
         """(SEARCH35, IDLE_SKIP) Whether this pass skips a step that gained nothing in its last IDLE_AFTER runs on the
@@ -1797,6 +1860,7 @@ class Search:
                 escalate: bool) -> tuple[dict | None, dict | None]:
         """Search.run's loop: (best, start) as it leaves them; `self._kept` holds them for a stop (OutOfTime)."""
         self.deadline, self.boundary, self._kept = deadline, None, (best, start)
+        self.task_start, self.tail_done = clock.now(), False  # (TASK_TAIL: the task's kept-back time, once a task)
         self.stop_at = deadline + max(STOP_GRACE_MIN, STOP_GRACE_SHARE * max(0.0, deadline - clock.now()))
         # (the line's last finished pass, carried across its tasks: Search.line_short; a task of its own without M1)
         last_short = self.line_short if PERSIST_LINES and self.line_short is not None else float("inf")
@@ -2561,6 +2625,13 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         trace.append(["polish", round(build.score, 4)])
     except Cancelled:
         pass
+    if LATE_SWEEP:  # (SEARCH42, OFF by default: the sweep-only steps once more on the finished build)
+        try:
+            search.weigh_uptimes()
+            gained = search.late_sweep(clock.now() + min(LATE_SWEEP_SECONDS, seconds))
+            trace.append(["late sweep" + (f" ({', '.join(gained)})" if gained else ""), round(build.score, 4)])
+        except Cancelled:
+            pass
     # (SEARCH40) a delivered build never keeps unspent ascendancy points: after the polish (whose passes may spend them),
     # before the final regrow (which then regrows on the spent allocation)
     try:
