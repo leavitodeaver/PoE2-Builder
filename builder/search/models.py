@@ -8070,14 +8070,16 @@ FROST_BOMB_LEVEL_STAT = "frost_bomb_exposure_does_not_apply_to_enemies_of_level_
 FROST_BOMB_WINDOW = 4.0 + 8.0  # seconds of Exposure one cast gives: pulses to its Detonation, then each pulse's 8 s
 FROST_BOMB_DETONATION, FROST_BOMB_EXPOSURE = 4.0, 8.0  # base_skill_detonation_time 4000, base_secondary_skill_effect_duration 8000
 FROST_BOMB_PULSE = 0.5  # seconds between pulses (LOW: one player's count, comment above)
+FROST_BOMB_RADIUS = 2.4  # metres: its active_skill_base_area_of_effect_radius 24 (PoB FrostBombPlayer; GEM47's stay share)
 FROST_BOMB_BASE, FROST_BOMB_STEP, FROST_BOMB_CAP = 20.0, 2.0, 50.0  # its three Exposure stats
 
 
-def frost_bomb_magnitude(rate: float, quality: float = 0.0) -> tuple[float, int]:
+def frost_bomb_magnitude(rate: float, quality: float = 0.0, inside: float = 1.0) -> tuple[float, int]:
     """(average Exposure magnitude while Frost Bomb's Exposure is up, small pulses a bomb) at `rate` casts a second
     (comment above, item 3): M = min(cap + quality / 2, 20 + 2 x the pulses before its Detonation), held whole when
-    recast within 8 s, else a 4 s ramp then 8 s at M."""
-    pulses = int(FROST_BOMB_DETONATION / FROST_BOMB_PULSE + 1e-9)
+    recast within 8 s, else a 4 s ramp then 8 s at M. (GEM47) `inside`: the share of the pulses the boss is inside the
+    orb's area for (frost_bomb_exposure_model)."""
+    pulses = int(FROST_BOMB_DETONATION * min(max(inside, 0.0), 1.0) / FROST_BOMB_PULSE + 1e-9)
     top = min(FROST_BOMB_CAP + max(quality, 0.0) / 2, FROST_BOMB_BASE + FROST_BOMB_STEP * pulses)
     if rate > 0 and 1 / rate <= FROST_BOMB_EXPOSURE:
         return top, pulses
@@ -8105,15 +8107,27 @@ def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | No
     if (main is None or bomb.group != main.group) and bomb.group not in (groups or {}):
         return [], []  # (no use rate read for it: PoB's always-on number stays, never zeroed; gem_stat_side_groups asks)
     rate, how = _skill_rate(bomb, stats, main, groups)
-    up = min(1.0, rate * FROST_BOMB_WINDOW)
-    magnitude, pulses = frost_bomb_magnitude(rate, number(bomb.level_stats.get("quality")))
+    # (GEM47; MECHD9's survey "Frost Bomb pulses ~2 m, 4 s window", the manager's reader rule) the orb stays where it was
+    # cast: its pulses Expose the boss only while it is inside, so a cast gives FROST_BOMB_DETONATION x stay_share of
+    # pulsing (the mean time the boss stays, bosses.stay_share's window reading) then the last pulse's 8 s, and that
+    # share of its pulses (the magnitude's growth)
+    inside, inside_how = bosses.stay_share(stats, FROST_BOMB_RADIUS, FROST_BOMB_DETONATION)
+    window = FROST_BOMB_DETONATION * inside + FROST_BOMB_EXPOSURE
+    up = min(1.0, rate * window)
+    magnitude, pulses = frost_bomb_magnitude(rate, number(bomb.level_stats.get("quality")), inside)
     factor = up * magnitude / FROST_BOMB_BASE
+    still_up = min(1.0, rate * FROST_BOMB_WINDOW)
+    still_factor = still_up * frost_bomb_magnitude(rate, number(bomb.level_stats.get("quality")))[0] / FROST_BOMB_BASE
     basis = (f"{how} {rate:.3g}/s, {FROST_BOMB_WINDOW:g} s of Exposure a cast (pulses to its 4 s Detonation, then 8 s): "
              f"up {up:.0%} of the fight (PoB: always). Its Exposure grows 2% a pulse from 20%: a pulse every "
              f"{FROST_BOMB_PULSE:g} s (LOW: one player's count, 9 small pulses in 4 s; no data gives it) is {pulses} "
              f"pulses a bomb, {FROST_BOMB_BASE + FROST_BOMB_STEP * pulses:g}% at its end, {magnitude:.1f}% on average while "
              "up (held between casts when recast within 8 s; MEDIUM); new bombs compounding on old ones toward 50% not "
-             f"counted (UNVERIFIED). x{factor:.2f} of PoB's 20%")
+             f"counted (UNVERIFIED). The orb stays where it was cast, and the boss walks out of its "
+             f"{FROST_BOMB_RADIUS:g} m (PoB's base radius; your area modifiers not read: the lower reading) during its "
+             f"pulses: {inside_how} (GEM47, MECHD9's reader rule, LOW), so {window:.1f} s of Exposure a cast. "
+             f"x{factor:.2f} of PoB's 20%; standing still x{still_factor:.2f}. Its Detonation's own hit on the boss "
+             "(where Frost Bomb is a damage skill) isn't cut here (not read: an OVERCOUNT where it is)")
     play = ("Cast Frost Bomb on cooldown near the boss: its Exposure then never drops and holds the bomb's last pulse "
             f"({magnitude:.0f}%). Without it: no Exposure from it; with it: up {up:.0%} now at {magnitude:.0f}%.")
     note = {"label": label, "value": f"{up:.0%} uptime at {magnitude:.0f}%", "confidence": "LOW",

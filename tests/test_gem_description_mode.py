@@ -547,25 +547,28 @@ def test_leap_slams_quality_is_more_damage_against_fully_broken_armour():
 
 
 def test_frost_bombs_exposure_stops_above_its_level_cap_and_follows_its_casts():
+    # (GEM48: a boss with no movement tally, so GEM47's stay rule reads 1 and this checks GEM13's reading; the stay
+    # rule itself: tests/test_gem48.py)
+    STILL = {"Speed": 2.0, "_boss": "The Bodach"}
     low = Skill("Frost Bomb", 2, spell=True, level_stats={models.FROST_BOMB_LEVEL_STAT: 78})
     main = Skill("Frostbolt", 1, spell=True)
     groups = {2: {"index": 2, "name": "Frost Bomb", "speed": 1 / 6, "_press": None}}
-    mods, notes = models.frost_bomb_exposure_model([main, low], {"Speed": 2.0}, main, groups, boss_level=82)
+    mods, notes = models.frost_bomb_exposure_model([main, low], STILL, main, groups, boss_level=82)
     assert mods == [models.raw_mod("DebuffEffect", "MORE", -100, "Frost Bomb", tag=models.FROST_BOMB_ENTRY)] and notes[0]["value"] == "none"
     high = Skill("Frost Bomb", 2, spell=True, level_stats={models.FROST_BOMB_LEVEL_STAT: 100})
-    mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, groups, boss_level=82)
+    mods, notes = models.frost_bomb_exposure_model([main, high], STILL, main, groups, boss_level=82)
     # on its 6 s cooldown: 12 s a cast covers it; GEM14: a pulse every 0.5 s (LOW) is 8 small pulses, 20 + 16 = 36%,
     # held between casts (recast within 8 s): x36/20 of PoB's 20%
     assert [m["value"] for m in mods] == [pytest.approx(80, abs=0.01)] and notes[0]["value"] == "100% uptime at 36%"
     assert models.frost_bomb_magnitude(1 / 6) == (36.0, 8)
     assert models.frost_bomb_magnitude(1 / 24)[0] == pytest.approx((4 * 28 + 8 * 36) / 12)  # a 4 s ramp, then 8 s
-    mods, notes = models.frost_bomb_exposure_model([main, low], {"Speed": 2.0}, main, groups, boss_level=75)
+    mods, notes = models.frost_bomb_exposure_model([main, low], STILL, main, groups, boss_level=75)
     assert [m["value"] for m in mods] == [pytest.approx(80, abs=0.01)]  # (a boss at or under the cap: the growth only)
     rare = {2: {**groups[2], "_press": 0.25}}  # pressed a quarter of its cooldowns: one cast / 24 s, up 12 / 24
-    mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, rare, boss_level=82)
+    mods, notes = models.frost_bomb_exposure_model([main, high], STILL, main, rare, boss_level=82)
     average = (4 * 28 + 8 * 36) / 12  # (no recast within 8 s: each window ramps again)
     assert [m["value"] for m in mods] == [pytest.approx(100 * (0.5 * average / 20 - 1), abs=0.01)]
-    mods, notes = models.frost_bomb_exposure_model([main, high], {"Speed": 2.0}, main, {}, boss_level=82)
+    mods, notes = models.frost_bomb_exposure_model([main, high], STILL, main, {}, boss_level=82)
     assert (mods, notes) == ([], [])  # (no rate read: PoB's number kept, never zeroed)
     assert "Frost Bomb" in models.gem_stat_skills()  # (its level stats are read)
     assert 2 in models.gem_stat_side_groups([main, high], main)

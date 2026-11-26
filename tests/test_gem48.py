@@ -62,3 +62,9 @@ def test_the_trial_scores_on_the_previous_pass_without_its_own_exposure_and_rest
     _spot(build, previous=previous)
     assert build.calls == [[10, 80], [10, -100], [60, 10]]  # (boss, away, then the previous pass's mods put back)
 
+
+def test_frost_bombs_pulses_count_only_while_the_boss_is_inside_its_area():
+    # (GEM47's stay rule: a pulse every 0.5 s for 4 s is 8 small pulses, 36%; the boss inside half of it: 4, 28%)
+    assert models.frost_bomb_magnitude(1.0) == (36.0, 8)
+    assert models.frost_bomb_magnitude(1.0, inside=0.5) == (28.0, 4)
+    assert models.frost_bomb_magnitude(1.0, inside=0.0) == (20.0, 0)
