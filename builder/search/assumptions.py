@@ -5518,9 +5518,14 @@ class Assumptions:
                     sum(m["scale"] for m in back_mods if m.get("line") == "1% more Damage"))
                 hand_mods, hand_notes = hand_mods + cadiro_mods, hand_notes + cadiro_notes
             # (MECH-B: Aftershock chances summed and capped, and their ailment applications; models.aftershock_model)
+            seismic = (0.0, "")
+            if any(s_.name == models.SEISMIC_CRY and s_.group is not None for s_ in found) and main.attack:
+                # (GEM44: Seismic Cry's Empowered Slams, one more Aftershock each; MECH-B's aftershock_model takes it)
+                seis_uses, seis_how = self.empowered_uses(stats, None, only=models.SEISMIC_CRY)
+                seismic = models.seismic_aftershocks(seis_uses, number(stats.get("Speed")), seis_how)
             shock_mods, shock_notes = models.aftershock_model(
                 texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
-                set(gem.get("weaponTypes") or []), models.cast_by_totem(found, main), forbidden)
+                set(gem.get("weaponTypes") or []), models.cast_by_totem(found, main), forbidden, empowered=seismic)
             hand_mods, hand_notes = hand_mods + shock_mods, hand_notes + shock_notes
             hit_cut(build, shock_mods, main.name)  # (MECHB57: the Aftershocks' hits a slam, models.HIT_CUT_PER_USE)
             slam_hits = next((number(m.get(models.HIT_CUT_PER_USE)) for m in shock_mods

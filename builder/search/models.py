@@ -12902,6 +12902,26 @@ def triskelion_cascade_model(main: Skill | None, main_types: set[str], casts: fl
                    "value": f"x{factor:.3f}", "confidence": "LOW", "entry": TRISKELION_ENTRY, "basis": basis}]
 
 
+# Seismic Cry's Empowered Slams (GEM44; GEM's ranked list, an UNDERCOUNT). The game (26650308, ActiveSkills seismic_cry):
+# "If an enemy is Heavy Stunned or a currently Heavy Stunned enemy is Hit, this Skill Empowers subsequent Slams to
+# perform an additional Aftershock" (seismic_cry_slam_skill_additional_aftershocks 1; PoB act_str.lua SeismicCryPlayer
+# maps nothing, and no model read it: checked, grep "seismic" over builder/search: only the Warcry lists). The share of
+# the main slam's uses Empowered by it: Assumptions.empowered_uses(only="Seismic Cry") (the Warcry's own uses, its
+# Empowered count from the boss's Power, at the boss's Heavy Stunned share: assumptions.warcry_empowers) over the slam's
+# uses a second; each Empowered slam one more Aftershock, into MECH-B's aftershock_model beside Tremors' extras
+# (MEDIUM-LOW: "additional" read as on top of the chance roll). Not counted: seismic_cry_slam_skill_aftershock_damage_
+# +%_final (its quality's 0.5% a point more Aftershock damage, a small undercount).
+SEISMIC_CRY = "Seismic Cry"
+
+
+def seismic_aftershocks(empowered: float, slams: float, how: str) -> tuple[float, str]:
+    """(the share of the main slam's uses Seismic Cry Empowers, how): `empowered` Empowered uses a second over `slams`
+    uses a second, at most every one."""
+    if empowered <= 0 or slams <= 0:
+        return 0.0, how or "no Empowered slams"
+    return min(1.0, empowered / slams), f"{empowered:.3f} Empowered slams a second of {slams:.2f}: {how}"
+
+
 # Oracle's Harmony Within (model: harmony) --------------------------------------------------------
 # "Hit damage is taken from Mana before Life if your current Mana is higher than your current Life" (poe2db): counted as
 # 100% Mind over Matter while the build's unreserved Mana is above its Life, both pools full (the manager's ruling,
@@ -21063,7 +21083,11 @@ def echoing_power_model(skills: list[Skill], rows: dict[str, dict], attacks: flo
 # Redblade's +100% final), so Power' >= 10, and the steps are 10 (Infernal, Seismic), 8 (Roar), 5 (Howl, Fortifying):
 # floor(Power' / step) >= 1 already. Second source: poe2db Monster_Power "Unique monsters always have 20 Power").
 ARCTIC_HOWL = "Arctic Howl"
-UNBUFFED_WARCRIES = {ARCTIC_HOWL}  # (Warcries PoB makes no buff for, so no Num<Name>Empowers: GEM14's find, by name)
+UNBUFFED_WARCRIES = {ARCTIC_HOWL, "Seismic Cry"}  # (Warcries PoB makes no buff for, so no Num<Name>Empowers: GEM14's find, by name)
+# (GEM44: Seismic Cry too: PoB's CalcPerform makes no Seismic buff (checked: no "Seismic" in CalcPerform.lua), so its row
+# has no warcryEmpowers, while SkillStatMap maps warcry_empowers_per_X_monster_power, so warcryPowerPer is there: 1 per
+# 10 Power up to 50, 2 Empowered Slams a use at a boss's 20 Power, at warcry_empowers' Heavy Stunned share. Before, the
+# one-a-use fallback, without the Heavy Stunned condition)
 ARCTIC_HOWL_COLD = ("wolf_warcry_empowered_attack_cold_damage_min_per_5_power_up_to_cap",
                     "wolf_warcry_empowered_attack_cold_damage_max_per_5_power_up_to_cap")
 
@@ -23212,7 +23236,8 @@ def ledger_slam_mores(texts: list[str], forbidden: set[str], mace: bool, shapesh
 
 def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str], group_gems: list[dict],
                      weapon_types: set[str], totem: bool = False, forbidden: set[str] = frozenset(),
-                     translate: Callable[[str], tuple | None] | None = None) -> tuple[list[dict], list[dict]]:
+                     translate: Callable[[str], tuple | None] | None = None,
+                     empowered: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
     """The main slam's Aftershocks (see above): a DPS "more" bringing its hits to 1 + A against the ledger's, and each
     one-slot ailment's duration "more" bringing its applications to p (1 + A - A p). ([], []) for a non-slam."""
     if main is None or "Slam" not in main_types or not main.attack:
@@ -23229,12 +23254,19 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
     tremors = {k: min(1.0, max(0.0, number(parts.get(name)) / 100)) for name, k in TREMORS_PARTS.items()}
     tremors = {k: c for k, c in tremors.items() if c > 0}
     extra = sum(k * c for k, c in tremors.items())
+    # (GEM44: Seismic Cry's Empowered Slams, one more Aftershock each, seismic_aftershocks; `empowered` = (the share of
+    # the slams Empowered, how). Added beside Tremors' as a separate extra; MEDIUM-LOW)
+    seismic = min(1.0, max(0.0, number(empowered[0]))) if yourself else 0.0
+    if seismic > 0:
+        why.append(f"Seismic Cry Empowers {seismic:.0%} of the slams to perform an additional Aftershock ({empowered[1]}; "
+                   "GEM44, MEDIUM-LOW: on top of the chance roll)")
+    extra += seismic
     if total <= 0 and damage == 1.0 and dps == 1.0 and not extra:
         return [], []
     a = min(1.0, total / 100)
     target, applied = 1 + a + extra, damage * dps
-    if extra:
-        why.append(f"Tremors: {' + '.join(f'{k} x {c:.0%}' for k, c in sorted(tremors.items()))} = {extra:.2f} more "
+    if tremors:
+        why.append(f"Tremors: {' + '.join(f'{k} x {c:.0%}' for k, c in sorted(tremors.items()))} = {extra - seismic:.2f} more "
                    "Aftershocks a slam, on top (one roll or several adding up give the same; UNVERIFIED how they meet "
                    "the other chances, MEDIUM-LOW)")
     mods: list[dict] = []
@@ -23247,7 +23279,10 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
         mods.append(with_per_use(raw_mod("DPS", "MORE", 100 * correction, main.name), target))
     whose = "used by you" if yourself else "triggered or a totem's, so only the \"Slam Skills\" lines count"
     notes = [{"label": f"Aftershock chance, summed ({main.name})",
-              "value": f"{a:.0%}" + (f" + {extra:.2f} Aftershocks (Tremors)" if extra else ""),
+              "value": f"{a:.0%}" + (f" + {extra:.2f} Aftershocks ("
+                                     + " and ".join(x for x, on in (("Tremors", extra - seismic > 1e-9),
+                                                                    ("Seismic Cry", seismic > 0)) if on) + ")"
+                                     if extra else ""),
               "basis": f"{'; '.join(why) or 'no source'}; the game sums the chances and rolls once (capped at one extra "
                        f"Aftershock, UNVERIFIED), so the slam's hits are x{target:.2f}; the ledger's per-line mores gave "
                        f"x{applied:.2f} (Damage x{damage:.2f}, DPS x{dps:.2f}), corrected by x{target / applied:.3f}; "

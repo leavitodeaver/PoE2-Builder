@@ -47,3 +47,20 @@ def test_wing_blast_shockwave_from_a_unique_boss_deals_50_percent_more(monkeypat
     f_with, f_without = (1 + with_more[0][0]["value"] / 100) * 330.5, (1 + without[0][0]["value"] / 100) * 330.5
     assert f_with - 58.3 == pytest.approx(1.5 * (f_without - 58.3), rel=1e-3)  # the shockwave part x1.5
     assert "Unique enemy" in with_more[1][0]["basis"] and "Unique enemy" not in without[1][0]["basis"]
+
+
+def test_seismic_cry_empowered_slams_add_an_aftershock_each():
+    # (GEM44) the share of the slams Empowered, into aftershock_model beside Tremors' extras
+    assert models.seismic_aftershocks(0.125, 0.5, "x")[0] == pytest.approx(0.25)
+    assert models.seismic_aftershocks(2.0, 0.5, "x")[0] == 1.0 and models.seismic_aftershocks(0.0, 0.5, "")[0] == 0.0
+    assert "Seismic Cry" in models.UNBUFFED_WARCRIES  # (its Empowers per Power and its Heavy Stunned condition)
+    slam = models.Skill("Rolling Slam", 1, attack=True, melee=True)
+    types = {"Slam", "Attack", "Melee", "Area"}
+    stats = {"Speed": 1.0}
+    none = models.aftershock_model([], stats, slam, types, [], {"One Handed Mace"}, translate=lambda t: None)
+    assert none == ([], [])  # no Aftershock source: nothing
+    mods, notes = models.aftershock_model([], stats, slam, types, [], {"One Handed Mace"}, translate=lambda t: None,
+                                          empowered=(0.25, "a test"))
+    dps = next(m for m in mods if m["name"] == "DPS")
+    assert dps["value"] == pytest.approx(25.0) and "Seismic Cry" in notes[0]["value"]
+    assert "Tremors" not in notes[0]["basis"]
