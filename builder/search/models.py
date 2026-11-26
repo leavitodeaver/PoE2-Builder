@@ -10309,8 +10309,17 @@ DETONATORS_TOO = {"Earthshatter"}
 # the target" (ActiveSkills rapid_assault): it moves with the boss, so nothing is lost. Not yet read (named): Storm
 # Lance's lodged spear (its bolts zap "nearby enemies", a reach not read here), Gas Grenade's cloud (with Gas Arrow's,
 # the cloud sites), Forge Hammer's spiral (MECH-B's MECHB48 model).
-DETONATED_STAY = {"Earthshatter", "Stormblast Bolts"}
+DETONATED_STAY = {"Earthshatter", "Stormblast Bolts", "Storm Lance"}
 DETONATED_STAY_RADIUS = 1.5  # (metres: MECHD9's survey estimate for Earthshatter's spikes, used only without PoB's radius)
+# (GEM48; RESEARCH66 R66-5, research/storm-lance-reach-r66.md) Storm Lance's lodged spear "Fires bolts at enemies within a
+# {0} metre radius" (storm_lance_statset_1, from active_skill_base_secondary_area_of_effect_radius 30: 3.0 m, HIGH),
+# scaled by area modifiers as PoB's AreaOfEffectRadiusSecondary is (MEDIUM); thrown at the boss it lodges at the boss's
+# spot. So its Detonation volley (DETONATED_STAY) and its own zaps over its 6 s (the Lodged Spear set, when that is the
+# plain set: detonated_set_model's `lodged`, bosses.stay_share(R, its life)) reach the boss only while it is within R of
+# the spear (the boss's body counting); R = PoB's AreaOfEffectRadiusSecondary for the set, else STORM_LANCE_REACH x
+# sqrt(its AreaOfEffectMod). The Frenzy-Charged set (1.5 s, gated by conditions) isn't cut (its shorter life: a small
+# overcount, named). Rows: the boss standing still (before). LOW (the relocation tallies).
+STORM_LANCE, STORM_LANCE_REACH = "Storm Lance", 3.0
 
 
 def detonated_wait(detonations: float, seconds: float) -> float:
@@ -10337,8 +10346,10 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                         per_spike: float = 0.0, previous: list[dict] | None = None,
                         share: float | None = None, limit: float | None = None,
                         seconds: float | None = None, aftershock: float = 1.0,
-                        stay: tuple[float, float, str] | None = None) -> tuple[list[dict], list[dict]]:
-    """(GEM47: `stay`, when given, (the headline share of the set-off parts that still find the boss, the fixed-move
+                        stay: tuple[float, float, str] | None = None,
+                        lodged: tuple[float, float, str] | None = None) -> tuple[list[dict], list[dict]]:
+    """(GEM48: `lodged`, Storm Lance's Lodged Spear plain set's share of its life the boss stays in its reach, the
+    fixed-move row's, how: STORM_LANCE_REACH's note) (GEM47: `stay`, when given, (the headline share of the set-off parts that still find the boss, the fixed-move
     row's, how): bosses.stay_share over the parts' wait, DETONATED_STAY's note) (GEM36: `share`, when given, the share set off, in place of the Detonators-only detonated_share: Gas Grenade's
     Ignite route, R48-5) Storm Lance's / Rapid Assault's use with the detonations the build's Detonators give (see above): `sets` the
     bridge's setRates, `uses` the main skill's uses a second, `detonations` the build's Detonator uses a second,
@@ -10366,8 +10377,11 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
     det_own = det / shock
     there, there_fixed, there_how = stay if stay is not None else (1.0, 1.0, "")
     there = min(1.0, max(0.0, number(there)))
+    stays = lodged is not None and plain_label == "Lodged Spear"
+    zap, zap_fixed, zap_how = lodged if stays else (1.0, 1.0, "")
+    zap = min(1.0, max(0.0, number(zap)))
     still_total = (plain + det_own * s) * spikes_more  # (GEM47: the boss standing still, the old reading: a row)
-    total = (plain + det_own * s * there) * spikes_more
+    total = (plain * zap + det_own * s * there) * spikes_more
     factor = total / dps[scored]
     steer = scored == det_label and s <= 0
     if steer:
@@ -10383,10 +10397,15 @@ def detonated_set_model(main: Skill | None, scored: str | None, sets: list[dict]
                   + ("set it off*" if main.name in DETONATED_BY or main.name in DETONATED_TEXT else "Detonate it*")), "value": f"x{factor:.3f}",
         "confidence": "MEDIUM-LOW", "entry": entry,
         "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
-        "set_shares": {plain_label: 1.0, det_label: s * there},  # (GEM22: strongest_ailment_model; GEM47: x there)
+        "set_shares": {plain_label: zap, det_label: s * there},  # (GEM22: strongest_ailment_model; GEM47: x there)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; {plain_label} {plain:,.0f}, {det_label} "
                   f"{det:,.0f}). The game sets the {det_label} off only when {by_note}: {s:.0%} of "
-                  f"them ({how}), so {plain_label} + {det_label} x {s:.0%} = {total:,.0f} DPS"
+                  f"them ({how}), so {plain_label}" + (f" x {zap:.0%}" if stays else "") + f" + {det_label} x {s:.0%}"
+                  + (f" x {there:.0%}" if stay is not None and s > 0 else "") + f" = {total:,.0f} DPS"
+                  + (f"; the lodged spear zaps the boss only while it stays within reach: {zap:.0%} of its life "
+                     f"({zap_how}; GEM48, R66-5, LOW); the boss standing still {still_total:,.0f}, every move its mean "
+                     f"length {(plain * min(max(number(zap_fixed), 0.0), 1.0) + det_own * s * there) * spikes_more:,.0f}"
+                     if stays else "")
                   + (f"; with none, the {det_label} set is kept 10% under the {plain_label} so the search keeps it"
                      if steer else "")
                   + (f"; the slam's Aftershocks (x{shock:.2f} on every set's row) repeat the {plain_label} only, so the "
@@ -11074,8 +11093,49 @@ CLOUD_STAY_RADIUS = 1.5  # (metres: MECHD9's survey estimate for Gas Arrow's clo
 
 
 def gas_cloud_poisons(alive: float) -> float:
-    """Poison applications a Gas Arrow cloud makes on the boss in `alive` seconds (see above)."""
+    """Poison applications a Gas Arrow cloud makes on the boss in `alive` seconds (see above). (GEM48: GEM's own sites
+    now count with cloud_applications, R67-1's measured rule; this midpoint stays for MECH-B's sniper_cloud_poison, whose
+    owner decides: routed.)"""
     return max(alive, 0.0) / GAS_POISON_EVERY + 0.5
+
+
+# (GEM48; RESEARCH67 R67-1, research/poison-cloud-measured-r67.md: THE USER's own Gas Arrow clip, 5 clouds, 13 intervals)
+# A cloud Poisons the boss when it lands (5 of 5 clouds), then one every 2.00-2.03 s for as long as it lives (HIGH at the
+# base 2.0 s Poison duration); each Poison lasts 2.0 s; one live Poison per cloud, and two clouds gave one Poison's
+# damage at a time (the limit of one, R60-12: cloud_poison_scale's cap, measured); the clock runs per cloud and per
+# target (re-entry is Poisoned at once, MEDIUM). So a cloud living t seconds gives 1 + floor(t / 2.02) applications
+# (GAS_POISON_STEP: the measured mean interval, a 4.0 s cloud gives 2, its third would come at ~4.03-4.07 s; MEDIUM, the
+# boundary rests on tick timing), not t / 2 + 0.5 (2.5 for 4 s: an OVERCOUNT x0.8 where the limit doesn't bind), and its
+# Poisons cover 2 s x applications (up to 2 s past its life, never a whole 2 s tail). A cloud that explodes early (an
+# Ignited boss, a Detonator: R67's addendum saw "one or two Poisons and blew up") still gives the landing one; the later
+# ones come only while it lasts: with explosions at `ends` a second (exponential, as Assumptions.gas_arrow_share's average
+# life) and the boss Ignited at landing `up` of the time (the cloud goes at once), the k-th later one comes with
+# probability (1 - up) x exp(-ends x k x step). The boss walking out (GEM47's stay rule, MECHD9's relocations): the k-th
+# needs the boss still inside at k x step, bosses.still_there = exp(-leave x k x step), `leave` the boss's moves a
+# second that take it out of the cloud (its relocations x the share longer than the cloud's radius + its body; a boss
+# that steps back in is re-Poisoned at once, R67-1 point 2: not counted, the lower reading). (Using the average time
+# inside instead, 1 + floor(inside x life / step), hid the bosses that leave before the second Poison: probe
+# POE2T9781.) Interval vs Poison duration is open (the clip had
+# 2.0 s; a build with a Poison-duration modifier: the "one per cloud" row, R67's point 4); the Poison duration isn't read.
+GAS_POISON_STEP = 2.02  # (seconds: R67-1's measured interval, 2.00-2.03)
+
+
+def cloud_applications(life: float, ends: float = 0.0, up: float = 0.0, leave: float = 0.0,
+                       step: float = GAS_POISON_STEP) -> float:
+    """Expected Poison applications on the boss from one cloud of `life` seconds (see above): the landing one plus each
+    later one the cloud lives, and the boss stays inside (`leave` a second: its moves out of it), for."""
+    if life <= 0:
+        return 0.0
+    later = int(life / step + 1e-9)
+    keep = max(0.0, 1.0 - min(max(up, 0.0), 1.0))
+    rate = max(ends, 0.0) + max(leave, 0.0)
+    return 1.0 + keep * sum(math.exp(-rate * k * step) for k in range(1, later + 1))
+
+
+def cloud_cover(life: float, poison_seconds: float = GAS_POISON_EVERY) -> float:
+    """Seconds one cloud keeps a target standing in it Poisoned (R67-1): `poison_seconds` (2.0 s at base) x its
+    applications."""
+    return poison_seconds * cloud_applications(life)
 
 
 def gas_cloud_life(uses: float, limit: float = GAS_CLOUD_LIMIT, seconds: float = GAS_CLOUD_SECONDS) -> float:
@@ -12287,6 +12347,13 @@ PLANTS_A_USE_UPPER = {"Toxic Growth": (5.0, "all 5 Pustules a use, each explosio
 # research/toxic-growth-boss-arena-bug.md): counted as working on bosses, MEDIUM-LOW; "0 in boss arenas" a not-counted
 # row (accelerated_growth_model).
 TOXIC_SPREAD, AG_BLAST_RADIUS = 4.5, 1.8
+# (GEM48; MECHD9's survey "Accelerated Growth explosion 1.8 m, 1.2 s delay": 0.87 against the default boss; the manager's
+# reader rule, 26 Nov 06:30) the explosion goes off where the plant is, 1.2 s after it Overgrows ("Explosion occurs after
+# 1.2 seconds"): it hits the boss only if the boss is still inside its 1.8 m (AG_BLAST_RADIUS, its own radius) then: x
+# bosses.still_there(1.8, AG_DELAY), the boss's body counting. A plant Overgrown later than it was made (Thunderstorm's
+# cover) waits longer: the 1.2 s is the shortest wait (the higher reading). Rows: the boss standing still (before) and
+# every move its mean length. LOW (the relocation tallies).
+AG_DELAY = 1.2  # (seconds: the explosion's "Explosion occurs after 1.2 seconds", TriggeredExplosiveGrowthPlayer)
 # base_number_of_projectiles 5 (ToxicGrowthPlayer's Pustules set; patch 0.5.0 "Now fires 5 Pustules"). PoB's ProjectileCount
 # for it is 1 (its number_of_projectiles_override 1, act_dex.lua: one impact counted), so it can't give the count.
 TOXIC_PUSTULES = 5.0
@@ -12302,13 +12369,17 @@ def pustules_reaching(n: float, boss_radius: float, area_mod: float) -> tuple[fl
 
 
 def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[str],
-                             share_conf: str = "MEDIUM") -> tuple[float, list[dict]]:
+                             share_conf: str = "MEDIUM",
+                             there: tuple[float, float, str] | None = None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Accelerated Growth (see above): `parts`, one per supported group: {"source": the Plant
     skill, "uses": its uses a second (PoB's rate x its press share), "blast": one explosion's hit on the boss (PoB's
-    AverageHit x hit chance)}; `share`, `share_parts`, `share_conf`: overgrown_share's answer for the build."""
+    AverageHit x hit chance)}; `share`, `share_parts`, `share_conf`: overgrown_share's answer for the build; `there`
+    (GEM48) (the chance the boss is still in the explosion's 1.8 m 1.2 s later, the same with every move its mean
+    length, how), None: the boss standing still."""
     if not parts:
         return 0.0, []
     share = min(max(number(share), 0.0), 1.0)
+    stay = min(max(there[0], 0.0), 1.0) if there else 1.0
     total, rows, unread, upper, upper_rows, arena = 0.0, [], [], 0.0, [], 0.0
     for part in parts:
         per, what = PLANTS_A_USE.get(part.get("source"), (0.0, ""))
@@ -12319,18 +12390,19 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
             continue
         uses, blast = max(number(part.get("uses")), 0.0), max(number(part.get("blast")), 0.0)
         plants = uses * per
-        rate = plants * share
+        rate = plants * share * stay
         total += rate * blast
         if part.get("source") == "Toxic Growth":  # (RESEARCH35 R35-22: the boss-arena bug's row)
             arena += rate * blast
         up_per, up_what = PLANTS_A_USE_UPPER.get(part.get("source"), (per, what))
         if part.get("most") is not None and up_per > per:
             up_per, up_what = number(part["most"]), f"all {number(part['most']):g} Pustules a use reaching the boss (LOW)"
-        upper += uses * up_per * share * blast
+        upper += uses * up_per * share * stay * blast
         if up_per > per:
             upper_rows.append(f"{part.get('source')}: {up_what}")
         rows.append(f"{part.get('source')}: {uses:.2f} uses a second x {what} = {plants:.2f} plants a second x "
-                    f"{share:.0%} Overgrown = {rate:.2f} explosions a second at {blast:,.1f}")
+                    f"{share:.0%} Overgrown" + (f" x {stay:.0%} the boss still there" if there else "")
+                    + f" = {rate:.2f} explosions a second at {blast:,.1f}")
     why = (("; Overgrown share: " + "; ".join(share_parts)) if share_parts else
            "; nothing the build uses Overgrows its plants (no Thunderstorm with a use rate, no \"chance to immediately "
            "Overgrow\" line): 0")
@@ -12354,7 +12426,11 @@ def accelerated_growth_model(parts: list[dict], share: float, share_parts: list[
         "label": "Accelerated Growth: explosions from Overgrown plants*", "value": f"{total:,.1f} DPS",
         "confidence": share_conf if total > 0 else "LOW", "entry": ACCELERATED_GROWTH_ENTRY,
         "basis": ("PoB gives the explosion no rate (0 DPS). The game: each Overgrown plant of the supported skill "
-                  "triggers it (no cooldown), exploding 1.2 s later in 1.8 m, taken to reach the boss: "
+                  "triggers it (no cooldown), exploding 1.2 s later in 1.8 m where the plant is"
+                  + (f" (the boss still inside then: {there[2]}, GEM48, LOW; standing still "
+                     f"{total / stay if stay > 0 else 0.0:,.1f} DPS, every move its mean length "
+                     f"{(total / stay if stay > 0 else 0.0) * min(max(there[1], 0.0), 1.0):,.1f})" if there else
+                     ", taken to reach the boss") + ": "
                   + "; ".join(rows) + why + skipped + " (Navira's Oasis not counted; Nature's Archon in the share when "
                   "the build has its line, MECHC44's uptime)"),
         "play": ("Make the plants at the boss and Overgrow them: cast Thunderstorm on the boss, or take Boundless Growth "
@@ -12687,19 +12763,28 @@ def magma_spray_model(rate: float, blast: float, how: str, pob: float = 0.0) -> 
 # considered melee skills"; HIGH): probe POE2T5830 (scratch/gem32/probe5830.log): +100% increased Melee Damage took
 # Lunar Assault's hit 52.91 -> 106.04 and left PoB's Moonbeam at 109.52; +100% Attack Damage took it to 218.83. So
 # PoB's beam, which this model reads, carries no Melee modifier.
+# (GEM48; MECHD9's survey "Moonbeam 1.6 m, 0.95 s delay": 0.89 against the default boss; the manager's reader rule, 26
+# Nov 06:30, now that the presets carry relocations: GEM32's "no boss-relocation share in the presets" no longer holds)
+# A beam lands only if the boss is still inside its spot 0.95 s after the Hit: x bosses.still_there(R, 0.95), R = PoB's
+# Moonbeam AreaOfEffectRadius (MOONBEAM_RADIUS 1.6 m, R44-3, without it); the boss's body counts (still_there adds its
+# hit radius). Rows: the boss standing still (before), and every move its mean length. LOW (the relocation tallies).
 MOONBEAM, LUNAR_BLESSING = "Moonbeam", "Lunar Blessing"
 MOONBEAM_ENTRY = "model-gem31-moonbeam"
+MOONBEAM_RADIUS, MOONBEAM_DELAY = 1.6, 0.95  # (metres: R44-3; seconds: wolf_lunar_blessing_beam_attack_delay_ms 950)
 WEREWOLF_MELEE_TYPES = frozenset({"Attack", "Melee", "Wolf", "Shapeshift"})
 
 
 def moonbeam_model(cap: float, beam: float, hits: float, uptime: float, uptime_how: str, pob: float = 0.0,
-                   main: str = "") -> tuple[float, list[dict]]:
+                   main: str = "", there: tuple[float, float, str] | None = None) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Moonbeam (see above): `cap` its uses a second at its cooldown (PoB's Speed), `beam` one
     beam's damage (PoB's), `hits` the main Werewolf Melee Attack's hits a second on the boss, `uptime` Lunar Blessing's,
-    `pob` PoB's Full DPS entry for it (taken out)."""
+    `pob` PoB's Full DPS entry for it (taken out); `there` (GEM48) (the chance the boss is still in the beam's spot when
+    it lands, the same with every move its mean length, how), None: the boss standing still."""
     cap, beam, hits, uptime = (max(number(v), 0.0) for v in (cap, beam, hits, uptime))
     rate = min(cap, hits) * min(uptime, 1.0)
-    dps = rate * beam
+    still = rate * beam
+    share = min(max(there[0], 0.0), 1.0) if there else 1.0
+    dps = still * share
     return dps, [{
         "label": "Lunar Blessing: a Moonbeam on your Werewolf Melee Hits while the Buff lasts*", "value": f"{dps:,.1f} DPS",
         "confidence": "MEDIUM-LOW", "entry": MOONBEAM_ENTRY,
@@ -12708,7 +12793,10 @@ def moonbeam_model(cap: float, beam: float, hits: float, uptime: float, uptime_h
                   f"{cap:.2f} a second (Moonbeam's cooldown), while Lunar Blessing is up {uptime:.0%} of the fight "
                   f"({uptime_how}): {rate:.3f} beams a second at {beam:,.1f} each (PoB's Moonbeam). Its extra beams go to "
                   "other targets: none on a lone boss. The beam strikes the Hit's spot 0.95 s later (1.6 m): a boss that leaps, "
-                  "charges or teleports away in that time is missed, not counted (R44-3, MEDIUM); an Attack, not Melee: "
+                  "charges or teleports away in that time is missed (R44-3, MEDIUM)"
+                  + (f": {there[2]} (GEM48, LOW), so x{share:.2f}; the boss standing still {still:,.1f} DPS, every move "
+                     f"its mean length {still * min(max(there[1], 0.0), 1.0):,.1f}" if there else
+                     ": the boss taken to stand still") + "; an Attack, not Melee: "
                   "PoB's beam takes no Melee modifier (probe POE2T5830)"
                   + (f"; PoB's own {pob:,.1f} DPS entry (the cooldown rate all fight) taken out" if pob > 0 else "")),
         "play": (f"Keep Lunar Blessing up (with full Rage) and keep hitting in Werewolf form: Moonbeams follow your Hits, "
@@ -13863,7 +13951,8 @@ def added_total(mods: list[dict]) -> float:
 # (number_of_vine_arrow_pod_allowed), plants a second x their 8 s duration) (the search's chosen Vine Arrow presses, or
 # its Speed as the main skill: CLAUDE.md, the build's own rate); c the share of the fight a cloud stands over them, min(1,
 # clouds a second x a cloud's life) for the build's Gas Arrow / Gas Grenade (main, or pressed at the search's rate;
-# the best one). Headline: one Poison on the plant (R63-2: "only 1 stack", Dec 2024, hedged); rows: up to the build's
+# the best one). (GEM48, R67-1) a cloud's Poisons cover 2 s x its applications, not its life: c = min(1, clouds a second x
+# cloud_cover(its life)), 8.0 s for a 7.02 s cloud (x1.14 where c < 1), 4.0 s for a base 4 s one (no change). Headline: one Poison on the plant (R63-2: "only 1 stack", Dec 2024, hedged); rows: up to the build's
 # Poison limit, scaled again by the vines' own modifiers (UNVERIFIED), capped at the visual maximum (UNVERIFIED). No cloud
 # source: 0, with a note (CLAUDE.md: no flat rate). Not read (named): other cloud sources (the Sniper's, Decompose,
 # cloud supports), which would Poison the plant the same way. Counted as an added source (models.added_input, fixed at

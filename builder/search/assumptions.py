@@ -2892,7 +2892,14 @@ def moonbeam(build: Build, main: models.Skill | None, stats: dict) -> tuple[floa
     if group.get("fullDPS"):
         full = next(iter(build.call("useRates", indices=[group["index"]], actives=[n])["rates"]), None) or {}
         pob = models.number(full.get("TotalDPS")) * _child_left(build, group)
-    return models.moonbeam_model(cap, beam, hits, up, up_how, pob, main.name)
+    # (GEM48; MECHD9's reader rule) the beam lands 0.95 s later at the Hit's spot: the boss still there or not
+    from builder.search import bosses
+    boss = {"_boss": getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT}
+    radius = models.number(row.get("AreaOfEffectRadius")) / 10 or models.MOONBEAM_RADIUS
+    there, there_how = bosses.still_there(boss, radius, models.MOONBEAM_DELAY)
+    there_fixed, _ = bosses.still_there(boss, radius, models.MOONBEAM_DELAY, moves="fixed")
+    return models.moonbeam_model(cap, beam, hits, up, up_how, pob, main.name,
+                                 there=(there, there_fixed, f"its {radius:.1f} m spot: {there_how}"))
 
 
 def trail_of_caltrops(build: Build, stats: dict, main: models.Skill | None = None,
@@ -3537,7 +3544,13 @@ def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str]
     if archon > 0:
         share = 1 - (1 - archon) * (1 - share)
         share_parts = share_parts + [archon_how + " (Dominion's no-recovery not read: the lower reading)"]
-    return models.accelerated_growth_model(parts, share, share_parts, conf)
+    # (GEM48; MECHD9's reader rule) the explosion goes off where the plant is, 1.2 s later: the boss still there or not
+    from builder.search import bosses
+    boss = {"_boss": getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT}
+    there, there_how = bosses.still_there(boss, models.AG_BLAST_RADIUS, models.AG_DELAY)
+    there_fixed, _ = bosses.still_there(boss, models.AG_BLAST_RADIUS, models.AG_DELAY, moves="fixed")
+    return models.accelerated_growth_model(parts, share, share_parts, conf,
+                                           there=(there, there_fixed, f"its {models.AG_BLAST_RADIUS:g} m: {there_how}"))
 
 
 def broken_stance(build: Build, main: models.Skill | None) -> tuple[float, list[dict]]:
@@ -5901,17 +5914,27 @@ class Assumptions:
                 _, det_label, _, base_seconds, _ = models.DETONATED_SETS[main.name]
                 radius = number(next((x for x in sets if x.get("label") == det_label), {}).get("AreaOfEffectRadius")) / 10
                 radius = radius if radius > 0 else models.DETONATED_STAY_RADIUS
+                if main.name == models.STORM_LANCE:  # (GEM48, R66-5: the spear's bolts reach 3.0 m x area)
+                    radius = self.storm_lance_reach(sets, stats)
                 wait = models.detonated_wait(det_rate, det_seconds or base_seconds)
                 there, there_how = bosses.stay_share(stats, radius, wait)
                 there_fixed, _ = bosses.stay_share(stats, radius, wait, moves="fixed")
                 det_stay = (there, there_fixed, f"set off within {wait:.1f} s of landing (one every "
                             f"{1 / det_rate:.1f} s, its {det_seconds or base_seconds:g} s life the cap), its "
                             f"{radius:.1f} m area: {there_how}")
+            det_lodged = None
+            if main.name == models.STORM_LANCE:  # (GEM48, R66-5: its lodged zaps reach the boss only while it stays)
+                from builder.search import bosses
+                reach = self.storm_lance_reach(sets, stats)
+                life = det_seconds or models.DETONATED_SETS[main.name][3]
+                zap, zap_how = bosses.stay_share(stats, reach, life)
+                zap_fixed, _ = bosses.stay_share(stats, reach, life, moves="fixed")
+                det_lodged = (zap, zap_fixed, f"its {reach:.1f} m reach over its {life:g} s: {zap_how}")
             det_mods, det_notes = models.detonated_set_model(main, main.stat_set, sets, number(stats.get("Speed")),
                                                              det_rate, det_how, forbidden, per_spike,
                                                              previous=self.mods, share=det_share,
                                                              limit=det_limit, seconds=det_seconds,
-                                                             aftershock=slam_hits, stay=det_stay)
+                                                             aftershock=slam_hits, stay=det_stay, lodged=det_lodged)
             hand_mods, hand_notes = hand_mods + det_mods, hand_notes + det_notes
             det_split = (models.detonated_share(main.name, number(stats.get("Speed")), det_rate, det_limit, det_seconds)
                          if det_share is None
@@ -8251,7 +8274,7 @@ class Assumptions:
             stacks = min(number(cloud.get("PoisonStackPotential")) * number(cloud.get("PoisonStacksMax")),
                          number(cloud.get("PoisonStacksMax"))) or 1.0
             one = number(cloud.get("PoisonDPS")) / stacks
-            clouds.append((name, one, rate * models.gas_cloud_life(rate, limit, seconds)))
+            clouds.append((name, one, rate * models.cloud_cover(models.gas_cloud_life(rate, limit, seconds))))  # (GEM48, R67-1)
         poison_limit = number(build.call("stats", fields=["PoisonStacksMax"]).get("PoisonStacksMax")) or 1.0
         return models.vine_plant_model(number(stats.get(models.VINE_STORED)), number(stats.get(models.VINE_LIMIT)) or 1.0,
                                        plants, plant_seconds, clouds, poison_limit=poison_limit,
@@ -9569,6 +9592,15 @@ class Assumptions:
             mods = [m for m in mods if m.get("tag") != models.FROST_BOMB_ENTRY] + models.frost_bomb_away_mods()
             notes = [n for n in notes if n.get("entry") != models.FROST_BOMB_ENTRY]
         return mods, notes + [models.frost_bomb_spot_note(scored["boss"], scored["away"], chosen)]
+
+    def storm_lance_reach(self, sets: list[dict], stats: dict) -> float:
+        """(GEM48, R66-5) metres Storm Lance's lodged spear reaches: PoB's AreaOfEffectRadiusSecondary for its Lodged
+        Spear / Projectile set (tenths), else 3.0 m x sqrt(the build's AreaOfEffectMod)."""
+        for label in ("Lodged Spear", "Projectile"):
+            got = number(next((x for x in sets if x.get("label") == label), {}).get("AreaOfEffectRadiusSecondary")) / 10
+            if got > 0:
+                return got
+        return models.STORM_LANCE_REACH * math.sqrt(max(number(stats.get("AreaOfEffectMod")), 0.0) or 1.0)
 
     def purple_pob(self) -> float:
         """PoB's own Purple Flame stacks (its purpleFlameStacks config, 10 by default: ConfigOptions 474)."""
@@ -11299,7 +11331,7 @@ class Assumptions:
                        f"the resolver's share {base:.0%} ({up_how})")
 
     def cloud_stay(self, main_index: int, skill: str, life: float, alive: float,
-                   det_rate: float) -> tuple[float, float, float, str] | None:
+                   det_rate: float) -> tuple[float, float, float, str, float] | None:
         """(GEM47, models.CLOUD_STAY) (the share of a cloud's average `alive` s the boss stays inside it, of its whole
         `life`, of a Detonator's wait (models.detonated_wait), how) from bosses.stay_share at the cloud's radius (its
         Poison Cloud set's AreaOfEffectRadius, else models.CLOUD_STAY_RADIUS); None when the boss doesn't move."""
@@ -11317,7 +11349,9 @@ class Assumptions:
         in_life, life_how = bosses.stay_share(boss, radius, life)
         wait = models.detonated_wait(det_rate, life)
         in_det = bosses.stay_share(boss, radius, wait)[0] if wait > 0 else 1.0
-        return in_alive, in_life, in_det, f"its {radius:.1f} m cloud: {how or life_how}"
+        # (GEM48) the boss's moves out of the cloud a second, for each later Poison (models.cloud_applications)
+        leave = -math.log(max(bosses.still_there(boss, radius, 1.0)[0], 1e-12))
+        return in_alive, in_life, in_det, f"its {radius:.1f} m cloud: {how or life_how}", leave
 
     def gas_arrow_share(self, main_index: int, scored: str | None, cloud: tuple[float, float] | None = None,
                         every_use: tuple[str, ...] = ("Arrow",), burning: bool = False,
@@ -11371,20 +11405,20 @@ class Assumptions:
             share = new
         # (GEM20, R30-5 (3)) a cloud's average life on the boss: 0 if the boss is Ignited when it lands, else until the
         # first new Ignite (applications at -ln(1 - up) / d a second, gas_ignite_within's) or Detonator use, at most its
-        # life: its Poisons come one every 2 s while it lives (models.gas_cloud_poisons)
+        # life: its Poisons come on landing, then every 2.02 s while it lives (models.cloud_applications, GEM48: R67-1)
         ignites = -math.log(1.0 - up) / duration if 0 < up < 1 else 0.0
         ends = ignites + det_rate
         alive = 0.0 if up >= 1 else (1.0 - up) * ((1.0 - math.exp(-ends * life)) / ends if ends > 0 else life)
-        poisons = models.gas_cloud_poisons(alive)
+        poisons = models.cloud_applications(life, ends, up)  # (GEM48, R67-1: the landing one, then every 2.02 s)
         # (GEM47; MECHD9's survey and the manager's reader rule, 26 Nov: models.CLOUD_STAY's note) the boss walks out of
         # the cloud left where it stood: its Poisons come only while the boss is inside, and a cloud explodes on it only
         # if it is still inside when set off
         stay = self.cloud_stay(main_index, skill, life, alive, det_rate)
         still = (share, poisons)
         if stay is not None:
-            in_alive, in_life, in_det, stay_how = stay
+            in_alive, in_life, in_det, stay_how, leave = stay
             share = det_only * in_det + max(share - det_only, 0.0) * in_life
-            poisons = models.gas_cloud_poisons(alive * in_alive)
+            poisons = models.cloud_applications(life, ends, up, leave)
         others_n = len([o for o in others.get("Ignite") or () if o])
         source = ("the explosions' own Ignites" if own and scored == "Explosion" else
                   f"the {scored}'s own Ignites" if own else "no own Ignite read")
@@ -11396,7 +11430,7 @@ class Assumptions:
                          f"clouds would explode: the boss Ignited {up:.1%} of the fight, Detonators"
                          + (" and Fire DoT" if burning else "") + f" {detonated:.0%})"
                          + (f"; the boss inside the cloud {stay[1]:.0%} of its life ({stay[3]}; standing still: "
-                            f"{models.gas_cloud_poisons(life):.2f} Poisons a cloud)" if stay is not None else "")),                 models.gas_cloud_poisons(life * (stay[1] if stay is not None else 1.0))
+                            f"{models.cloud_applications(life):.2f} Poisons a cloud)" if stay is not None else "")),                 models.cloud_applications(life, leave=stay[4] if stay is not None else 0.0)
         return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
                        f"Detonators" + (" and Fire DoT" if burning else "") + f" set off {detonated:.0%} ({det_how}"
