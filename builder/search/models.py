@@ -10776,7 +10776,12 @@ def gas_ignite_within(up: float, duration: float, window: float) -> float:
 # ground_effect_duration_+% (Persistent Ground I-III: "50% increased duration of Ground Surfaces"), which PoB's duration
 # never holds (conditions' GROUND_SURFACE_DURATION_STAT note), is added to the cloud's increased duration: seconds + base x
 # it / 100 (an UNDERCOUNT before; MEDIUM: the cloud as a Ground Surface, as above). Not changed (UNVERIFIED whether
-# they're Ground Surfaces the line protects): Storm Lance's lodged spears, Oil Ground catching fire.
+# they're Ground Surfaces the line protects): Storm Lance's lodged spears, Oil Ground catching fire. (MECH111, RESEARCH61
+# R61-14, research/persistent-ground-cannot-trigger-r61.md, all 28 skills it can support) Gas Arrow / Gas Grenade /
+# Decompose clouds: stopped (MEDIUM-HIGH, as here; Decompose is MECH-B's); Oil Ground catching fire: NOT stopped
+# (MEDIUM-HIGH: since 0.3.0 lighting oil refreshes its duration rather than ending it), so nothing to change for it;
+# Storm Lance / Explosive Spear detonations, Frozen Locus / Grim Pillars crystals, Stampede's patch: UNVERIFIED, leaning
+# not stopped (unchanged); Earthquake's eruption fires on expiry (not stopped).
 PERSISTENT_GROUND_STAT = "ground_effects_cannot_trigger"
 GROUND_DURATION_STAT = "ground_effect_duration_+%"
 
@@ -10797,7 +10802,14 @@ def persistent_cloud(seconds: float, base: float, support: dict) -> tuple[float,
 # killed carrying your Poison at the main skill's chance a hit (PoisonChancePerHit: one hit's chance, the lower reading;
 # whether the killing hit's own Poison counts is UNVERIFIED), one Poison an add (the lower reading), spread onto the boss
 # with half its duration left on average (MEDIUM-LOW), each add taken to die within the spread radius of the boss
-# (UNVERIFIED; the row: out of reach, 0). A spread Poison is one of yours on the boss, so it counts against your Poison
+# (UNVERIFIED; the row: out of reach, 0). (MECH111, RESEARCH61 R61-15, research/herald-of-plague-spread-r61.md) (a) HIGH:
+# the radius is around the DYING add, 1.5 m (gem level 1) to 1.8 m (20), area modifiers on it UNVERIFIED; the presets
+# hold no data on where adds die, so no share in reach is worked out: the headline keeps the play of killing them beside
+# the boss (a build with the Herald plays to feed it), the row none in reach, 0. (b) HIGH: only the add's most damaging
+# Poison spreads ("Spreads the most Damaging Poison on enemies you kill"): one an add stands; the killing hit's own
+# Poison as that one: UNVERIFIED, left out. (c) Magnitude kept (MEDIUM-HIGH); whether its duration restarts is
+# UNVERIFIED: the remaining half stays the headline (an unverified reading must not raise it), the full duration a row.
+# A spread Poison is one of yours on the boss, so it counts against your Poison
 # limit (RESEARCH60 R60-12, MEDIUM-HIGH: one by default): the boss's Poison DPS x min(limit, S + A) / min(limit, S), S = PoB's
 # stacks there (PoisonStackPotential x PoisonStacksMax, as cloud_poison_scale), A = the spread stacks. Added beside PoB
 # (added_input), as the cloud Poison. Hinder (a movement Slow) moves no damage: not counted.
@@ -10832,6 +10844,9 @@ def herald_of_plague_model(found: list[Skill], stats: dict,
                              "adds, 0."}]
     scale = min(limit, stacks + spread) / min(limit, stacks)
     added = dps * (scale - 1.0)
+    # (MECH111, RESEARCH61 R61-15 (c): whether a spread Poison restarts its duration is UNVERIFIED: the remaining half
+    # stays the headline, the full duration is the row)
+    full = dps * (min(limit, stacks + 2.0 * spread) / min(limit, stacks) - 1.0)
     mods = [added_input("HeraldOfPlague", added)] if added > 0 else []
     return mods, [{
         "label": label, "value": f"{added:,.0f} DPS", "confidence": "LOW", "entry": HERALD_OF_PLAGUE_ENTRY,
@@ -10839,10 +10854,14 @@ def herald_of_plague_model(found: list[Skill], stats: dict,
                   f"your main skill's {chance:.0%} a hit (the lower reading) and spreading one Poison onto the boss "
                   f"with half its {duration:.2f} s left (MEDIUM-LOW): {spread:.3f} Poisons on the boss at a time, beside "
                   f"PoB's {stacks:.2f}, up to your Poison limit of {limit:g} (R60-12): x{scale:.3f} on its "
-                  f"{dps:,.1f} Poison DPS = +{added:,.1f}, added beside it; each add taken to die within the spread "
-                  f"radius of the boss (UNVERIFIED; out of reach: 0)"),
+                  f"{dps:,.1f} Poison DPS = +{added:,.1f}, added beside it. Only the add's most damaging Poison spreads "
+                  f"(R61-15 (b), HIGH: one an add). The spread reaches enemies within 1.5 m (gem level 1) to 1.8 m (level "
+                  f"20) of the DYING add (R61-15 (a), HIGH; area modifiers on it UNVERIFIED), and the preset holds no data "
+                  f"on where its adds die, so no share in reach can be worked out from it: the headline takes the play "
+                  f"of killing them beside the boss (a build with Herald of Plague plays to feed it); rows: none in "
+                  f"reach +0; a spread Poison at its full duration (UNVERIFIED) +{full:,.1f}"),
         "play": (f"Herald of Plague: kill the boss's adds while they're Poisoned and beside it, so their Poison spreads to "
-                 f"it. Without it: +0; with this build's: +{added:,.0f} DPS.")}]
+                 f"it (within about 1.5-1.8 m of it). Without it: +0; with this build's: +{added:,.0f} DPS.")}]
 
 
 # A self-centred Nova's hits only within its reach (MECH111; conditions.nova_reach's note, an OVERCOUNT): PoB scores every
