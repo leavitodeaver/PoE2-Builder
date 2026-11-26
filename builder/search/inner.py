@@ -2488,6 +2488,27 @@ def why_items_safe(gear: Any) -> tuple[dict, str | None]:
         return {}, f"{type(error).__name__}: {error}"
 
 
+def polish_finished(search: "Search", seconds: float, trace: list) -> bool:
+    """(SEARCHB10's hook, landed by SEARCH42 from branch searchb10-hooked 096af924; POE2_SEARCH_POLISH, OFF by default)
+    The finished build's anoint / rune polish over every equipped slot (Gear.polish): the full gear round's per-slot
+    work reaches only its first 1-2 slots in a gate (SPEED4, POE2T7890), and 2b75b's delivered Amulet had no anoint
+    (Lasting Trauma x1.126, POE2T7898). Its own time past finalize's (gear.polish_seconds), the uptimes weighed first
+    and after each kept change; finalize_task calls it after the final regrow, before the open sockets. A tree without
+    SEARCH-B's Gear.polish (80c088c9) or with the switch off: nothing runs. True if it ran."""
+    from builder.search import gear as gear_module
+
+    polish_on, polish_seconds = getattr(gear_module, "polish_on", None), getattr(gear_module, "polish_seconds", None)
+    if polish_on is None or polish_seconds is None or not polish_on():
+        return False
+    try:
+        search.weigh_uptimes()
+        search.gear.polish(clock.now() + polish_seconds(seconds), reweigh=search.weigh_uptimes)
+        trace.append(["gear polish", round(search.build.score, 4)])
+    except Cancelled:
+        pass
+    return True
+
+
 def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state: dict, seconds: float,
                   regrow: float = 0.0) -> dict:
     """Switch to Full DPS, include damaging non-main groups in it, polish briefly, then export
@@ -2574,6 +2595,7 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
             trace.append(["final regrow", round(build.score, 4)])
         except Cancelled:
             pass
+    polish_finished(search, seconds, trace)  # (SEARCHB10's hook: POE2_SEARCH_POLISH, OFF by default)
     # (SEARCH34; the user, 20 Nov: an empty support socket is a red flag to justify by score) every open socket of the
     # MAIN group gets real trials of its legal supports, and a support needing an exact count (Uhtred's Augury) the group
     # without it filled; empty stays only when it scores higher (Gems.fill_open). Its own FILL_SECONDS past whatever is

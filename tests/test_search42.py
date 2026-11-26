@@ -55,3 +55,25 @@ def test_upkeep_candidates_take_a_side_totem_with_a_duration_and_placement_time(
     # (the main group's totem is the damage itself: never charged)
     rows[0]["index"] = 1
     assert _candidates(rows, main_index=1) == {}
+
+
+def test_searchb10_polish_hook_runs_only_with_its_switch(monkeypatch):
+    """(SEARCHB10's hook, 096af924) finalize_task calls the polish after the final regrow and before the open sockets;
+    with POE2_SEARCH_POLISH off, or a tree without Gear.polish, nothing runs."""
+    import inspect
+    from builder.search import gear as gear_module, inner
+
+    src = inspect.getsource(inner.finalize_task)
+    assert src.rfind('"final regrow"') < src.find("polish_finished(") < src.find('"open sockets"')
+    calls = []
+    search = SimpleNamespace(weigh_uptimes=lambda: calls.append("weigh"), build=SimpleNamespace(score=1.0),
+                             gear=SimpleNamespace(polish=lambda deadline, reweigh: calls.append("polish")))
+    trace = []
+    monkeypatch.delattr(gear_module, "polish_on", raising=False)
+    assert inner.polish_finished(search, 60.0, trace) is False and calls == [] and trace == []
+    monkeypatch.setattr(gear_module, "polish_on", lambda: False, raising=False)
+    monkeypatch.setattr(gear_module, "polish_seconds", lambda s: min(60.0, s), raising=False)
+    assert inner.polish_finished(search, 60.0, trace) is False and calls == [] and trace == []
+    monkeypatch.setattr(gear_module, "polish_on", lambda: True, raising=False)
+    assert inner.polish_finished(search, 60.0, trace) is True
+    assert calls == ["weigh", "polish"] and trace == [["gear polish", 1.0]]
