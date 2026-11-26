@@ -1,0 +1,25 @@
+# COV59 (25 Nov 2026; the manager's 18:37 order): the five delay rows COV58 left open, settled by RESEARCH62 R62-4 /
+# R62-5 (research/explosion-aftershock-delays-r62.md), the same way COV58's gem-cov58c-delays-keep-the-rate settled
+# Pounce / Cross Slash / Decompose / Rampage. Skill names are listed both as the audit shows the skill and as its gem.
+
+- id: gem-cov59-delays-keep-the-rate
+  title: "A fixed delay before an explosion or aftershock keeps the hits a second (Detonate Dead, Voltaic Fulmination, Fiery Reclamation, Furious Slam, Supercharged Slam)"
+  kind: gem_stat
+  match: '^(explosion_delay_ms|aftershock_delay_ms)$'
+  replace: []
+  skill: [Detonate Dead, Voltaic Fulmination, Eonyr's Thunder, Fiery Reclamation, Xibaqua's Rending, Furious Slam,
+          Supercharged Slam]
+  confidence: theory
+  notes: >-
+    The manager's ruling (25 Nov 18:14 and 18:37: settled, no change) on RESEARCH62 R62-4 / R62-5 (HIGH): each delay is a
+    hidden stat on the delayed hit, apart from the use time, and the player keeps acting, so hits a second are unchanged:
+    Detonate Dead's, Voltaic Fulmination's and Fiery Reclamation's 400 ms explosion delay (explosion_delay_ms; the last two
+    are triggered and take no player time), Furious Slam's 500 ms (both stat sets) and Supercharged Slam's 250 ms
+    aftershock delay (aftershock_delay_ms; an Aftershock is a follow-up burst after the initial impact). R59-12's "nothing
+    cancels a delayed hit" carries over (MEDIUM-HIGH). A hit is lost only if the boss leaves the area in the delay (under
+    ~5%, at the edge) or turns immune, which the presets' downtime already covers: not modelled. Still UNVERIFIED, no build
+    depends on them: two Detonate Dead casts on the same corpse within 0.4 s, and leaving Bear form during Furious Slam's
+    delay. No model needed; decided, not open.
+  sources: ["scratch/manager/research/explosion-aftershock-delays-r62.md (R62-4, R62-5)",
+            "scratch/manager/research/delayed-hit-cancel-r59.md (R59-12)", "the manager's 18:14 and 18:37 notes"]
+  status: proposed

@@ -33,5 +33,4 @@ def test_cov58c_settled_delays_are_decided_for_the_researched_skills_only():
                         ("explosion_delay_ms", "Decompose"), ("aftershock_delay_ms", "Rampage")):
         entry = coverage.gem_stat_pattern_entry(stat, skill)
         assert entry is not None and entry.id == "gem-cov58c-delays-keep-the-rate", (stat, skill)
-    for stat, skill in (("explosion_delay_ms", "Detonate Dead"), ("aftershock_delay_ms", "Furious Slam")):
-        assert coverage.gem_stat_pattern_entry(stat, skill) is None, (stat, skill)
+    # (COV59: Detonate Dead / Furious Slam and the other three were settled later by R62-4 / R62-5: tests/test_cov59.py)
