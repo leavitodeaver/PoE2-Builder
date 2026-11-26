@@ -1,5 +1,7 @@
 """MECHC67's tests (MECH-C): the charge-blocking rule by stat (AUDIT39 A39-66)."""
 import re
+
+import pytest
 from pathlib import Path
 
 from builder.search import conditions
@@ -71,3 +73,19 @@ def test_the_note_names_the_gem_that_blocks():
     assert note["label"].startswith("Mirage Archer:") and "Mirage or illusions" in note["basis"]
     assert Assumptions.inhibited_note("Oil Barrage", "x")["basis"].startswith("Inhibitor supports Oil Barrage:")
 
+
+def test_remnants_made_at_the_boss_are_collected_by_walking_in_from_range():
+    """Item 4 (RESEARCH64 R64-9): Life / Mana / Kalguur Remnants appear near the target. Melee collects them where it
+    stands; standing still at range collects none; moving at range walks in once per Remnant life (8 s)."""
+    from builder.search.assumptions import target_walk
+
+    assert target_walk(2.0, 1.5, 3.7, 0.3, 8.0, False)[:2] == (1.0, 0.0)  # (within 1.5 + 1.5 m)
+    assert target_walk(2.0, 1.5, 3.7, 0.3, 8.0, True)[:2] == (1.0, 0.0)  # (melee standing still: still in reach)
+    assert target_walk(8.0, 1.5, 3.7, 0.3, 8.0, True)[:2] == (0.0, 0.0)
+    share, walk, how = target_walk(8.0, 1.5, 3.7, 0.3, 8.0, False)
+    trip = 2 * (8.0 - 3.0) / 3.7
+    assert share == 1.0 and walk == pytest.approx(trip / 8.0) and "walk in and back" in how
+    # slower than one a life: one visit a Remnant
+    assert target_walk(8.0, 1.5, 3.7, 0.05, 8.0, False)[1] == pytest.approx(0.05 * trip)
+    # a longer pickup radius shortens the walk
+    assert target_walk(8.0, 3.0, 3.7, 0.3, 8.0, False)[1] < walk

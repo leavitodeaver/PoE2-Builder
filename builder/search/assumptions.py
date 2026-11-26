@@ -749,6 +749,53 @@ def still_far(config: dict) -> bool:
         conditions_mod.MELEE_DISTANCE * 10 + 1e-6)
 
 
+# Remnants made at the target (MECHC67; RESEARCH64 R64-9, the manager 26 Nov 02:57; before, every one counted as
+# collected with no walking: an OVERCOUNT of their recovery for a ranged build, and no time cost). Life Remnants (one on
+# Hitting a target, at most once every 3 s), Mana Remnants (on Critically Hitting a target with an Elemental Ailment, at
+# most once every 2 s), Remnants of Kalguur (50% on Stunning an enemy, at most once every 3 s) and Sanguine Revelry (on
+# hitting a Bleeding target, every 2 s) make theirs where the hit lands: near the target (MEDIUM, R64-9: the game's
+# convention, Rip's "Remnants are created within a 1.5 metre radius of the slain Enemy",
+# rip_support_life_remnant_creation_radius 15; their own texts name only the trigger; Sanguine Revelry by the same
+# convention, MEDIUM-LOW). Each lasts 8 s (base_remnant_duration_ms 8000, HIGH; the skill's own level stat where it has
+# one). "Walking over a Remnant collects it" (KeywordPopups Remnant). So (target_walk), at the build's distance from the
+# boss (PoB's enemyDistance, the conditions' choice) and pickup radius (remnant_walk.BASE_PICKUP x the build's pickup
+# lines and supports, UNVERIFIED until THE USER's in-game test):
+# - within the pickup radius + the 1.5 m spread: collected where you stand (melee), no walking;
+# - standing still beyond it (PoB's conditionStationary): none collected (the search's choose_stationary weighs that
+#   against moving, as for the boss-spot Infusions);
+# - moving beyond it: a walk in and back to the boss, once per Remnant life (every one standing collected each visit),
+#   or once per Remnant where they come slower: all collected, the walking (2 x the gap / the build's run speed, a
+#   second at the visits' rate) taken off every skill's use rate as a Speed MORE (as Into the Breach's route walk).
+# Rows: pickup radius 1.0 / 2.25 m; never collecting. POE2_TARGET_WALK=0 is the old reading (every one collected, no
+# walking).
+TARGET_REMNANTS = ("Life Remnants", "Mana Remnants", KALGUUR, "Sanguine Revelry")
+TARGET_SPREAD = 1.5  # metres around the target (Rip's radius; MEDIUM)
+TARGET_LIFE = 8.0  # seconds (base_remnant_duration_ms 8000; R64-9 HIGH)
+TARGET_WALK = os.environ.get("POE2_TARGET_WALK", "1") != "0"
+TARGET_WALK_TAG = "TargetRemnantWalk"
+
+
+def target_walk(distance: float, pickup: float, speed: float, rate: float, life: float,
+                stationary: bool) -> tuple[float, float, str]:
+    """(share collected, share of the fight walking, how) for Remnants that appear at the boss (TARGET_REMNANTS' note):
+    `distance` m from the boss, `pickup` m radius, `speed` m/s run speed, `rate` Remnants a second, `life` s each."""
+    reach = pickup + TARGET_SPREAD
+    if distance <= reach + 1e-9:
+        return 1.0, 0.0, (f"you fight {distance:g} m from the boss, within the {reach:.2f} m that reaches them "
+                          f"({pickup:.2f} m pickup + their {TARGET_SPREAD:g} m spread): collected where you stand")
+    if stationary:
+        return 0.0, 0.0, (f"you stand still {distance:g} m from the boss, beyond the {reach:.2f} m that reaches them: "
+                          "none collected")
+    if rate <= 0 or speed <= 0:
+        return 1.0, 0.0, "none made"
+    trip = 2 * (distance - reach) / speed
+    visits = min(rate, 1 / life) if life > 0 else rate
+    walk = min(1.0, visits * trip)
+    return 1.0, walk, (f"you fight {distance:g} m from the boss: a {distance - reach:.1f} m walk in and back "
+                       f"({trip:.2f} s at {speed:.1f} m/s) every {1 / visits:.1f} s (once per {life:g} s Remnant life, "
+                       f"or once per Remnant where they come slower) collects them all: {walk:.1%} of the fight walking")
+
+
 # (MECHC45, the manager's 08:05 from COV47, an OVERCOUNT and an UNDERCOUNT) The Infusion cap. KeywordPopups
 # ElementalInfusion (game 26650308): "Picking up the Remnant grants you the Infusion for 20 seconds or until it is
 # Consumed by another Skill. You can have up to 3 of each Infusion by default"; VerisiumInfusion: "Your maximum number of
@@ -5010,6 +5057,10 @@ class Assumptions:
                 fury_skills, stats, fury_types, "Attack" in fury_types,
                 bool(build.call("getConfig")["input"].get("buffOnslaught")), number(fury_rate.get("duration")) or None)
             hand_mods, hand_notes = hand_mods + fury_mods, hand_notes + fury_notes
+        if (target := self.target_collection(skills)) is not None:  # (MECHC67: TARGET_REMNANTS' note)
+            if target["walk"] > 0:
+                hand_mods = hand_mods + [models.raw_mod("Speed", "MORE", -100.0 * target["walk"], tag=TARGET_WALK_TAG)]
+            hand_notes = hand_notes + [target["note"]]
         jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         unbound_mods, unbound_notes = models.unbound_model([e["text"] for e in source_lines])  # (MECHC10)
@@ -7424,7 +7475,7 @@ class Assumptions:
                                   f"the {1 - share:.0%} of the time its uses leave)")
 
     def remnant_supply(self, skills: list[dict], skip: tuple[str, ...] = (),
-                       chance: float | None = None) -> tuple[float, list[str]]:
+                       chance: float | None = None, collect: bool = True) -> tuple[float, list[str]]:
         """Remnants per second the build makes on the request's boss, before the build's "additional Remnant" /
         "reappear" / double-pickup lines (remnant_multiplier), and what makes them: every REMNANT_SOURCES skill it has
         (MECHC15: lifted out of the Transmutation Explosion hook so the "when you collect a Remnant" recovery lines read
@@ -7498,6 +7549,9 @@ class Assumptions:
             elif name == BREACH:  # (MECHC60, U4: its own level's cadence and supports; scaled there)
                 rate, flames_how = breach_flame_rate(skills, chance or 0.0)
                 condition = f"{condition}; {flames_how}"
+            if name in TARGET_REMNANTS and collect and (got := self.target_collection(skills)) is not None:
+                rate *= got["share"]  # (MECHC67: TARGET_REMNANTS' note)
+                condition = f"{condition}; {got['share']:.0%} collected (Remnants at the boss: {got['how']})"
             if name in (BREACH, flasks_mod.WILDWOOD) and (walk := self.breach_collection(skills)):
                 got = walk["share"] if name == BREACH else walk["bloom"]  # (MECHC64, R61-1: the share collected)
                 rate *= got
@@ -8378,6 +8432,8 @@ class Assumptions:
             extra = sum(float(m.group(1)) for t in texts if (m := ADDITIONAL_REMNANT.search(t))) / 100.0
             kalguur["multiplier"] = ((1.0 + extra) * (2.0 if any(REAPPEAR.search(t) for t in texts) else 1.0)
                                      * (1.0 + duplicate_pickups(texts)))
+            if (got := self.target_collection(skills)) is not None:  # (MECHC67: TARGET_REMNANTS' note)
+                kalguur["multiplier"] *= got["share"]
         kills = getattr(build, "kills", None) or (0.0, 0.0, "")  # (models.kill_rate: the boss preset's adds, own minions)
         melee = bool(next((s for s in skills if s["name"] == main), {}).get("melee"))
         stuns, stuns_how = models.stun_rate(pools, melee) if kalguur is not None else (0.0, "")
@@ -8799,6 +8855,8 @@ class Assumptions:
                                "levelStats": found.get("levelStats") or {},
                                # (MECHC60: its own supports' additional Remnants, Harmonic Remnants II)
                                "scale": support_remnant_scale(skills, name, additional_remnant_chance(texts))[0]}
+                if (got := self.target_collection(skills)) is not None:  # (MECHC67: TARGET_REMNANTS' note)
+                    infos[name]["scale"] *= got["share"]
             share, how = 0.0, "no Elemental Ailment on the boss"
             if recovery.MANA_REMNANTS in infos:
                 # (the share of the fight the boss carries at least one: the largest one alone, a lower bound: LOW;
@@ -9471,6 +9529,60 @@ class Assumptions:
         """PoB's own Purple Flame stacks (its purpleFlameStacks config, 10 by default: ConfigOptions 474)."""
         configured = (self.build.call("getConfig").get("input") or {}).get("purpleFlameStacks")
         return min(number(configured), PURPLE_MAX) if configured is not None else float(PURPLE_MAX)
+
+    def target_collection(self, skills: list[dict]) -> dict | None:
+        """(MECHC67: TARGET_REMNANTS' note) How the build collects the Remnants its hits make at the boss: {"share"
+        (collected), "walk" (the share of the fight walking for them), "how", "note" (the row)}; None without a
+        TARGET_REMNANTS source (or with POE2_TARGET_WALK=0)."""
+        from builder.search import remnant_walk
+
+        present = {s["name"] for s in skills if not s.get("disabled")}
+        names = [n for n in TARGET_REMNANTS if n in present]
+        if not names or not TARGET_WALK:
+            return None
+        build = self.build
+        rows = build.call("activeSkills", levelStats=names, supportStats=[remnant_walk.PICKUP_STAT])["skills"]
+        config = build.call("getConfig").get("input") or {}
+        distance = (number(config.get("enemyDistance")) / 10 if config.get("enemyDistance") is not None
+                    else conditions_mod.MELEE_DISTANCE)
+        stationary = bool(config.get("conditionStationary"))
+        texts = [line["text"] for line in build.call("sourceLines")["lines"]]
+        reaches = [remnant_reach(texts, rows, n, remnant_walk.BASE_PICKUP) for n in names]
+        pickup, _, reach_how = max(reaches, key=lambda r: r[0])
+        lives = [number((s.get("levelStats") or {}).get(BREACH_LIFE_STAT)) / 1000 for s in rows
+                 if s.get("name") in names and not s.get("disabled")]
+        life = min([v for v in lives if v > 0] or [TARGET_LIFE])
+        speed = BASE_RUN * (number(build.call("stats", fields=["MovementSpeedMod"]).get("MovementSpeedMod")) or 1.0)
+        rate = self.remnant_supply(skills, skip=tuple(n for n in REMNANT_SOURCES if n not in names), collect=False)[0]
+        key = (round(distance, 2), stationary, round(pickup, 2), round(speed, 2), round(life, 2), tuple(names),
+               round(rate, 4))
+        cached = getattr(self, "_target_walk", None)
+        if cached and cached[0] == key:
+            return cached[1]
+        share, walk, how = target_walk(distance, pickup, speed, rate, life, stationary)
+        alt = [f"base pickup radius {base:g} m: {target_walk(distance, pickup * base / remnant_walk.BASE_PICKUP, speed, rate, life, stationary)[0]:.0%} collected, "
+               f"{target_walk(distance, pickup * base / remnant_walk.BASE_PICKUP, speed, rate, life, stationary)[1]:.1%} walking"
+               for base in remnant_walk.PICKUP_ROWS]
+        what = ", ".join(names)
+        if walk > 0:
+            play = (f"walk in to the {what} at the boss about every {max(life, 1 / rate) if rate > 0 else life:.0f} s: "
+                    f"all collected for {walk:.1%} of the fight walking (without it: none collected, no walking)")
+        elif share > 0:
+            play = f"fight within {pickup + TARGET_SPREAD:.1f} m of the boss to collect the {what} as they appear"
+        else:
+            play = (f"standing still {distance:g} m away collects none of the {what}: walk in (or fight closer) "
+                    "to collect them")
+        note = {"label": "Remnants made at the boss: collected*",
+                "value": f"{share:.0%}" + (f" ({walk:.1%} of the fight walking)" if walk else ""),
+                "basis": (f"{what} appear near the target (MEDIUM, R64-9: the game's convention, Rip's 1.5 m radius), "
+                          f"{rate:.3f} a second, each lasting {life:g} s; 'Walking over a Remnant collects it'. {how}. "
+                          f"{reach_how}. Rows: " + "; ".join(alt + ["never collecting: 0%, no walking"])),
+                "confidence": "LOW-MEDIUM (where they appear: MEDIUM; the base pickup radius UNVERIFIED until the "
+                              "in-game test)",
+                "play": play}
+        out = {"share": share, "walk": walk, "how": how, "note": note}
+        self._target_walk = (key, out)
+        return out
 
     def breach_collection(self, skills: list[dict]) -> dict | None:
         """(MECHC64, R61-1; BREACH_STRATEGIES' note) How the build collects Into the Breach's flames: {"strategy", "share"

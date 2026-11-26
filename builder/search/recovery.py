@@ -479,7 +479,8 @@ def remnant_income(income: Income, skills: dict[str, dict], stats: dict, texts: 
         count += rate
         income.add(f"{pool}RemnantRecovery", rate * gain,
                    f"{name} {rate:.3f} Remnants/s x {gain:,.0f} {pool} (one at most every {every:g} s on {trigger_how}"
-                   + (f", plus {kills:.3f}/s from kills" if kills > 0 else "") + times + "; each taken as collected)")
+                   + (f", plus {kills:.3f}/s from kills" if kills > 0 else "") + times
+                   + "; at the share collected: 'Remnants made at the boss', assumptions.TARGET_REMNANTS)")
     other = max(0.0, others[0]) * multiplier
     for pool in ("Life", "Mana"):
         pct = _sum(REMNANT_PICKUP, texts, pool)
