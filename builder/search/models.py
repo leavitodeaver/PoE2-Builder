@@ -83,10 +83,12 @@ def _round(value: float) -> float:
 
 
 def line(text: str, scale: float = 1.0, *, when: list | None = None, per: str | None = None,
-         stat: str | None = None, base: float = 0.0, skill: str | None = None) -> dict:
+         stat: str | None = None, base: float = 0.0, skill: str | None = None,
+         sets: list[str] | None = None) -> dict:
     """A modifier line for the bridge: PoB parses `text` (written with a magnitude of 1) and scales
     it by `scale`; with `per` (a model input) or `stat` (a PoB output stat such as Armour), the
-    value is scale × that number + base."""
+    value is scale × that number + base. `sets` (GEM46): only on those stat sets (PoB's labels) of the skill
+    (engine/bridge.lua's BridgeStatSet<label> condition), also when setRates scores its other sets."""
     mod: dict = {"kind": "Line", "line": text, "scale": _round(scale)}
     if when:
         mod["when"] = when
@@ -98,6 +100,8 @@ def line(text: str, scale: float = 1.0, *, when: list | None = None, per: str | 
         mod["base"] = _round(base)
     if skill:
         mod["skill"] = skill
+    if sets:
+        mod["statSets"] = list(sets)
     return mod
 
 
@@ -4642,9 +4646,16 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                       if entry.pattern is not None and entry.pattern.search(stat) and number(v)}
             if support and not values:  # (none of the entry's supports is on this skill)
                 continue
-            set_why = ""
+            set_why, on_sets = "", None
             if entry.raw.get("stat_sets") is not None:  # (acts on some of the skill's stat sets only: stat_set_counts)
                 counted, set_why = stat_set_counts(skill, entry.raw["stat_sets"])
+                on_sets = stat_set_labels(skill, entry.raw["stat_sets"])
+                if counted and on_sets and getattr(skill, "stat_set", None) not in on_sets and (
+                        entry.raw.get("share") in SHARES or entry.raw.get("uptime") in UPTIMES):
+                    # (a size worked out from the calculated set's own output, Speed or ProjectileCount: not made off it)
+                    counted, set_why = False, (f"its value is read from the {' / '.join(on_sets)} stat set's own output, "
+                                               f"and the calculated set is {getattr(skill, 'stat_set', None) or 'not reported'}: "
+                                               f"not counted")
                 if not counted:
                     notes.append({"label": entry.title, "value": "not counted", "basis": f"{name}: {set_why}",
                                   "confidence": entry.confidence, "entry": entry.id})
@@ -4698,7 +4709,7 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                         m = SYNTAX.match(text)
                         when = [{"var": m.group(2)}] if m and m.group(1) == "if" else None
                         mods.append(line(m.group(3) if when else text, value / UNIT, when=when, per=uptime,
-                                         skill=name if own else None))
+                                         skill=name if own else None, sets=on_sets if own else None))
                 if value * factor == 0:
                     if why:  # an uptime of 0 from the build's own numbers: the guide says why
                         shared_ = entry.raw.get("share") in SHARES
@@ -4712,7 +4723,8 @@ def gem_stat_model(skills: list[Skill], forbidden: set[str] = frozenset(), stats
                     when = [{"var": m.group(2)}] if m and m.group(1) == "if" else None
                     for target in targets:
                         mods.append(line(m.group(3) if when else text, value * factor, when=when,
-                                         skill=target if own else None))
+                                         skill=target if own else None,
+                                         sets=on_sets if own and target == name else None))
                         if entry.raw.get("share") in SHARES:  # (found again in `previous` next time)
                             mods[-1]["entry"] = entry.id
                 notes.append({
@@ -4806,8 +4818,22 @@ def additive_value(value: float, on: int) -> tuple[float, str]:
 # the bridge reports it: MECH-B), and on `all` skills, whose every damaging set is. A skill not in the map gets nothing.
 
 
+# GEM46 (MECHB67's POE2T9071, the manager 25 Nov 22:57): the line is now TAGGED TO ITS SETS (models.line's `sets`: the
+# bridge's BridgeStatSet<label> condition on each skill copy's calculated set), so it is made whatever set the group sits
+# on and reaches the listed sets only. Before, it was made only while the calculated set was a listed one and then,
+# tagged to the skill's NAME, reached every set: COVC13's "base set deals no damage" 100% less zeroed Tempest Bell's
+# Impact / Shockwave whenever setRates scored them with the group on its base set (build 20), and a listed set read by
+# setRates while the group sat on another got nothing (Rend's Lightning-Charged area, the shotguns' Merge).
+
+
+def stat_set_labels(skill: Skill, sets: dict) -> list[str] | None:
+    """The stat-set labels a `stat_sets` entry's line is tagged to on `skill` (None: every set, `all`, or not listed)."""
+    wanted = sets.get(skill.name)
+    return None if wanted is None or wanted == "all" else [str(w) for w in wanted]
+
+
 def stat_set_counts(skill: Skill, sets: dict) -> tuple[bool, str]:
-    """Whether a `stat_sets` entry's line counts on `skill`'s calculated stat set; and why (basis text)."""
+    """Whether a `stat_sets` entry's line is made for `skill`; and why (basis text)."""
     wanted = sets.get(skill.name)
     if wanted is None:
         return False, "not one of the skills the entry lists its parts for (UNVERIFIED which of its parts it acts on): not counted"
@@ -4815,13 +4841,13 @@ def stat_set_counts(skill: Skill, sets: dict) -> tuple[bool, str]:
         return True, "; on every damaging stat set of the skill"
     wanted = [str(w) for w in wanted]
     label = getattr(skill, "stat_set", None)
+    only = f"; tagged to its {' / '.join(wanted)} stat set{'s' if len(wanted) > 1 else ''} only"
     if label is None:
-        return False, (f"only its {' / '.join(wanted)} stat set gets it, and the tool doesn't know which stat set is calculated "
-                       f"(the bridge doesn't report it yet): not counted (an undercount when that set is the one)")
+        return True, only + " (which set the group calculates isn't reported: the bridge applies it on the listed one only)"
     if label not in wanted:
-        return False, f"its calculated stat set {label} isn't one it acts on ({' / '.join(wanted)}): not counted"
-    return True, (f"; its calculated stat set {label} is one it acts on (the line, tagged to the skill's name, would also "
-                  f"reach another group's copy of {skill.name} at another stat set)")
+        return True, (only + f": its calculated stat set {label} gets nothing (a reading of a listed set, as setRates' "
+                      f"for multi-set models, gets it)")
+    return True, only + f": its calculated stat set {label} is one"
 
 
 # `to: part:<name>` (COVE4): a support stat acting only on a part of what the skill does that neither PoB nor the tool

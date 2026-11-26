@@ -24,8 +24,9 @@ def test_rends_lightning_charged_strike_gets_150_percent_more_area_on_that_set_o
     assert any(n["entry"] == "model-gem8-rend-charged-area" and n["value"].startswith("150") for n in notes)
     normal = Skill("Rend", 1, attack=True, stat_set="Normal Strikes", level_stats=MODE)
     mods, notes = models.gem_stat_model([normal], main=normal)
-    assert not _area(mods)
-    assert any(n["entry"] == "model-gem8-rend-charged-area" and n["value"] == "not counted" for n in notes)
+    # (GEM46) still made, but tagged to the Lightning-Charged set: the Normal Strikes set gets nothing in the bridge
+    assert [m.get("statSets") for m in mods if m["line"] == "1% more Area of Effect"] == [["Lightning-Charged"]]
+    assert any(n["entry"] == "model-gem8-rend-charged-area" and "Normal Strikes gets nothing" in n["basis"] for n in notes)
 
 
 @pytest.mark.parametrize("name", ["Whirlwind Lance", "Tempest Bell", "Fulmination"])

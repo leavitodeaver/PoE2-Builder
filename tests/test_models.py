@@ -812,12 +812,14 @@ def test_long_fuse_counts_on_the_detonating_stat_sets_only():
     assert [(m["line"], m["scale"], m.get("skill")) for m in mods] == [("1% more Damage", 35, "Explosive Grenade")]
     assert notes[0]["entry"] == "support-long-fuse-detonation-damage"
     spear = models.Skill("Explosive Spear", group=2, attack=True, support_stats=fuse)
-    mods, notes = models.gem_stat_model([spear])  # (calculated stat set unknown: not counted, said so)
-    assert mods == [] and "doesn't know which stat set" in notes[0]["basis"]
-    spear.stat_set = "Spear"  # (the thrown hit isn't the Detonation)
-    assert models.gem_stat_model([spear])[0] == []
+    # (GEM46) the line is tagged to the Explosion set whatever set is calculated: the bridge applies it there only
+    mods, notes = models.gem_stat_model([spear])  # (calculated stat set unknown)
+    assert [(m["scale"], m["statSets"]) for m in mods] == [(35, ["Explosion"])] and "isn't reported" in notes[0]["basis"]
+    spear.stat_set = "Spear"  # (the thrown hit isn't the Detonation: it gets nothing, the tag says so)
+    mods, notes = models.gem_stat_model([spear])
+    assert [m["statSets"] for m in mods] == [["Explosion"]] and "Spear gets nothing" in notes[0]["basis"]
     spear.stat_set = "Explosion"
-    assert [m["scale"] for m in models.gem_stat_model([spear])[0]] == [35]
+    assert [(m["scale"], m["statSets"]) for m in models.gem_stat_model([spear])[0]] == [(35, ["Explosion"])]
     other = models.Skill("Some Unlisted Skill", group=3, support_stats=fuse)
     assert models.gem_stat_model([other])[0] == []
     plain = models.Skill("Grenade", group=4, attack=True, support_stats=fuse)  # the crossbow's default Grenade (AUDIT17 A17-3)

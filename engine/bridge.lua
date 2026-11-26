@@ -5151,6 +5151,13 @@ local function lineMods(mod)
 		if mod.group then  -- (MECHB62, U1) only that socket group's copy of the skill: installGroupAssumptions
 			copy[#copy + 1] = { type = "Condition", var = "BridgeGroup" .. mod.group }
 		end
+		if mod.statSets then  -- (GEM46) only those stat sets of the skill (labels): installGroupAssumptions
+			local vars = { }
+			for i, label in ipairs(mod.statSets) do
+				vars[i] = "BridgeStatSet" .. label
+			end
+			copy[#copy + 1] = { type = "Condition", varList = vars }
+		end
 		modLib.setSource(copy, "Assumption")
 		mods[#mods + 1] = copy
 	end
@@ -5175,6 +5182,15 @@ local function installGroupAssumptions()
 		local results = { buildModList(env, activeSkill, ...) }
 		local group = activeSkill and activeSkill.socketGroup
 		local cfg = activeSkill and activeSkill.skillCfg
+		-- (GEM46, MECHB67's POE2T9071) skillCond["BridgeStatSet<label>"] for the stat set this copy is calculated on
+		-- (CalcActiveSkill 168-177: statSetCalcs in CALCS mode, statSet otherwise), so a line for some of a skill's
+		-- stat sets (models.line's sets: a ledger `stat_sets` entry) reaches those sets only, also when setRates
+		-- scores the skill's other sets (build 20's Tempest Bell sets read 0 from its base set's 100% less)
+		local effect = activeSkill and activeSkill.activeEffect
+		local holder = effect and ((env and env.mode == "CALCS") and effect.statSetCalcs or effect.statSet)
+		if cfg and cfg.skillCond and holder and holder.statSet and holder.statSet.label then
+			cfg.skillCond["BridgeStatSet" .. holder.statSet.label] = true
+		end
 		if group and cfg and cfg.skillCond and build and build.skillsTab then
 			local index
 			for i, candidate in ipairs(build.skillsTab.socketGroupList) do
@@ -5219,6 +5235,13 @@ local function installAssumptions()
 				end
 				if mod.group then  -- (MECHB62, U1) only that socket group's copy of the skill: installGroupAssumptions
 					tags[#tags + 1] = { type = "Condition", var = "BridgeGroup" .. mod.group }
+				end
+				if mod.statSets then  -- (GEM46) only those stat sets of the skill (labels): installGroupAssumptions
+					local vars = { }
+					for i, label in ipairs(mod.statSets) do
+						vars[i] = "BridgeStatSet" .. label
+					end
+					tags[#tags + 1] = { type = "Condition", varList = vars }
 				end
 				if mod.kind == "SkillData" and mod.group then
 					-- (set on that group's copy by installGroupAssumptions, after PoB's own SkillData)
