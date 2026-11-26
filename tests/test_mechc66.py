@@ -171,3 +171,12 @@ def test_the_stock_row_names_each_items_starting_uses_and_its_generated_charges(
     assert "Test Flask: 6 uses at the start, + 0.50 charges a second generated (a use every 20 s)" in rows[0]["basis"]
     assert "Test Charm: 2 uses at the start, + 0.00 charges a second generated (none" in rows[0]["basis"]
     assert flasks.stock_note(Fake(), replace(gain, fight=0.0)) == []
+
+
+def test_dread_banners_flask_charges_count_at_the_banners_share():
+    on = {"flask": 0.7, "flaskBanner": 0.5, "bannerOn": True}  # (0.2 of the build's own + the banner's 0.5)
+    build = SimpleNamespace(banner_share=0.3)
+    assert flasks.banner_flask(build, on)["flask"] == pytest.approx(0.2 + 0.3 * 0.5)
+    off = {"flask": 0.2, "flaskBanner": 0.5, "bannerOn": False}  # (the box off: under 7%)
+    assert flasks.banner_flask(SimpleNamespace(banner_share=0.05), off)["flask"] == pytest.approx(0.2 + 0.05 * 0.5)
+    assert flasks.banner_flask(SimpleNamespace(), on)["flask"] == 0.7  # (no share read yet: PoB's)

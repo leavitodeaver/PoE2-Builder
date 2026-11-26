@@ -178,7 +178,7 @@ class Charges:
         from builder.search import bosses
 
         boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
-        data = build.call("chargeGain")
+        data = banner_flask(build, build.call("chargeGain"))  # (MECHC66: BANNER_FLASK's note)
         texts = None
         if data.get("charm"):  # (MECHC21: only a build with charms reads its lines for the charm line)
             cached = getattr(build, "_build_texts", None)  # (state.Build's per-commit cache of the same lines)
@@ -695,6 +695,24 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
 # is that reading. A charm's uses with "N% chance to not consume Charges" are counted in expectation (the stock's charges
 # / the average charges a use).
 STOCK = os.environ.get("POE2_FLASK_STOCK", "1") != "0"
+
+
+# Dread Banner's flask charges (MECHC66; RESEARCH63 R63-5's check, probe POE2T9617, an OVERCOUNT where the banner stands
+# part of the fight): PoB maps its aura's "Flask charges" to FlaskChargesGenerated behind Condition BannerPlanted
+# (act_str.lua 3988), which the conditions' bannerPlanted box sets at the placed banner's share of the fight
+# (Conditions._banner_share: Glory uses x its duration; weighed part-time between 7% and 99.5%). The probe: a Spark build
+# with Dread Banner, chargeGain's flask rate 0.5 with the box on, 0 with it off. So the flasks read all of it whenever
+# the box was on (and none under 7%). Now the box's part comes off chargeGain's sum and goes back at the banner's share
+# (the build's banner_share, set by the conditions' evidence), all of it while the box is on before the conditions ran
+# (no share read yet).
+def banner_flask(build, data: dict) -> dict:
+    """chargeGain's answer with Dread Banner's flask charges at the placed banner's share (the note above)."""
+    banner = float(data.get("flaskBanner") or 0.0)
+    share = getattr(build, "banner_share", None)
+    if banner <= 0 or share is None:
+        return data
+    own = float(data.get("flask") or 0.0) - (banner if data.get("bannerOn") else 0.0)
+    return {**data, "flask": max(own, 0.0) + min(max(float(share), 0.0), 1.0) * banner}
 FIGHT_CAP = 1800.0  # (seconds: assumptions' Soul Eater fight cap, the same 30 minutes)
 
 

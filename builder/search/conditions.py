@@ -12235,6 +12235,10 @@ class Conditions:
                               for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] in BANNERS}):
             # (MECHC7: the placed banner at its Glory share)
             stats["_banner"] = self._banner_share(banners)
+            try:  # (MECHC66: flasks.BANNER_FLASK's note: the banner's flask charges at this share)
+                self.build.banner_share = stats["_banner"][0]
+            except AttributeError:
+                pass
         if any(INFUSION_CONSUMED.search(t) or INFUSION_CONSUME_GAIN.search(t) for t in texts):
             stats["_infusion_consumed"] = self._infusion_consumed(lines, stats)
         if ARC in gem_types:  # (MECH77, MA-1: the share of Arc's casts the build's Lightning Infusions cover)

@@ -8115,7 +8115,20 @@ function bridge.chargeGain()
 			end
 		end
 	end
+	-- (MECHC66; R63-5, probe POE2T9617) Dread Banner's "Flask charges" aura: PoB's FlaskChargesGenerated behind Condition
+	-- BannerPlanted (act_str.lua 3988), all of it while the box is on, none while it's off: its own sum (the mods in the
+	-- list, as merged with the aura's effect) and the box's state, so flasks.Charges.of counts it at the banner's share
+	local flaskBanner = 0
+	for _, mod in ipairs(modDB.mods and modDB.mods["FlaskChargesGenerated"] or { }) do
+		for _, tag in ipairs(mod) do
+			if tag.type == "Condition" and tag.var == "BannerPlanted" then
+				flaskBanner = flaskBanner + (tonumber(mod.value) or 0)
+				break
+			end
+		end
+	end
 	return {
+		flaskBanner = flaskBanner, bannerOn = modDB:Flag(nil, "Condition:BannerPlanted") and true or false,
 		active = active, lifeFlaskBlocked = lifeFlaskBlocked, lifeFlaskUnusable = lifeFlaskUnusable,
 		lifeFlaskToEs = lifeFlaskToEs, lifeFlaskEsInstead = lifeFlaskEsInstead,
 		esRecoveryMod = output.EnergyShieldRecoveryRateMod or 1,
