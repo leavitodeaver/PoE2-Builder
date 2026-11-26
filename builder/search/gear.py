@@ -173,6 +173,25 @@ SWITCH_ROUND_SHARE = "POE2_SEARCH_ROUND_SHARE"
 ROUND_SHARE = 0.3  # (LOW, a search-effort setting, as RESIST_SWAP_SHARE)
 # A diagnostic: a file path; each full gear round appends one JSON line (the time its round-level work found left)
 SWITCH_ROUND_LOG = "POE2_SEARCH_ROUND_LOG"
+# (SEARCHB10; the manager, 26 Nov 05:34, SPEED4's research/speed-starved-rounds.md ranked item 0) The full gear round's
+# per-slot work (anoints, rune sockets) reaches only its first 1-2 slots in a gate (POE2T7890: 7 full rounds, none past
+# its second slot), and finalize runs no gear round, so the delivered 2b75b build's Amulet had no anoint: Lasting Trauma
+# x1.126 re-scored the gate's way (POE2T7898). "1": Gear.polish runs once on the finished build (finalize's hook).
+SWITCH_POLISH = "POE2_SEARCH_POLISH"
+POLISH_SECONDS = 60.0  # (LOW, a search-effort setting) the polish's own time past finalize's, at most POLISH_FINALIZE_RATIO x it
+POLISH_FINALIZE_RATIO = 1.0
+# The slots the polish visits first: the anoint slot (SPEED4's x1.126 was the Amulet's), then the others in Gear.slots order
+POLISH_FIRST = ("Amulet",)
+
+
+def polish_on() -> bool:
+    """POE2_SEARCH_POLISH (OFF by default; read at call time, so a gate arm sets it per run)."""
+    return os.environ.get(SWITCH_POLISH, "0").strip() == "1"
+
+
+def polish_seconds(finalize_seconds: float) -> float:
+    """The polish's own time for a finalize of `finalize_seconds` (finalize's hook: clock.now() + this)."""
+    return min(POLISH_SECONDS, POLISH_FINALIZE_RATIO * max(0.0, finalize_seconds))
 
 
 def round_split(now: float, deadline: float) -> tuple[float, float, float]:
@@ -2667,6 +2686,59 @@ class Gear:
     # defence or movement speed (FILLER_GAINS), kept only if the score, every floor and the budget are no worse.
     # Flask and charm slots aren't filled (their uptime and charges change other slots' effects: not a free choice).
     FILLER_GAINS = ("EnergyShield", "Armour", "Evasion", "Life", "EffectiveMovementSpeedMod")
+
+    def polish(self, deadline: float, reweigh: Callable[[], None] | None = None) -> list[dict]:
+        """The finished build's per-slot polish (POE2_SEARCH_POLISH; finalize's hook): every equipped slot the full gear
+        round's slot loop never reached gets what that loop would have given it there: its rune fill (only where its
+        sockets hold bound runes or fillers, as the full round), then its anoints (Gear.anointed: the node screen and a
+        what-if per kept anoint; a locked unique: commit_anoints). Each change is committed, settled and kept only if
+        the score rises (and the build is no worse); prices stay within the request's budget (left_for: no budget,
+        no limit). The Amulet first. Returns one row per slot changed: slot, before, after, kept, what."""
+        build = self.build
+        rows: list[dict] = []
+        self._anoint_screen = None  # (the anointable notables screened on the finished build, not a round's old one)
+        order = [s for s in POLISH_FIRST if s in self.slots] + [s for s in self.slots if s not in POLISH_FIRST]
+        for slot in order:
+            if clock.now() > deadline:
+                unfinished.note(self, "gear polish", f"{slot} and the slots after it", detail=(
+                    "the finished build's anoint / rune polish ran out of time before these slots"))
+                break
+            if is_flask_slot(slot) or slot in CHARM_SLOTS:
+                continue
+            current = build.equipped.get(slot)
+            if current is None:
+                continue
+            before = build.score
+            if slot in build.locked_slots:
+                if self.commit_anoints(slot, current, deadline):
+                    rows.append({"slot": slot, "before": round(before, 4), "after": round(build.score, 4),
+                                 "kept": True, "what": "anoints (locked)"})
+                continue
+            choice, what = None, []
+            if tuple(current.runes) == tuple(current.bound) or only_fillers(current):
+                filled = self.socketed(slot, current, deadline)
+                if filled is not current:
+                    choice, what = filled, ["runes"]
+            target = choice or current
+            anointed = self.anointed(slot, target, deadline)
+            if anointed is not target:
+                choice, what = anointed, what + ["anoints"]
+            if choice is None:
+                continue
+            self.put(slot, choice)
+            self.settle()
+            if reweigh is not None:
+                reweigh()
+            kept = build.score > before + EPSILON
+            if not kept:
+                self.put(slot, current)
+                self.settle()
+                if reweigh is not None:
+                    reweigh()
+            rows.append({"slot": slot, "before": round(before, 4), "after": round(build.score, 4), "kept": kept,
+                         "what": "+".join(what), "anoints": list(choice.anoints) if kept else []})
+        self.polish_rows = rows
+        return rows
 
     def fill_empty(self, reweigh: Callable[[], None] | None = None) -> list[dict]:
         """The filler pass: returns {slot, name, price} for each slot filled (play_guide's filler rows, filler_rows).
