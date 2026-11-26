@@ -242,6 +242,40 @@ def test_last_empty_gives_the_kept_back_time_to_the_empty_slots_alone(monkeypatc
 
 
 
+def test_finalize_spends_ascendancy_points_the_search_left_unspent():
+    """(POE2T7528: 2b75d seed 2 delivered an Oracle with no ascendancy notable) Under 8 points spent, finalize runs the
+    ascendancy round once; kept unless the score falls; nothing happens with all 8 spent."""
+    from builder.search.inner import Search
+
+    def search(spent, after, score_after):
+        state = {"spent": spent, "score": 10.0}
+        class Build:
+            score = property(lambda b: state["score"])
+
+            def call(self, name):
+                return {"ascendancyAllocated": state["spent"]}
+
+            def snapshot(self):
+                return dict(state)
+
+            def restore(self, snap):
+                state.update(snap)
+        build = Build()
+        ran = []
+
+        def step(phase, fn):
+            ran.append(phase)
+            state["spent"], state["score"] = after, score_after
+        return SimpleNamespace(build=build, step=step, tree=SimpleNamespace(ascendancy_round=None)), ran, state
+
+    s, ran, state = search(0, 8, 10.5)
+    assert Search.spend_ascendancy(s) and ran == ["ascendancy points"] and state["spent"] == 8
+    s, ran, state = search(8, 8, 10.5)
+    assert not Search.spend_ascendancy(s) and ran == []
+    s, ran, state = search(2, 8, 9.0)  # (spent, the score fell: put back)
+    assert not Search.spend_ascendancy(s) and state == {"spent": 2, "score": 10.0}
+
+
 import faulthandler  # noqa: E402
 import json  # noqa: E402
 from pathlib import Path  # noqa: E402

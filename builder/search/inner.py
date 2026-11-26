@@ -753,6 +753,25 @@ class Search:
             return False
         return True
 
+    def spend_ascendancy(self) -> bool:
+        """(SEARCH40) The user's rule, "every ascendancy node used or swapped": gate POE2T7528 (2b75d seed 2) delivered an
+        Oracle with NO ascendancy notable (its best line never reached a sweep pass, where the ascendancy step runs:
+        Search.blocks skips it otherwise). With fewer than tree.ASCENDANCY_POINTS allocated, finalize runs the ascendancy
+        round once (every full allocation scored, the best kept; no unlock trial: it needs a deadline). Kept unless the
+        score falls (then put back). True if more ascendancy points are spent."""
+        from builder.search.tree import ASCENDANCY_POINTS
+
+        build = self.build
+        spent = build.call("summary").get("ascendancyAllocated", ASCENDANCY_POINTS)
+        if spent >= ASCENDANCY_POINTS:
+            return False
+        before, snap = build.score, build.snapshot()
+        self.step("ascendancy points", self.tree.ascendancy_round)
+        if build.score < before - EPSILON:
+            build.restore(snap)
+            return False
+        return build.call("summary").get("ascendancyAllocated", 0) > spent
+
     def _rescore(self) -> float:
         self.settle()
         self.build.score = self.build.objective.score(self.build.stats)
@@ -2285,6 +2304,13 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
             trace.append(["supports", round(build.score, 4)])
         search.run(deadline, escalate=False, feasible_first=True)
         trace.append(["polish", round(build.score, 4)])
+    except Cancelled:
+        pass
+    # (SEARCH40) a delivered build never keeps unspent ascendancy points: after the polish (whose passes may spend them),
+    # before the final regrow (which then regrows on the spent allocation)
+    try:
+        if search.spend_ascendancy():
+            trace.append(["ascendancy points", round(build.score, 4)])
     except Cancelled:
         pass
     # (SEARCH35; SEARCHB2's Tree.final_regrow, the manager's 17:48) the tree regrown on the finished gear, the floors
