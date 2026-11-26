@@ -63,3 +63,20 @@ def test_video_tallies_feed_the_headline_and_the_still_share():
     assert bosses.relocations({"_boss": "The Bodach"})[0] == 0.0  # not tallied: 0, the ceiling a row
     # the worst case reads the fewest for a gain: an untallied preset's 0
     assert bosses.relocations({"_boss": bosses.WORST})[0] == 0.0
+
+
+def test_stay_share_follows_the_relocations_and_the_area_size():
+    import math
+    ash = {"_boss": "Arbiter of Ash"}
+    rate, metres, _ = bosses.relocations(ash, gain=False)
+    r = bosses.hit_radius(ash)[0]
+    k = rate * math.exp(-(2.0 + r) / metres)
+    share, how = bosses.stay_share(ash, 2.0, 8.0)
+    assert abs(share - (1 - math.exp(-8 * k)) / (8 * k)) < 1e-12 and "LOW" in how
+    assert bosses.stay_share(ash, 3.0, 8.0)[0] > share > bosses.stay_share(ash, 2.0, 16.0)[0]  # bigger keeps, longer loses
+    assert abs(bosses.still_there(ash, 2.0, 3.0)[0] - math.exp(-3 * k)) < 1e-12
+    # an untallied preset is taken to stay (0 relocations: no source, 0); the worst case reads the most-moving preset
+    assert bosses.stay_share({"_boss": "The Bodach"}, 2.0, 8.0)[0] == 1.0
+    assert bosses.stay_share({"_boss": bosses.WORST}, 2.0, 8.0)[0] < share
+    # the "fixed" row: every move the mean length, out only when longer than the reach
+    assert bosses.stay_share(ash, 5.0, 8.0, moves="fixed")[0] == 1.0

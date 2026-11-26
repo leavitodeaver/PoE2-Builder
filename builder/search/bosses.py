@@ -30,6 +30,7 @@ the models), else the default.
 """
 from __future__ import annotations
 
+import math
 from typing import NamedTuple
 
 
@@ -434,18 +435,29 @@ RELOCATE_SKILLS: dict[str, tuple[float, float, str]] = {  # (uses a minute off c
 # confidence). MECHD9's three video helpers, 26 Nov 2026 (scratch/mechd9/video_mv1.md / mv2.md / mv3.md, the brief
 # scratch/mechd9/video_brief.md): every move of the boss's GROUND position by 1 m or more (walks, dashes, leaps,
 # teleports), read by eye from 1 fps frames against arena landmarks, metres scaled from the player's and boss's bodies
-# (MEDIUM-LOW). Where a helper gave a range, the LOW END (the readers are DPS gains). The boss follows a moving player,
+# (MEDIUM-LOW). Where a helper gave a range, the LOW END here (for gains; RELOCATE_VIDEO_HIGH below for harms). The boss follows a moving player,
 # so the count depends on the play (kiting fights read higher); the fights used are named. Not tallied (0 in the
-# headline, the "skills" ceiling a row): the Bodach (not visible in 2 videos), Kulemak (3 videos unusable), the Arbiter
-# of Divinity (one 26 s kill: phase 1 within ~2 m of the player, phase 2 ~30 a minute over 15 s with the player moving).
+# headline, the "skills" ceiling a row): the Bodach (not visible in 2 videos; 2 more refused by YouTube's bot check) and
+# Kulemak (4 videos unusable: staged fight, dark arena, a minimap the skull method can't read).
 RELOCATE_VIDEO: dict[str, tuple[float, float, float | None, str, str]] = {
+    "Arbiter of Divinity": (round(0.11 * 9.4 + 0.89 * 13.5, 2), round(0.11 * 3.9 + 0.89 * 9.9, 2),
+                            round(0.11 * 0.68 + 0.89 * 0.24, 2),
+                            "1 fight (PrKw5fi184k, 0.5, a ranged Tactician's 14-minute kill), the boss's ground position "
+                            "read from the minimap's skull against the sliding arena outline (MECHD9 helper mv4; 6 px a "
+                            "metre +-25%), by phase at that fight's split (11% / 89%, MEDIUM-LOW: a faster kill differs): "
+                            "phase 1 9.4 a minute, 3.9 m, 68% in stands of 3.5 s or more; phase 2 13.5+ a minute (an "
+                            "undercount: runs of a jump a second counted once), 9.9 m (18 fast moves of 5-24 m in 120 s, "
+                            "more than Blink Slam / Storm Blink allow off cooldown: UNVERIFIED which skill), 24%",
+                            "MEDIUM-LOW (the rate), LOW-MEDIUM (distances)"),
     "Arbiter of Ash": (8.0, 4.0, 0.55, "3 melee fights, 153 s (VDA ssQ3UovP9js, Lambark 2tcYuXWnbI4, SlayerD "
                        "TuRYrMaHIUU Uber): 9.5 pooled, 8-12; half its own leaps / dashes, half walks; it casts beams and "
                        "rings in place, 55-70% in stands of 3.5 s or more", "big moves MEDIUM, walks LOW"),
     "Olroth, Origin of the Fall": (12.0, 3.0, 0.30, "2 melee fights, 105 s (echoburn UoaVj5Xg1kA, a 0.5 HCSSF kill): "
                                    "14 pooled, 12-17; a third dashes, two thirds walks", "LOW"),
-    "Xesht, We That Are One": (5.0, 3.5, None, "1 minion-build fight, 64 s (0.5): 5-7; a 6-7 m portal teleport about "
-                               "every 30 s plus 1-2 m walks, mostly standing", "LOW"),
+    "Xesht, We That Are One": (2.0, 3.5, 0.50, "3 fights, ~125 s: a 0.5 minion build 64 s (5-7), a 0.4 Uber Monk ~35 s "
+                               "(zPvOeWQS-Kg, half readable), a 0.5.3 Rampage Titan 26 s (7yIfEfQ2g3Q, 7-9); ~6 pooled, "
+                               "2-9; a 3-7 m submerge / re-emerge from a big pink ring about every 25 s, 1-2 m walks; "
+                               "50-70% in stands of 3.5 s or more (the low end)", "LOW"),
     "The King in the Mists": (round(0.43 * 7.5 + 0.57 * 12.0, 2), round(0.43 * 5.0 + 0.57 * 3.0, 2), None,
                               "by form, 43% / 57% of the fight: the first form 7.5 a minute, all its own dashes (4-5 m) "
                               "and teleports (~6 m), 75-80% in stands of 3.5 s or more (2 fights, 72 s: 0.3 Uber, 0.5); "
@@ -459,10 +471,19 @@ RELOCATE_VIDEO: dict[str, tuple[float, float, float | None, str, str]] = {
                        "1-3 s within ~5 m, and left once (8 m+) to cast its web, back in 4-5 s", "LOW"),
     "Atziri, the Red Queen": (13.0, 4.0, 0.20, "1 ranged kiting fight (0.4, 45 s): 2-8 m, mostly walks and dashes "
                               "toward the player", "LOW"),
-    "Atziri, the Fell Serpent": (30.0, 2.5, 0.15, "1 fight (0.4 Uber, 52 s), read against the platform's centre: she "
-                                 "circles the player on a ~14 m platform, 2-3 m most seconds (30-40 a minute), ~8 "
-                                 "dashes of 4-6 m; moving 75-85% of the time (so the 'immobile' note on HIT_RADIUS "
-                                 "isn't that she stands still)", "LOW-MEDIUM"),
+    "Atziri, the Fell Serpent": (17.0, 2.5, 0.10, "2 fights, 93 s: a 0.4 Uber caster, 52 s (she circles the player on a "
+                                 "~14 m platform, 30-40 a minute, ~8 dashes of 4-6 m, moving 75-85%) and a likely-0.5 "
+                                 "Whirling Assault Monk, 41 s (6We-2J58m-0: 17-18 a minute, mostly 1-2.5 m shifts in a "
+                                 "~2.5 m box, an own move every 10-20 s); ~27 pooled, 17-40; 10-17% in stands of 3.5 s "
+                                 "or more (the low end); so the 'immobile' note on HIT_RADIUS isn't that she stands "
+                                 "still", "LOW-MEDIUM"),
+}
+# The HIGH end of each tally's range (MECHD9 turn 2): read where movement is a HARM to the player (relocations(gain=False):
+# stay_share / still_there), as the low ends above are read where it is a gain. Equal where one figure was given.
+RELOCATE_VIDEO_HIGH: dict[str, float] = {
+    "Arbiter of Ash": 12.0, "Arbiter of Divinity": round(0.11 * 9.4 + 0.89 * 13.5, 2), "Olroth, Origin of the Fall": 17.0, "Xesht, We That Are One": 9.0,
+    "The King in the Mists": round(0.43 * 7.5 + 0.57 * 12.0, 2), "Zarokh, the Temporal": 40.0,
+    "The Raven Trickster": 20.0, "The Aberration": 20.0, "Atziri, the Red Queen": 13.0, "Atziri, the Fell Serpent": 40.0,
 }
 RELOCATE_READINGS = ("headline", "skills", "video")
 
@@ -473,8 +494,8 @@ def relocations(stats: dict | None = None, reading: str = "headline", gain: bool
     name = of(stats).name
     if name == WORST:
         pick = min if gain else max
-        src = pick(REAL, key=lambda n: relocations({"_boss": n}, reading)[0])
-        rate, metres, how = relocations({"_boss": src}, reading)
+        src = pick(REAL, key=lambda n: relocations({"_boss": n}, reading, gain)[0])
+        rate, metres, how = relocations({"_boss": src}, reading, gain)
         return rate, metres, f"the worst case reads {src}'s ({'the fewest' if gain else 'the most'}): {how}"
     if reading == "skills":
         uses, metres, skills = RELOCATE_SKILLS[name]
@@ -483,7 +504,9 @@ def relocations(stats: dict | None = None, reading: str = "headline", gain: bool
     video = RELOCATE_VIDEO.get(name)
     if video:
         per_min, metres, _, source, conf = video
-        return per_min / 60, metres, (f"{per_min:.1f} a minute against {name}, {metres:.1f} m each on average, counted "
+        if not gain:
+            per_min = RELOCATE_VIDEO_HIGH.get(name, per_min)
+        return per_min / 60, metres, (f"{per_min:.1f} a minute ({'the high' if not gain else 'the low'} end) against {name}, {metres:.1f} m each on average, counted "
                                       f"in fight videos ({source}; {conf}); its own moves off cooldown allow "
                                       f"{RELOCATE_SKILLS[name][0]:.1f} a minute (walks not in that)")
     if reading == "video":
@@ -705,6 +728,46 @@ def add_waves(name: str = DEFAULT) -> list[tuple[float, int, float, str, str]]:
 # completed arena-wide attack, about one per 45-75 s before 5% Life (LOW); charges per refill NOT seen (the flasks
 # were full both times: UNVERIFIED, no table holds it); charms UNVERIFIED (the note names Flask charges only).
 FLASK_REFILLS: dict[str, tuple[int, float, str]] = {}
+
+
+# How long the boss stays in something placed under it (MECHD9; the manager 26 Nov 04:05, the "boss stands still"
+# survey): an area of radius R m placed on the boss's centre, lasting T s (or recast on the boss every T s), against the
+# preset's relocations (rate L a second, mean M m each: relocations()). A move takes the boss out when it goes further
+# than R + r (r its hit radius: areas hit edge to edge). Assumed (LOW, labelled): move lengths exponential with mean M
+# (the videos give means and ranges, not shapes; a row: every move exactly M); a boss that left doesn't come back
+# (the lower reading for the player). Then out-moves come at k = L x exp(-(R + r) / M), and the boss is still inside
+# after t s with chance exp(-k t); over a T s window it is inside (1 - exp(-k T)) / (k T) of the time. Movement here
+# is a HARM to the player's damage, so the worst case reads the preset that moves most (AUDIT29 A29-1).
+def stay_share(stats: dict | None, radius: float, seconds: float, reading: str = "headline",
+               moves: str = "exponential") -> tuple[float, str]:
+    """(the share of a `seconds` window the boss stays inside an area of `radius` m placed on it, how); see above.
+    `moves` "exponential" (headline) or "fixed" (every move the mean length: a row)."""
+    rate, metres, how = relocations(stats, reading, gain=False)
+    r = hit_radius(stats)[0]
+    if rate <= 0 or metres <= 0 or seconds <= 0:
+        return 1.0, f"the boss taken to stay in it ({how})"
+    reach = max(radius, 0.0) + r
+    out = math.exp(-reach / metres) if moves == "exponential" else (1.0 if metres > reach else 0.0)
+    k = rate * out
+    share = 1.0 if k <= 0 else (1 - math.exp(-k * seconds)) / (k * seconds)
+    return share, (f"{share:.0%} of {seconds:g} s inside a {radius:g} m area placed on it: {k * 60:.1f} moves a minute "
+                   f"take it further than {reach:.1f} m (its {rate * 60:.1f} a minute, {metres:g} m each, "
+                   f"{'lengths exponential' if moves == 'exponential' else 'every move that long'}, LOW; {how})")
+
+
+def still_there(stats: dict | None, radius: float, delay: float, reading: str = "headline",
+                moves: str = "exponential") -> tuple[float, str]:
+    """(the chance the boss is still inside an area of `radius` m placed on it `delay` s later, how): a delayed hit
+    (a spike shattered later, a mark that erupts) lands with this chance. See stay_share."""
+    rate, metres, how = relocations(stats, reading, gain=False)
+    r = hit_radius(stats)[0]
+    if rate <= 0 or metres <= 0 or delay <= 0:
+        return 1.0, f"the boss taken to stay ({how})"
+    reach = max(radius, 0.0) + r
+    out = math.exp(-reach / metres) if moves == "exponential" else (1.0 if metres > reach else 0.0)
+    p = math.exp(-rate * out * delay)
+    return p, (f"{p:.0%} still inside a {radius:g} m area {delay:g} s after it was placed on it ({rate * 60:.1f} moves "
+               f"a minute, {metres:g} m each, LOW; {how})")
 
 
 def still_share(stats: dict | None = None) -> tuple[float | None, str]:
@@ -1011,6 +1074,8 @@ def self_ignite_uptime(stats: dict) -> tuple[float, str]:
 # overlaps the circle; MEDIUM, forum 3757630). Read by MECH-B's Salvo, Spearfield / Conductive Runes (hazards per use,
 # Escalating Mayhem) and Primal Strikes' stampede. The King: both forms ObjectSize 4 (model 125% / 120%: the larger
 # for the upper row). The worst case takes the SMALLEST (fewest hazards / Salvo projectiles on the boss).
+# (MECHD9; RESEARCH64 R64-10, the manager 26 Nov 03:06) re-checked on the INSTALLED game: every preset's ObjectSize / 10
+# matches these values for all 13 rows and no object file overrides it (HIGH); the unit (tenths of a metre) stays MEDIUM.
 HIT_RADIUS: dict[str, float] = {  # metres: ObjectSize / 10
     "Arbiter of Ash": 0.4,  # DemonClawBoss
     "Arbiter of Divinity": 0.4,  # ArbiterofDivinity_
