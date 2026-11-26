@@ -51,3 +51,9 @@ def test_earthshatters_spikes_set_off_later_miss_a_boss_that_moved():
     factor = lambda mods: 1 + mods[0]["value"] / 100 if mods else 1.0
     assert factor(moved) < factor(still)
     assert "standing still" in notes[0]["basis"] and notes[0]["set_shares"]["Explosion"] < 1.0
+
+
+def test_stay_rule_reads_parts_left_on_the_ground_not_parts_stuck_in_the_boss():
+    # (Stormblast Bolts lodge in the ground; Rapid Assault's spearhead is "stuck in the target", so it moves with it)
+    assert "Stormblast Bolts" in models.DETONATED_STAY and "Earthshatter" in models.DETONATED_STAY
+    assert "Rapid Assault" not in models.DETONATED_STAY

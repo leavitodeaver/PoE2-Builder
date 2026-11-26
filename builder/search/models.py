@@ -10229,9 +10229,13 @@ DETONATORS_TOO = {"Earthshatter"}
 # and its mean over a uniform wait on [0, W] is exactly bosses.stay_share(R, W) ((1 - e^(-kW)) / (kW), k the moves a
 # second that take it out of reach), the headline. R: PoB's Explosion radius (setRates' AreaOfEffectRadius, tenths of a
 # metre; DETONATED_STAY_RADIUS where PoB gives none). Rows: the boss standing still (before GEM47), every move its mean
-# length (stay_share's "fixed"). Only Earthshatter reads it so far (DETONATED_STAY); the survey's other detonated parts
-# (Storm Lance, Rapid Assault, Forge Hammer, Gas Grenade) next.
-DETONATED_STAY = {"Earthshatter"}
+# length (stay_share's "fixed"). Stormblast Bolts too: "fires charged bolts that land around the target location ...
+# lodging in the ground for a duration. Detonator Skills will cause these bolts to explode" (ActiveSkills
+# stormblast_bolts, 26650308), the same case (its 10 s life the cap). NOT Rapid Assault: "leaves a spearhead stuck in
+# the target" (ActiveSkills rapid_assault): it moves with the boss, so nothing is lost. Not yet read (named): Storm
+# Lance's lodged spear (its bolts zap "nearby enemies", a reach not read here), Gas Grenade's cloud (with Gas Arrow's,
+# the cloud sites), Forge Hammer's spiral (MECH-B's MECHB48 model).
+DETONATED_STAY = {"Earthshatter", "Stormblast Bolts"}
 DETONATED_STAY_RADIUS = 1.5  # (metres: MECHD9's survey estimate for Earthshatter's spikes, used only without PoB's radius)
 
 
