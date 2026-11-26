@@ -1,0 +1,25 @@
+# GEM45 (25 Nov 2026): gem stats read by our code (GEM lane).
+- id: model-gem45-triskelion-cascade
+  title: "Triskelion Cascade pressed when ready: the next Cascadable Spell lands centred on you in 7 areas (the boss hits from the spell's radius and the boss's distance)"
+  kind: model
+  model: triskelion_cascade
+  stats: ["triskelion_cascade_next_skill_damage_+%_final", "triskelion_cascade_next_skill_area_of_effect_+%_final",
+          "triskelion_cascade_cooldown_%_of_cast_time"]
+  skill: [Triskelion Cascade]
+  confidence: MEDIUM-LOW
+  notes: >-
+    The game (26650308; PoB other.lua TriskelionCascadePlayer maps none of it): "Empower the next Cascadable Spell you
+    cast. The Empowered Spell becomes centred on your location, and Cascades to six areas around you in a Triskelion
+    pattern"; level 20: 11% less damage, 31% less area, cooldown 1 s + 300% of the Empowered spell's cast time, Ward
+    cost. The layout measured from video frames (RESEARCH61 R61-16, RESEARCH62 R62-1 / R62-2, video Eo3ThyP82I8):
+    centred on the player (HIGH); 7 areas, the inner three 1.5 radii out 120 degrees apart, the outer three one more
+    step on turned 30 degrees (MEDIUM-LOW); one arm aimed at the cursor / the boss (MEDIUM-LOW, row: random); with Spell
+    Cascade the 7 areas and no Cascade extras, Cascade's 30% less kept (MEDIUM-LOW, rows: Cascade only, 10 areas);
+    Astral Projection UNVERIFIED (headline: on the player; row: at the target). models.triskelion_cascade_model: boss
+    hits from PoB's area radius x sqrt(1 + area%) and the build's boss distance against the boss's hit radius; pressed
+    each time it's ready (unleash_factor's cycle, its own cast and the spare Runic Ward charged); a net loss is not
+    pressed (x1). Probe scratch/gem45/probe_comet_ward.log (synthetic Comet lvl 90, a 2.8 m area, 0.38 casts a second; a "+300 to maximum Runic Ward" ring: 15 Ward a second against its 155 a press): 1 m and 2 m 235.1 -> 271.03 (x1.153, 2.0 areas on the boss); 4 m x0.929, 6 m x0.937, 8 m x0.830 if pressed, so not pressed: 235.1 unchanged. Without a Runic Ward source (probe_comet.log): not pressed at any distance.
+  sources: ["builder/search/models.py (triskelion_cascade_model)", "builder/search/assumptions.py (Assumptions.triskelion)",
+            "research/triskelion-visual-layout-r62.md", "research/triskelion-ap-cascade-r62.md", "scratch/gem45/probe_comet.log"]
+  test_in_game: "Not asked (a crafted, drop-restricted gem; R61-13): the Astral Projection row stays."
+  status: proposed

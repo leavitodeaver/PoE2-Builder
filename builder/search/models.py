@@ -12844,62 +12844,183 @@ def flame_breath_empower_model(main: Skill | None, cycle: float, gains: float, g
                  f"Without a Power Charge source: +0%; with this build's: +{gain * share:.1f}%.")}]
 
 
-# Triskelion Cascade (GEM44; GEM's ranked list, the manager's 16:12 order; the FRAME: geometry waits on RESEARCH61
-# R61-10). The game (PoB other.lua TriskelionCascadePlayer = 26650308's numbers; the description): "Empower the next
-# Cascadable Spell you cast. The Empowered Spell becomes centred on your location, and Cascades to six areas around you
-# in a Triskelion pattern"; per level (1 / 20) triskelion_cascade_next_skill_damage_+%_final -30 / -11 and
-# _area_of_effect_+%_final -40 / -31 (the Empowered spell deals LESS per area), number_of_triskelion_cascades_for_next_
-# skill 2, a 1 s cooldown plus triskelion_cascade_cooldown_%_of_cast_time 800 / 300 ("{0}% of Empowered Skill's cast
-# time is added to this Skill's cooldown"), a 0.45 s cast of its own, Ward cost. PoB maps none of it (a Buff with no
-# effect on any number). Against one boss the Empowered cast pays only if n of its 1 + 6 areas land on the boss:
-# DPS x (1 + e / c x ((1 + d) x n - 1)), e = Empowered casts a second = min(the press rate, 1 / (cooldown + cd% x the
-# main skill's cast time) x Cooldown Recovery, c), c = the main skill's casts a second, d = the damage stat. Its own 0.45 s
-# cast is the press model's time cost (not here). n: R61-10 (where the areas sit, how big, whether the cast always lands
-# centred on you; melee vs cast range). Until then NOT HOOKED into the score: the note gives rows n = 0 (cast range: the
-# Empowered cast leaves the boss), 1 (the centre area on a boss in melee range), 3 and 7. The whole group decides where
-# the spell lands (Astral Projection, triggers, totems: not Empowered by your cast, or centred elsewhere): named.
+# Triskelion Cascade (GEM44's frame; GEM45 puts it in the score from RESEARCH61 R61-10 / R61-16 and RESEARCH62 R62-1 /
+# R62-2, research/triskelion-visual-layout-r62.md and triskelion-ap-cascade-r62.md, video Eo3ThyP82I8 measured frame by
+# frame; THE USER 25 Nov ~16:38: the layout from visuals, not stat names). The game (PoB other.lua
+# TriskelionCascadePlayer = 26650308's numbers; the description): "Empower the next Cascadable Spell you cast. The
+# Empowered Spell becomes centred on your location, and Cascades to six areas around you in a Triskelion pattern"; per
+# level (1 / 20) triskelion_cascade_next_skill_damage_+%_final -30 / -11 and _area_of_effect_+%_final -40 / -31 (the
+# Empowered spell deals LESS per area), a 1 s cooldown plus triskelion_cascade_cooldown_%_of_cast_time 800 / 300 ("{0}%
+# of Empowered Skill's cast time is added to this Skill's cooldown"), the Empowerment waits up to 4 s, a 0.45 s cast of
+# its own, Ward cost (20-155). PoB maps none of it (a Buff with no effect on any number). Olroth's Conviction can support
+# it (OLROTH_EMPOWERS: more Empowered casts a press). Counted:
+# - WHERE IT LANDS (R61-10 (b), R62-1 (c): HIGH, the text and every filmed cast): centred on the player, so a targeted
+#   spell cast at range comes back to you.
+# - THE SHAPE (R62-1 (d), MEDIUM-LOW, measured on Ice Nova, Bone Cage and Comet casts): 7 areas, each the spell's own
+#   area at the less-area size (radius x sqrt(1 + area%), 0.83 at level 20): the centre on you; three inner ones
+#   TRISKELION_STEP (1.5) of those radii out, 120 degrees apart; three outer ones one more step on, turned
+#   TRISKELION_TURN (30) degrees further (the swirl in the icon). Offsets scale with the spell's area. (Three waves
+#   0.1-0.3 s apart: no time cost counted, they come from the one cast.)
+# - FACING (R62-1 (b), MEDIUM-LOW, 4 of 4 casts within ~25 degrees of the cursor): one inner arm at the boss, the boss's
+#   bearing taken uniform within +-TRISKELION_AIM_JITTER (25) degrees of it. Row: a random facing.
+# - BOSS HITS: the areas whose circle reaches the boss's hit circle (the area's radius + the boss's hit radius,
+#   bosses.hit_radius) at the build's boss distance (PoB's enemyDistance: the search's choice or the natural one),
+#   each one hit (as Spell Cascade's areas are counted). Never a flat count. For Bone Cage an upper bound (a spike must
+#   be touched, R61-3).
+# - SPELL CASCADE on the same spell (R62-2, MEDIUM-LOW, five Comet casts): Triskelion's 7 areas appear and Spell
+#   Cascade's side areas don't, while its 30% less damage (and less area, in PoB's radius) still apply: the Empowered
+#   cast is compared with a normal cast's Cascade hits (spell_cascade_model's count). Rows: "Cascade only" (R62-1 (a),
+#   one Frost Bomb cast: the Cascade's own areas at the target, Triskelion's 11% less taken to apply) and "10 areas"
+#   (R61-13: a third area on each arm, one more step and turn on). Whether the Empowerment is used up on a cast that
+#   shows no pattern: UNVERIFIED.
+# - ASTRAL PROJECTION (or another stat that casts a Nova at the target: TRISKELION_AT_TARGET): UNVERIFIED (no footage,
+#   R62-2). Headline: still centred on the player (the text); row: the pattern centred on the boss, named as the row with
+#   the most DPS at stake.
+# - THE PRESS (as unleash_factor's cycle): pressed each time it's ready, every max(its cooldown (1 s + cd% x the main
+#   cast's time, over Cooldown Recovery), its own cast + the Empowered casts, Ward cost / the Runic Ward the build has
+#   spare) seconds; the main skill's other casts fill the rest. DPS x t x (k x (1 + d) x n / h + normal casts) / period,
+#   t the main cast's time, k the Empowered casts a press, d the damage stat, n the boss hits of an Empowered cast, h a
+#   normal cast's (1, or Spell Cascade's). A net loss (at range, or a spell too small to reach) is not pressed: x1, said.
+# Not counted (named): the boss moving inside the pattern; a Nova main's own reach (a normal Nova cast is taken at PoB's
+# one hit wherever the boss stands: no model limits it yet); a triggered or totem main (not "a Spell you cast": left at
+# x1, UNVERIFIED).
 TRISKELION = "Triskelion Cascade"
 TRISKELION_DAMAGE, TRISKELION_AREA = "triskelion_cascade_next_skill_damage_+%_final", "triskelion_cascade_next_skill_area_of_effect_+%_final"
 TRISKELION_CD_PCT, TRISKELION_BASE_CD = "triskelion_cascade_cooldown_%_of_cast_time", 1.0
-TRISKELION_ROWS = (0, 1, 3, 7)
-TRISKELION_ENTRY = "model-gem44-triskelion-cascade"
+TRISKELION_CAST = 0.45  # s (its own cast, PoB other.lua castTime; the bridge's castTime first)
+TRISKELION_STEP, TRISKELION_TURN, TRISKELION_AIM_JITTER = 1.5, 30.0, 25.0  # R62-1 (d) / (b), MEDIUM-LOW
+TRISKELION_AT_TARGET = ("nova_skills_cast_at_target_location", "nova_spells_cast_at_target_location",
+                        "discharge_and_voltaxic_burst_nova_spells_cast_at_target_location")
+TRISKELION_ENTRY = "model-gem45-triskelion-cascade"
+
+
+def triskelion_centres(r: float, per_arm: int = 2, step: float = TRISKELION_STEP,
+                       turn: float = TRISKELION_TURN) -> list[tuple[float, float]]:
+    """The Empowered areas' centres (m) for areas of radius `r`: the centre, then each of three arms (one at bearing 0)
+    `per_arm` areas, each `step` radii on from the last and turned `turn` degrees further (R62-1 (d))."""
+    out = [(0.0, 0.0)]
+    for arm in range(3):
+        x = y = 0.0
+        bearing = 2 * math.pi * arm / 3
+        for _ in range(per_arm):
+            x, y = x + step * r * math.cos(bearing), y + step * r * math.sin(bearing)
+            out.append((x, y))
+            bearing += math.radians(turn)
+    return out
+
+
+def triskelion_hits(r: float, distance: float, boss_radius: float, aimed: bool = True, per_arm: int = 2,
+                    steps: int = 181) -> float:
+    """The average number of the Empowered areas (radius `r`, centred on the player) reaching a boss of hit radius
+    `boss_radius` whose centre is `distance` m away: an arm aimed at it (+-TRISKELION_AIM_JITTER degrees) or a random
+    facing."""
+    if r <= 0:
+        return 0.0
+    centres, reach, total = triskelion_centres(r, per_arm), r + max(boss_radius, 0.0), 0
+    for i in range(steps):
+        theta = (math.radians(-TRISKELION_AIM_JITTER + 2 * TRISKELION_AIM_JITTER * i / (steps - 1)) if aimed
+                 else 2 * math.pi * i / steps)
+        bx, by = distance * math.cos(theta), distance * math.sin(theta)
+        total += sum(1 for x, y in centres if math.hypot(bx - x, by - y) <= reach)
+    return total / steps
 
 
 def triskelion_cascade_factor(casts: float, cast_time: float, presses: float, damage_pct: float, cd_pct: float,
-                              areas: float, cooldown_recovery: float = 1.0) -> tuple[float, float]:
-    """(the DPS factor, Empowered casts a second) for a Cascadable main skill cast `casts` a second (`cast_time` s each)
-    with Triskelion Cascade pressed `presses` a second, `areas` of the Empowered cast's areas on the boss."""
+                              areas: float, cooldown_recovery: float = 1.0, base_hits: float = 1.0,
+                              empowers: float = 1.0, own_cast: float = TRISKELION_CAST, ward_period: float = 0.0
+                              ) -> tuple[float, float]:
+    """(the DPS factor, Empowered casts a second) for a Cascadable main Spell cast `casts` a second (`cast_time` s each:
+    its cooldown part) with Triskelion Cascade pressed when ready (`presses` <= 0: never), `areas` boss hits an
+    Empowered cast against `base_hits` a normal one, `empowers` Empowered casts a press, `ward_period` the shortest
+    time between presses the Runic Ward pays for. (Not clamped at 1: the caller decides whether to press.)"""
     if casts <= 0 or presses <= 0:
         return 1.0, 0.0
+    t = 1.0 / casts
+    k = max(empowers, 1.0)
     cooldown = (TRISKELION_BASE_CD + cd_pct / 100 * max(cast_time, 0.0)) / max(cooldown_recovery, 1e-9)
-    empowered = min(presses, 1 / cooldown if cooldown > 0 else presses, casts)
-    return 1 + empowered / casts * ((1 + damage_pct / 100) * areas - 1), empowered
+    period = max(cooldown, own_cast + k * t, ward_period, 1.0 / presses)
+    normal = max(0.0, (period - own_cast - k * t) / t)
+    return t * (k * (1 + damage_pct / 100) * areas / max(base_hits, 1e-9) + normal) / period, k / period
 
 
-def triskelion_cascade_model(main: Skill | None, main_types: set[str], casts: float, cast_time: float,
-                             presses: float, level_stats: dict, cooldown_recovery: float = 1.0,
-                             areas: float | None = None, forbidden: set[str] = frozenset()
+def triskelion_cascade_model(main: Skill | None, main_types: set[str], casts: float, level_stats: dict, radius: float,
+                             distance: float, boss_radius: float, boss_how: str, *, cooldown_recovery: float = 1.0,
+                             empowers: float = 1.0, own_cast: float = TRISKELION_CAST, base_hits: float = 1.0,
+                             cascade: bool = False, at_target: bool = False, ward_cost: float = 0.0,
+                             ward_spare: float | None = None, forbidden: set[str] = frozenset()
                              ) -> tuple[list[dict], list[dict]]:
-    """Triskelion Cascade on a Cascadable main Spell (see above). `areas` None: a note with rows only (R61-10 pending)."""
-    if main is None or "Cascadable" not in main_types or TRISKELION_ENTRY in forbidden or presses <= 0:
+    """Triskelion Cascade pressed beside a Cascadable main Spell (see above). `radius`: the main spell's area radius
+    (m, PoB's); `distance`: the boss's (m); `base_hits`: a normal cast's hits (Spell Cascade's count); `cascade`: Spell
+    Cascade on it; `at_target`: a stat casting the Nova at the target; `ward_spare`: Runic Ward a second left over for
+    it (None: not read)."""
+    if main is None or "Cascadable" not in main_types or TRISKELION_ENTRY in forbidden:
         return [], []
+    label = f"{TRISKELION} on {main.name}*"
     damage, area = number(level_stats.get(TRISKELION_DAMAGE)), number(level_stats.get(TRISKELION_AREA))
     cd_pct = number(level_stats.get(TRISKELION_CD_PCT))
-    rows = {n: triskelion_cascade_factor(casts, cast_time, presses, damage, cd_pct, n, cooldown_recovery)
-            for n in TRISKELION_ROWS}
-    empowered = rows[1][1]
-    row_text = "; ".join(f"{n} area(s) on the boss x{f:.3f}" for n, (f, _) in rows.items())
-    basis = (f"{main.name} Empowered {empowered:.2f} times a second ({presses:.2f} presses, cooldown {TRISKELION_BASE_CD:g} s "
-             f"+ {cd_pct:g}% of its {cast_time:.2f} s cast; {casts:.2f} casts a second): each Empowered cast deals "
-             f"{damage:+g}% damage ({area:+g}% area) in up to 7 areas centred on you. How many land on the boss is "
-             "RESEARCH61 R61-10's (pending): rows " + row_text + ". Not in the score until then")
-    if areas is None:
-        return [], [{"label": f"{TRISKELION} on {main.name}: Empowered casts (rows only, R61-10 pending)*",
-                     "value": "x1 (not scored)", "confidence": "LOW", "entry": TRISKELION_ENTRY, "basis": basis}]
-    factor = triskelion_cascade_factor(casts, cast_time, presses, damage, cd_pct, areas, cooldown_recovery)[0]
-    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=TRISKELION_ENTRY)] if factor != 1 else []
-    return mods, [{"label": f"{TRISKELION} on {main.name}: {areas:g} Empowered area(s) on the boss*",
-                   "value": f"x{factor:.3f}", "confidence": "LOW", "entry": TRISKELION_ENTRY, "basis": basis}]
+
+    def unscored(why: str, confidence: str = "MEDIUM") -> tuple[list[dict], list[dict]]:
+        return [], [{"label": label, "value": "x1.000 (not pressed)", "confidence": confidence,
+                     "entry": TRISKELION_ENTRY, "basis": why}]
+    if main.triggered or main.by_totem:
+        return unscored(f"{main.name} is {'triggered' if main.triggered else 'cast by a totem'}, not a Spell you cast: "
+                        "whether Triskelion Empowers it is UNVERIFIED, left at x1 (an undercount at most)", "LOW")
+    if casts <= 0 or radius <= 0:
+        return unscored(f"no cast rate or area radius read for {main.name}: nothing to Empower")
+    ward_period = 0.0
+    ward_how = "Ward cost not read"
+    if ward_cost > 0 and ward_spare is not None:
+        if ward_spare <= 0:
+            return unscored(f"its {ward_cost:g} Ward a press: the build has no Runic Ward to spare for it (every bit "
+                            "goes to its other Ward-cost skills, or it has none): it can't be pressed")
+        ward_period = ward_cost / ward_spare
+        ward_how = f"{ward_cost:g} Ward a press from {ward_spare:.1f} spare Runic Ward a second (at most every {ward_period:.1f} s)"
+    r = radius * math.sqrt(max(0.0, 1 + area / 100))
+    cast_time = 1.0 / casts
+
+    def factor(hits: float, base: float = base_hits) -> tuple[float, float]:
+        return triskelion_cascade_factor(casts, cast_time, 1.0, damage, cd_pct, hits, cooldown_recovery, base,
+                                         empowers, own_cast, ward_period)
+    hits = triskelion_hits(r, distance, boss_radius)
+    f, empowered = factor(hits)
+    rows = [(f"a random facing ({triskelion_hits(r, distance, boss_radius, aimed=False):.1f} hits)",
+             factor(triskelion_hits(r, distance, boss_radius, aimed=False))[0])]
+    rows += [(f"at {d:g} m ({triskelion_hits(r, d, boss_radius):.1f} hits)", factor(triskelion_hits(r, d, boss_radius))[0])
+             for d in (1.0, 2.0, 4.0, 6.0) if abs(d - distance) > 0.05]
+    if cascade:
+        rows.append(("Spell Cascade's own areas only, at the target (R62-1 (a), one Frost Bomb cast)",
+                     factor(base_hits)[0]))
+        ten = triskelion_hits(r, distance, boss_radius, per_arm=3)
+        rows.append((f"10 areas, a third on each arm (R61-13; {ten:.1f} hits)", factor(ten)[0]))
+    at_target_row = ""
+    if at_target:
+        centred = triskelion_hits(r, 0.0, boss_radius)
+        f_target = factor(centred)[0]
+        at_target_row = (f". THE ROW WITH THE MOST DPS AT STAKE: {main.name} casts at the target (Astral Projection or "
+                         f"the like) and the pattern may centre on the boss instead (UNVERIFIED, no footage): "
+                         f"{centred:.1f} hits, x{max(f_target, 1.0):.3f}")
+    row_text = "; ".join(f"{what} x{max(x, 1.0):.3f}" for what, x in rows)
+    k = max(empowers, 1.0)
+    basis = (f"The Empowered cast lands centred on you (HIGH): 7 areas of {r:.2f} m (the spell's {radius:.2f} m with "
+             f"{area:+g}% area), the inner three {TRISKELION_STEP:g} radii out, the outer three one more step on, turned "
+             f"{TRISKELION_TURN:g} degrees (R62-1, measured from video, MEDIUM-LOW), one arm aimed at the boss "
+             f"({distance:g} m away; {boss_how}): {hits:.1f} of them reach it, against {base_hits:g} hit(s) a normal "
+             f"cast{' (Spell Cascade: its side areas give way to the pattern, its 30% less stays, R62-2)' if cascade else ''}"
+             f"; each deals {damage:+g}% damage. Pressed when ready: {empowered:.2f} Empowered casts a second ({k:g} a "
+             f"press; cooldown {TRISKELION_BASE_CD:g} s + {cd_pct:g}% of the {cast_time:.2f} s cast over Cooldown "
+             f"Recovery, its own {own_cast:g} s cast charged; {ward_how}). Rows: {row_text}{at_target_row}. Not counted: "
+             "the boss moving inside the pattern, a Nova's own reach on normal casts; for Bone Cage an upper bound (a "
+             "spike must be touched)")
+    if f <= 1.0:
+        return [], [{"label": label, "value": f"x1.000 (not pressed: x{f:.3f} if it were)", "confidence": "MEDIUM-LOW",
+                     "entry": TRISKELION_ENTRY, "basis": basis + ". A net loss here, so not pressed",
+                     "play": (f"Don't press {TRISKELION} at {distance:g} m with {main.name} (its pattern centres on you): "
+                              f"x{f:.3f}. Rows: {row_text}")}]
+    return [raw_mod("DPS", "MORE", 100 * (f - 1), main.name, tag=TRISKELION_ENTRY)], [{
+        "label": label, "value": f"x{f:.3f} ({hits:.1f} areas on the boss)", "confidence": "MEDIUM-LOW",
+        "entry": TRISKELION_ENTRY, "basis": basis,
+        "play": (f"Press {TRISKELION} each time it's ready, then cast {main.name} with one arm of the pattern toward "
+                 f"the boss ({distance:g} m away): without it x1.000; with it x{f:.3f}. Rows: {row_text}")}]
 
 
 # Seismic Cry's Empowered Slams (GEM44; GEM's ranked list, an UNDERCOUNT). The game (26650308, ActiveSkills seismic_cry):

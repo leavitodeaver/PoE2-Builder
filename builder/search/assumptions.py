@@ -7768,6 +7768,8 @@ class Assumptions:
         mods += getattr(self, "ledger_derived", [])  # (COV32: shares the bridge works out again per calculation)
         mods, ward_notes = self.ward_paid(skills, mods, main)  # (MECH-B: Runic Ward pays for Ward-cost skills, MECHB13)
         notes += ward_notes
+        tri_mods, tri_notes = self.triskelion(skills, mods, main)  # (GEM45: Triskelion Cascade's Empowered casts, PoB 0)
+        mods, notes = mods + tri_mods, notes + tri_notes
         boost_mods, boost_notes = self.kalguur_boost(skills, main)  # (MECHC51: FIST_OF_KALGUUR's note)
         mods, notes = mods + boost_mods, notes + boost_notes
         r_mods, r_notes = self.kalguur_rune(boost_mods, main, skills)  # (MECHB53: its runes' Aftershock, always rated)
@@ -7904,6 +7906,58 @@ class Assumptions:
         pool = [(s.name, l, deaths * n / total / uses) for s, l, n in zip(reviving, lives, counts)] if uses > 0 and total else []
         rate, how = models.eternal_march_revives(skill, uses, share, life, pool)
         return rate, f"{how} ({uses_how})"
+
+    def triskelion(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """(GEM45) Triskelion Cascade pressed when ready beside a Cascadable main Spell (models.triskelion_cascade_model):
+        the main spell's PoB area radius and casts, the boss's distance (PoB's enemyDistance) and hit radius, Spell
+        Cascade's normal hits (models.spell_cascade_model), a stat casting a Nova at the target, Olroth's Conviction, and
+        the Runic Ward left over after ward_paid's plan (build.ward_sustain; Triskelion, not a damage group, is the last
+        to be paid). Runs after ward_paid."""
+        build = self.build
+        if main is None or not any(s.get("name") == models.TRISKELION and not s.get("disabled") for s in skills):
+            return [], []
+        main_group = build.main_group() or {}
+        raw = build.call("activeSkills", levelStats=[models.TRISKELION], supportStats=[
+            models.OLROTH_EMPOWERS, models.CASCADES_PER_SIDE, *models.TRISKELION_AT_TARGET])["skills"]
+        tri = next((s for s in raw if s["name"] == models.TRISKELION and not s.get("disabled") and s.get("group")), None)
+        own = next((s for s in raw if s["name"] == main and s.get("group") == main_group.get("index")), None)
+        if tri is None or own is None:
+            return [], []
+        skill = models.Skill.of(own)
+        if not skill.spell:
+            return [], []
+        types = set(skill_types_of(build.ctx, main))
+        stats = build.call("stats", fields=["Speed", "AreaOfEffectRadius"])
+        from builder.search import bosses
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        boss_radius, boss_how = bosses.hit_radius({"_boss": boss})
+        cascade_mods = models.spell_cascade_model(skill, stats, boss_radius, boss_how)[0]
+        base_hits = 1 + number(cascade_mods[0]["value"]) / 100 if cascade_mods else 1.0
+        distance = (number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                    or natural_distance(types, main))
+        sustain = getattr(build, "ward_sustain", None) or {}
+        if "WardRecoveryPerSecond" in sustain:
+            income = number(sustain["WardRecoveryPerSecond"])
+        else:
+            income = self._ward_income(skills, mods, main, [])[0]
+        spent = sum(number(v[1]) * number(v[2]) for k, v in sustain.items()
+                    if isinstance(v, tuple) and len(v) == 3 and k != models.TRISKELION)
+        support = skill.support_stats
+        group = next((g for g in build.groups() if g["index"] == tri["group"]), {})
+        position = next((i for i, x in enumerate(group.get("skills") or [], start=1) if x["name"] == models.TRISKELION), 0)
+        rates = build.call("useRates", indices=[tri["group"]], actives=[position])["rates"] if position else []
+        ward_cost = number((rates[0] if rates else {}).get("wardCost"))  # (activeSkills' wardCost is only a flag)
+        return models.triskelion_cascade_model(
+            skill, types, number(stats.get("Speed")), tri.get("levelStats") or {},
+            number(stats.get("AreaOfEffectRadius")) / 10, distance, boss_radius, boss_how,
+            cooldown_recovery=number(tri.get("cooldownRecovery")) or 1.0,
+            empowers=1.0 + number((tri.get("supportStats") or {}).get(models.OLROTH_EMPOWERS)),
+            own_cast=number(tri.get("castTime")) or models.TRISKELION_CAST, base_hits=base_hits,
+            cascade=number(support.get(models.CASCADES_PER_SIDE)) > 0,
+            at_target=any(number(support.get(k)) > 0 or number(skill.level_stats.get(k)) > 0
+                          for k in models.TRISKELION_AT_TARGET),
+            ward_cost=ward_cost, ward_spare=max(0.0, income - spent),
+            forbidden=set(build.ctx.request.forbid_ledger_entries))
 
     def ward_paid(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Runic Ward pays for the Ward-cost skills (MECHB13, models.ward_plan): every Ward-cost skill the build uses
