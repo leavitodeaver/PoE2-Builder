@@ -11678,6 +11678,101 @@ def earthquake_jagged_note(main: Skill | None, scored: str | None) -> list[dict]
              "play": ""}]
 
 
+# Plague Bearer's stored Poison released as its nova (GEM46; GEM45's draft; an UNDERCOUNT: PoB gives the nova no damage).
+# The game (26650308; PoB act_dex.lua PlagueBearerPlayer / PlagueBearerNovaPlayer): "While active, stores a portion of the
+# Poison Damage you deal. Using this Skill unleashes the stored Poison to damage and Poison enemies around you";
+# plague_bearer_gains_%_of_damage_from_inflicted_poisons 4 (+0.1 a quality point) and plague_bearer_maximum_stored_poison_
+# damage (15,257 at level 20): "Stores {0}% of Expected [Poison] damage, up to {1} / Deals [Physical] damage equal to the
+# stored [Poison]" (skill_stat_descriptions.csd; poe2db agrees, 26 Nov). The nova (castTime 1 s, radius 1.8 m, 100% chance
+# to Poison, plague_bearer_nova_area_+%_final_per_incubation_% 6: "Stored Poison grants up to 600% more Area of Effect");
+# its own Poisons aren't stored (active_skill_poisons_are_not_stored_by_plague_bearer). PoB maps the cap to
+# PlagueBearerMaxDamage, which no Module reads, and gives the nova no base damage: 0 (probe POE2T9709).
+# Counted as iron_ward_model counts Iron Ward's store (the manager's GEM45 / GEM46 briefs; the same shape: a Persistent
+# buff that fills, a nova pressed to release it, constraints.PRESSED_PERSISTENT): fill = gain x the main skill's PoisonDPS
+# (PoB's: the Poisons on the boss after its resistance and the stack limit, the LOWER reading of "Expected Poison damage";
+# before resistance is the row); released full (the most damage a press, its time charged once: pressing it sooner
+# only costs more presses), the nova's base Physical damage = the cap, used every cap / fill seconds, at most once per
+# its castTime; PoB scales that base through the nova's hit (the build's Physical and Area Damage modifiers, the boss's
+# armour) and adds its Poison; Full DPS counts it and the press model charges the main skill's time.
+# The scaled reading is MEDIUM: 0.2.0g "Fixed a bug where Plague Bearer's Nova was not considered to be area damage"
+# (area damage modifiers reach it), the Iron Ward precedent; "equal to the stored Poison" read as a fixed hit is the row
+# (UNVERIFIED which; RESEARCH question). Reach: the nova is centred on you (Astral Projection's "at the target" stats put
+# it on the boss: 0.4.0b fixed Astral Projection with Plague Bearer), radius PoB's x sqrt(1 + 600%) released full; a boss
+# beyond it (its hit radius added) takes nothing: not counted, said, stepping in the row.
+# Not counted: Poisons from other skills (only the main skill's PoisonDPS is read: an UNDERCOUNT where side skills
+# Poison); "Maximum Plague Value" lines (checked: no Mods / PassiveSkills / any 26650308 table row carries
+# plague_bearer_maximum_stored_poison_damage_+% or plague_bearer_nova_poison_damage_+%; ModType holds one Infecting row,
+# no mod uses it).
+PLAGUE_BEARER = "Plague Bearer"
+PLAGUE_GAIN = "plague_bearer_gains_%_of_damage_from_inflicted_poisons"
+PLAGUE_CAP = "plague_bearer_maximum_stored_poison_damage"
+PLAGUE_AREA = "plague_bearer_nova_area_+%_final_per_incubation_%"
+PLAGUE_ENTRY = "model-gem46-plague-bearer-store"
+
+
+def plague_bearer_model(buff: Skill | None, nova: Skill | None, poison_dps: float, *, group: int | None = None,
+                        radius: float = 0.0, area_in: bool = False, distance: float = 0.0, boss_radius: float = 0.0,
+                        at_target: bool = False, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """SkillData for Plague Bearer's nova released full (see above): `buff` holds the store's level stats, `nova` the
+    nova's; `poison_dps` the main skill's PoB PoisonDPS; `radius` the nova's PoB area radius (m), `area_in` whether the
+    600% more area line was in that reading; `distance` the boss's (m) and `boss_radius` its hit radius; `at_target` a
+    stat casting the Nova at the target."""
+    if buff is None or nova is None or not buff.level_stats.get(PLAGUE_CAP):
+        return [], []
+    label = f"{PLAGUE_BEARER}'s nova (released full)*"
+    if PLAGUE_ENTRY in forbidden:
+        return [], [{"label": label, "value": "not counted", "confidence": "MEDIUM", "entry": PLAGUE_ENTRY,
+                     "basis": f"the request switches off ledger entry {PLAGUE_ENTRY}: the nova deals no damage, as in PoB"}]
+    gain = number(buff.level_stats.get(PLAGUE_GAIN)) / 100
+    cap = number(buff.level_stats.get(PLAGUE_CAP))
+    fill = gain * max(poison_dps, 0.0)
+    use_time = nova.cast_time or 1.0
+    area = number(nova.level_stats.get(PLAGUE_AREA)) * 100
+    reach = radius * (1.0 if area_in else math.sqrt(1 + area / 100))
+    # (by NAME, as Iron Ward's: a group-tagged SkillData (MECHB62's installGroupAssumptions) never reaches PoB's Full
+    # DPS, probe POE2T9716: Full DPS 15.96 with the group tag, 4,977.5 by name; `group` kept for the note only)
+    tag = (lambda m: m)
+
+    def base(value: float) -> list[dict]:
+        return [tag({"kind": "SkillData", "skill": PLAGUE_BEARER, "key": k, "value": _round(value)})
+                for k in ("PhysicalMin", "PhysicalMax")]
+    if fill <= 0:
+        return base(0.0), [{"label": label, "value": "0 (nothing stored)", "confidence": "MEDIUM", "entry": PLAGUE_ENTRY,
+                            "basis": f"it stores {gain:.1%} of the Poison damage you deal, and the main skill's Poisons "
+                                     "deal none here (PoB's PoisonDPS 0; other skills' Poisons aren't read): nothing to "
+                                     "release",
+                            "play": "Plague Bearer needs a skill that Poisons the boss"}]
+    if not at_target and radius > 0 and distance > reach + boss_radius:
+        return base(0.0), [{"label": label, "value": "0 (out of reach)", "confidence": "MEDIUM", "entry": PLAGUE_ENTRY,
+                            "basis": f"the nova is centred on you, {reach:.1f} m released full (PoB's {radius:.1f} m x "
+                                     f"sqrt(1 + {area:.0f}%)), and the boss stands {distance:.1f} m away (its hit radius "
+                                     f"{boss_radius:.1f} m): it misses. Row: stepping in to release it, or Astral "
+                                     "Projection (casts it at the target)",
+                            "play": "release Plague Bearer next to the boss (it is centred on you)"}]
+    uses = min(fill / cap, 1 / use_time)
+    # (the refill as the nova's cooldown, so the press model presses it as it fills and charges its own cast time; x its
+    # Cooldown Recovery, which PoB divides by: those lines don't fill the store; probe POE2T9719: a timeOverride left the
+    # press model no rate (0 presses) and charged the 3.8 s override as each press's time)
+    mods = base(cap) + [tag({"kind": "SkillData", "skill": PLAGUE_BEARER, "key": "cooldown",
+                             "value": _round(max(cap / fill, use_time) * (nova.cooldown_recovery or 1.0))})]
+    if area:
+        mods.append(tag(line("1% more Area of Effect", area, skill=PLAGUE_BEARER)))
+    refill = cap / fill
+    return mods, [{
+        "label": label, "value": f"{uses:.3f} a second for {cap:,.0f} base Physical damage",
+        "confidence": "MEDIUM", "entry": PLAGUE_ENTRY,
+        "basis": (f"stores {gain:.1%} of the main skill's Poison damage on the boss (PoB's {poison_dps:,.0f} a second, after "
+                  f"its resistance; before it is the row), {fill:,.0f} a second, up to {cap:,.0f}: full every "
+                  f"{refill:.1f} s" + (f", faster than one use every {use_time:g} s" if refill < use_time else "")
+                  + f"; released full: {area:.0f}% more area, {reach:.1f} m"
+                  + (" (cast at the target)" if at_target else f", the boss {distance:.1f} m away")
+                  + ". The stored amount is the nova's base Physical damage, scaled by the build's modifiers (MEDIUM: "
+                    "0.2.0g made it area damage; Iron Ward's reading); row: a fixed hit equal to the stored Poison "
+                    "(UNVERIFIED which). Not counted: other skills' Poisons, the nova's own Poisons (not stored)"),
+        "play": f"keep Plague Bearer active and release it each time it is full (about every {max(refill, use_time):.1f} s)"
+                + ("" if at_target else ", next to the boss")}]
+
+
 # Enervating Nova's damage by distance (GEM20; an open gem-stat row: PoB never reads new_shock_nova_distance_based_damage_
 # +%_final, so it scores the ring at x1 wherever the boss stands). The game (26650308): ActiveSkills enervating_nova
 # "Enemies close to you take no damage while enemies at the edge of the ring take significantly more damage";

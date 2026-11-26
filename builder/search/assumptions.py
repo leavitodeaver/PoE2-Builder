@@ -6715,7 +6715,23 @@ class Assumptions:
         if not pressed:
             build.objective.press_scales = {}
             return self.consume_ignite(groups, []) + self.cull_window()
-        rates = build.call("useRates", indices=sorted(pressed | {main}))["rates"]
+        indices = sorted(pressed | {main})
+        # (GEM46) a pressed group whose selected skill is on a stat set that deals no damage (bridge noDamageSets: Plague
+        # Bearer's buff beside its nova, Iron Ward's) is rated by its first damaging active skill, the one Full DPS counts
+        # (PoB's calcFullDPS takes every active skill of the group; the buff, speed 0, left the nova's presses uncharged)
+        by_index = {g["index"]: g for g in groups["groups"]}
+
+        def rated(index: int) -> int:
+            group = by_index.get(index) or {}
+            skills = group.get("skills") or []
+            own = group.get("mainActiveSkill") or 1
+            if not 0 < own <= len(skills) or (skills[own - 1].get("statSet") or 1) not in (skills[own - 1].get("noDamageSets") or []):
+                return own
+            return next((i for i, k in enumerate(skills, start=1) if not k.get("noDamageSets")), own)
+        actives = [rated(i) for i in indices]
+        rates = build.call("useRates", indices=indices,
+                           **({"actives": actives} if any(a != (by_index.get(i) or {}).get("mainActiveSkill", 1)
+                                                         for a, i in zip(actives, indices)) else {}))["rates"]
         for r in rates:  # (MECHB47: a Warcry's PoB Speed counts the action speed twice, so press_use_rate's ceiling for
             # it is its castRate, 1 / WarcryCastTime: probe POE2T4710)
             if "Warcry" in skill_types_of(build.ctx, str(r.get("name"))):  # (SEARCH40: skill_types)
@@ -7835,6 +7851,9 @@ class Assumptions:
         notes += ward_notes
         tri_mods, tri_notes = self.triskelion(skills, mods, main)  # (GEM45: Triskelion Cascade's Empowered casts, PoB 0)
         mods, notes = mods + tri_mods, notes + tri_notes
+        if any(s.get("name") == models.PLAGUE_BEARER and not s.get("disabled") for s in skills):
+            pb_mods, pb_notes = self.plague_bearer(mods, main)  # (GEM46: Plague Bearer's nova released full, PoB 0)
+            mods, notes = mods + pb_mods, notes + pb_notes
         boost_mods, boost_notes = self.kalguur_boost(skills, main)  # (MECHC51: FIST_OF_KALGUUR's note)
         mods, notes = mods + boost_mods, notes + boost_notes
         r_mods, r_notes = self.kalguur_rune(boost_mods, main, skills)  # (MECHB53: its runes' Aftershock, always rated)
@@ -8023,6 +8042,40 @@ class Assumptions:
                           for k in models.TRISKELION_AT_TARGET),
             ward_cost=ward_cost, ward_spare=max(0.0, income - spent),
             forbidden=set(build.ctx.request.forbid_ledger_entries))
+
+    def plague_bearer(self, mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
+        """(GEM46) Plague Bearer's nova released full (models.plague_bearer_model): the store's and the nova's level
+        stats, the main skill's PoB PoisonDPS, the nova's PoB area radius (setRates on its effect), the boss's distance
+        (PoB's enemyDistance, else natural_distance) and hit radius, and a stat casting the Nova at the target."""
+        build = self.build
+        raw = build.call("activeSkills", levelStats=[models.PLAGUE_BEARER],
+                         supportStats=[*models.TRISKELION_AT_TARGET])["skills"]
+        own = [s for s in raw if s["name"] == models.PLAGUE_BEARER and not s.get("disabled") and s.get("group")]
+        buff = next((s for s in own if (s.get("levelStats") or {}).get(models.PLAGUE_CAP)), None)
+        nova = next((s for s in own if buff is not None and s["group"] == buff["group"]
+                     and models.PLAGUE_AREA in (s.get("levelStats") or {})), None)
+        if buff is None or nova is None:
+            return [], []
+        group = next((g for g in build.groups() if g["index"] == buff["group"]), {})
+        position = next((i for i, x in enumerate(group.get("skills") or [], start=1)
+                         if x["name"] == models.PLAGUE_BEARER and not x.get("noDamageSets")), 0)
+        sets = build.call("setRates", index=buff["group"], active=position)["sets"] if position else []
+        radius = number((sets[0] if sets else {}).get("AreaOfEffectRadius")) / 10
+        area_in = any(m.get("kind") == "Line" and m.get("skill") == models.PLAGUE_BEARER and "Area of Effect" in m["line"]
+                      for m in self.mods or [])  # (its 600% more area line, by name: in PoB's radius already)
+        poison = number(build.call("stats", fields=["PoisonDPS"]).get("PoisonDPS")) if main != models.PLAGUE_BEARER else 0.0
+        types = set(skill_types_of(build.ctx, main)) if main else set()
+        from builder.search import bosses
+        boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+        boss_radius, _ = bosses.hit_radius({"_boss": boss})
+        distance = (number(build.call("getConfig")["input"].get("enemyDistance")) / 10
+                    or (natural_distance(types, main) if main else 0.0))
+        nova_skill = models.Skill.of(nova)
+        at_target = any(number(nova_skill.support_stats.get(k)) > 0 or number(nova_skill.level_stats.get(k)) > 0
+                        for k in models.TRISKELION_AT_TARGET)
+        return models.plague_bearer_model(models.Skill.of(buff), nova_skill, poison, group=buff["group"], radius=radius,
+                                          area_in=area_in, distance=distance, boss_radius=boss_radius,
+                                          at_target=at_target, forbidden=set(build.ctx.request.forbid_ledger_entries))
 
     def ward_paid(self, skills: list[dict], mods: list[dict], main: str | None) -> tuple[list[dict], list[dict]]:
         """Runic Ward pays for the Ward-cost skills (MECHB13, models.ward_plan): every Ward-cost skill the build uses

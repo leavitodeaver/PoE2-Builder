@@ -1,0 +1,27 @@
+# GEM46 (26 Nov 2026): gem stats read by our code (GEM lane).
+- id: model-gem46-plague-bearer-store
+  title: "Plague Bearer's nova released full: the stored Poison (4% of the main skill's Poison damage, up to the cap) as its base Physical damage"
+  kind: model
+  model: plague_bearer
+  stats: ["plague_bearer_gains_%_of_damage_from_inflicted_poisons", "plague_bearer_maximum_stored_poison_damage",
+          "plague_bearer_nova_area_+%_final_per_incubation_%", "active_skill_poisons_are_not_stored_by_plague_bearer"]
+  skill: [Plague Bearer]
+  confidence: MEDIUM
+  notes: >-
+    The game (26650308): "While active, stores a portion of the Poison Damage you deal. Using this Skill unleashes the
+    stored Poison to damage and Poison enemies around you"; "Stores {0}% of Expected [Poison] damage, up to {1} / Deals
+    [Physical] damage equal to the stored [Poison]" (4%, 15,257 at level 20); "Stored Poison grants up to 600% more Area
+    of Effect"; its own Poisons are not stored. PoB maps the cap to PlagueBearerMaxDamage, which nothing reads, and the
+    nova has no base damage: 0 (probe POE2T9709). models.plague_bearer_model (Iron Ward's route): released full every
+    cap / (4% x the main skill's PoB PoisonDPS) seconds, at most once per its 1 s cast; the cap is the nova's base
+    Physical damage, scaled by PoB (MEDIUM: 0.2.0g made the nova area damage; row: a fixed hit equal to the stored
+    Poison, UNVERIFIED); Full DPS counts it, the press model charges its time; a boss beyond its reach (1.8 m x sqrt(7)
+    released full, its hit radius added) takes nothing unless the nova is cast at the target (Astral Projection).
+    Probe POE2T9720 (scratch/gem46/probe_plague8.log; a level-90 Toxic Growth skeleton + Plague Bearer 20 in Full DPS): its own
+    Poison (10.9 DPS, the Explosion set; the search keeps the Pustules set, no Poison): nothing stored, 15.96 unchanged; with
+    100,000 Poison DPS fed to the model: full every 3.8 s, pressed on that refill as a cooldown (each press its 1.6 s cast,
+    the main skill keeps 58.1%), the nova 14,347 a hit (3,762 DPS) plus its own Poison 1,200: 15.96 -> 4,995.9.
+  sources: ["builder/search/models.py (plague_bearer_model)", "builder/search/assumptions.py (Assumptions.plague_bearer)",
+            "https://poe2db.tw/us/Plague_Bearer", "patch notes 0.2.0, 0.2.0g, 0.4.0b (grep_notes --history 'Plague Bearer')"]
+  test_in_game: "Not asked: whether the nova's hit is scaled by damage modifiers stays a RESEARCH question (row)."
+  status: proposed

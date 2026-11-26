@@ -64,3 +64,50 @@ def test_the_base_sets_less_damage_reaches_the_base_set_only(engine):
     for label in ("Impact", "Shockwave"):
         assert two[label] == pytest.approx(half[label]) and two[label] < plain[label], label
     engine.call("setAssumptions", mods=[])
+
+
+def _plague(cap=15257.0, gain=4.0):
+    buff = models.Skill("Plague Bearer", group=3, level_stats={models.PLAGUE_GAIN: gain, models.PLAGUE_CAP: cap,
+                                                               "base_deal_no_damage": 1})
+    nova = models.Skill("Plague Bearer", group=3, cast_time=1.0, level_stats={models.PLAGUE_AREA: 6})
+    return buff, nova
+
+
+def test_plague_bearer_released_full_at_the_fill_rate():
+    buff, nova = _plague()
+    mods, notes = models.plague_bearer_model(buff, nova, 10_000.0, group=3, radius=1.8, distance=2.0, boss_radius=1.0)
+    data = {m["key"]: m["value"] for m in mods if m["kind"] == "SkillData"}
+    assert data["PhysicalMin"] == data["PhysicalMax"] == 15257
+    assert data["cooldown"] == pytest.approx(15257 / 400, rel=1e-4)  # (4% of 10,000 a second: full every 38 s)
+    nova.cooldown_recovery = 1.25  # (PoB divides the cooldown by it: those lines don't fill the store)
+    mods, _ = models.plague_bearer_model(buff, nova, 10_000.0, group=3, radius=1.8, distance=2.0, boss_radius=1.0)
+    assert {m["key"]: m["value"] for m in mods if m["kind"] == "SkillData"}["cooldown"] == pytest.approx(15257 / 400 * 1.25, rel=1e-4)
+    assert not any("group" in m for m in mods)  # (by name: a group's SkillData misses Full DPS, POE2T9716)
+    assert [(m["line"], m["scale"]) for m in mods if m["kind"] == "Line"] == [("1% more Area of Effect", 600)]
+    assert notes[0]["entry"] == models.PLAGUE_ENTRY and "38.1 s" in notes[0]["basis"]
+
+
+def test_plague_bearer_capped_by_its_cast_time():
+    buff, nova = _plague(cap=100.0)
+    mods, _ = models.plague_bearer_model(buff, nova, 1e6, group=3, radius=1.8, distance=1.0)
+    assert {m["key"]: m["value"] for m in mods if m["kind"] == "SkillData"}["cooldown"] == pytest.approx(1.0)
+
+
+def test_plague_bearer_nothing_stored_or_out_of_reach_deals_nothing():
+    buff, nova = _plague()
+    mods, notes = models.plague_bearer_model(buff, nova, 0.0, group=3, radius=1.8, distance=1.0)
+    assert {m["value"] for m in mods} == {0.0} and "nothing stored" in notes[0]["value"]
+    # (1.8 m x sqrt(7) = 4.76 m released full, + a 1 m hit radius: a boss at 6 m is missed, at 5.5 m hit)
+    mods, notes = models.plague_bearer_model(buff, nova, 10_000.0, group=3, radius=1.8, distance=6.0, boss_radius=1.0)
+    assert {m["value"] for m in mods} == {0.0} and "out of reach" in notes[0]["value"]
+    mods, _ = models.plague_bearer_model(buff, nova, 10_000.0, group=3, radius=1.8, distance=5.5, boss_radius=1.0)
+    assert any(m.get("key") == "PhysicalMin" and m["value"] == 15257 for m in mods)
+    mods, _ = models.plague_bearer_model(buff, nova, 10_000.0, group=3, radius=1.8, distance=6.0, boss_radius=1.0,
+                                         at_target=True)  # (Astral Projection: at the target)
+    assert any(m.get("key") == "PhysicalMin" and m["value"] == 15257 for m in mods)
+    # (the area line already in PoB's radius: not counted twice)
+    mods, _ = models.plague_bearer_model(buff, nova, 10_000.0, group=3, radius=4.76, area_in=True, distance=5.5,
+                                         boss_radius=1.0)
+    assert any(m.get("key") == "PhysicalMin" and m["value"] == 15257 for m in mods)
+    _, notes = models.plague_bearer_model(buff, nova, 10_000.0, forbidden={models.PLAGUE_ENTRY})
+    assert notes[0]["value"] == "not counted"
