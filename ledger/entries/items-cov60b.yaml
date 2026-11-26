@@ -95,3 +95,24 @@
   sources: ["builder/search/models.py (Herald of Plague)", "builder/search/assumptions.py",
             "research/herald-of-plague-spread-r61.md (R61-15)"]
   status: proposed
+
+# COV60 turn 5 (the manager's 26 Nov 10:44 order): TRAIN 152's MECHB68 readers (its report part 7), checked on 1c17e077.
+# Of its three notes only Explosive Demise's stat was open: the minion Cooldown Recovery lines ("Minions have N% increased
+# Cooldown Recovery Rate [for Command Skills]") are PoB-parsed rows (status pob) that Assumptions.command_recovery now
+# reads through useRates; Mystic Avalanche's cascadable_spells_final_echo_also_cascades_to_sides is already held by
+# model-read-cov55-mystic-avalanche (MECHB68 only changed its geometry for a Nova cast around you).
+
+- id: model-read-cov60-explosive-demise
+  title: "Explosive Demise's Fire damage equal to 8% of the minion's maximum Life, held by models.explosive_demise_model"
+  kind: model
+  model: skill_models
+  stats: ["arsonist_destructive_link_%_of_life_as_fire_damage"]
+  skill: [Explosive Demise]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code (MECHB68, 20371163, TRAIN 152): models.EXPLOSIVE_DEMISE_LIFE_PCT 8.0 (models.py 1137) adds 8% of
+    the minion's maximum Life as Fire (after the boss's Fire resistance) to each explosion in explosive_demise_model
+    (models.py 1357-1392), at the press rate Assumptions.choose_demise picks from the build's DPS (assumptions.py 13726).
+    PoB maps no stat for it. Not read: the gem's quality's +0.2% a point (up to +4 at 20%: a named UNDERCOUNT). A link only.
+  sources: ["builder/search/models.py (EXPLOSIVE_DEMISE_LIFE_PCT, explosive_demise_model)", "workers/MECHB68.report.md part 7"]
+  status: proposed

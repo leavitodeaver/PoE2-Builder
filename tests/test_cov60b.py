@@ -67,3 +67,14 @@ def test_cov60b_caltrops_generic_trigger_flag_is_read_by_its_support_model():
         "model", "model-gem28-caltrops-support")
     assert coverage.stat_covered(covered, "triggered_by_generic_ongoing_trigger", "SupportMetaCastOnCritPlayer") == (
         "model", "model-gem24-link-generic-ongoing-trigger")
+
+
+def test_cov60b_mechb68_explosive_demise_life_share_is_marked():
+    from builder.search import models
+    assert models.EXPLOSIVE_DEMISE_LIFE_PCT == 8.0
+    covered = coverage.stat_entries()
+    assert coverage.stat_covered(covered, "arsonist_destructive_link_%_of_life_as_fire_damage", "Explosive Demise") == (
+        "model", "model-read-cov60-explosive-demise")
+    # (already held: Mystic Avalanche's side areas by COV55's entry)
+    assert coverage.stat_covered(covered, "cascadable_spells_final_echo_also_cascades_to_sides", "Mystic Avalanche") in (
+        None, ("model", "model-read-cov55-mystic-avalanche"))
