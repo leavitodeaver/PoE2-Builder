@@ -7672,6 +7672,8 @@ class Assumptions:
         forged_mods, forged_notes = self.rageforged(main)  # (MECH-C: Rageforged's more damage on the uses it pays, MECHC60)
         mods += forged_mods
         notes += forged_notes
+        wait_mods, wait_notes = self.rage_cost_wait()  # (MECH-C: Rage-cost uses waiting for Rage, MECHC64 / R61-4)
+        mods, notes = mods + wait_mods, notes + wait_notes
         demon_mods, demon_notes = self.demon_form(skills, main)  # (MECH-C: Demon Form's Demonflame and time, MECHC28)
         mods += demon_mods
         notes += demon_notes
@@ -8903,6 +8905,25 @@ class Assumptions:
                                    "line for it would reach both copies: PoB's all-or-nothing reading on its Rage box kept",
                           "play": "", "confidence": "LOW (an OVERCOUNT where its gains fall short with the box at 10+)"})
         return mods, notes
+
+    def rage_cost_wait(self) -> tuple[list[dict], list[dict]]:
+        """(MECHC64; conditions.RAGE_COST_FREE's note, R61-4) Where the skills' Rage costs ask more than comes, a cost use
+        waits for its Rage: every skill's use rate x conditions' build.rage_paid["cost_share"] (Speed MORE). Nothing
+        while the gains cover the costs."""
+        paid = getattr(self.build, "rage_paid", None) or {}
+        scale = paid.get("cost_share")
+        if scale is None or number(scale) >= 1.0:
+            return [], []
+        scale = max(number(scale), 0.0)
+        return [models.raw_mod("Speed", "MORE", (scale - 1.0) * 100.0, tag="RageCostWait")], [{
+            "label": "Rage costs: uses waiting for Rage*", "value": f"x{scale:.3f} use rate",
+            "basis": (f"the skills' Rage costs ask {number(paid.get('asked')):.2f} Rage/s of the spenders' total, more "
+                      "than the build gains; a skill can't be used with less Rage than its cost and pays it in full "
+                      "(RESEARCH61 R61-4, MEDIUM-HIGH: patch 0.4.0), so the uses wait: the action rate falls to what the "
+                      f"Rage pays for ({scale:.0%}, solved across rounds); row, used anyway paying nothing: x1"),
+            "confidence": "MEDIUM (every pressed skill waits alike, one action at a time)",
+            "play": (f"your skills wait for Rage: {scale:.0%} of their full rate (more Rage gained or a lower cost lifts "
+                     "it)")}]
 
     def purple_flames(self, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """Into the Breach's Purple Flame stacks (MECHC26; PATCH_CHECK G1-1, the largest OVERCOUNT found: nothing set

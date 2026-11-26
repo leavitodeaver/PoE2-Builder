@@ -3064,6 +3064,19 @@ RAGEFORGED_SIDE = ("Rageforged I", "Rageforged II")
 # UNVERIFIED whether a skill can be used without the Rage its cost asks, or pays what's there; the sawtooth's reading).
 RAGE_COST_LINE = re.compile(r"(?i)\bto rage cost\b|\bcost [+-]?\d+ rage\b")
 RAGE_COST_KEY = " (Rage cost)"
+# (MECHC64; RESEARCH61 R61-4, research/rage-cost-insufficient-r61.md, MEDIUM-HIGH) A skill with a Rage cost can't be used
+# while you hold less Rage than its cost, and pays it in full when used (patch 0.4.0: "Rage no longer causes a visual
+# effect on your character until you have 10 or more Rage so that you know that you can use these abilities"; the game's
+# only "use with too little" stat is skill_usable_with_insufficient_mana, no Rage one: checked by R61-4 over Stats). So a
+# cost use that finds too little WAITS (before: it went ahead and paid nothing, the upper reading, now the row
+# POE2_RAGE_COST_FREE=1). Where the costs ask more Rage than comes, the skills' uses fall to what the Rage pays for:
+# the cost-paying action stream runs at f = gained / asked of its rate (one action at a time, so every pressed skill
+# waits alike; MEDIUM), solved across rounds (f_next = min(1, f x gained / asked) at the uses PoB now gives, which
+# settles at f = regeneration / (costs - hit gains)), passed as build.rage_paid["cost_share"] and charged by
+# Assumptions.rage_cost_wait as Speed MORE (f - 1). Then the costs take all the Rage, so the optional per-use spenders
+# (Rageforged's "consume 10 Rage") find none: their paid share 0 (MEDIUM). Where the gains cover the costs (example build
+# 8: 3.84 gained, 1.49 asked) nothing changes.
+RAGE_COST_FREE = os.environ.get("POE2_RAGE_COST_FREE") == "1"
 # (MECHC63) PoB sets "at maximum Rage" only when the Rage box equals the maximum (CalcPerform 799-801:
 # Condition:HaveMaximumRage), and lines turn on it: Rage III's "higher Attack speed while you ... are not at maximum Rage"
 # (sup_str.lua: Speed INC, HaveMaximumRage negated), ModParser's "while at maximum rage". The sawtooth's average, a
@@ -3108,7 +3121,7 @@ def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000,
         return None
     names, weights = list(rates), list(rates.values())
     step, rng = 1.0 / total, random.Random(60)
-    rise, level, area, seconds, topped = gain * step, 0.0, 0.0, 0.0, 0.0
+    rise, level, area, seconds, topped, waited = gain * step, 0.0, 0.0, 0.0, 0.0, 0.0
     for n in range(uses + 300):
         if level + rise <= most:
             part, level, top = step * (2 * level + rise) / 2, level + rise, 0.0
@@ -3119,14 +3132,25 @@ def rage_sawtooth(gain: float, spend: dict, most: float, uses: int = 3000,
             area, seconds, topped = area + part, seconds + step, topped + top
         who = names[0] if len(names) == 1 else rng.choices(names, weights)[0]
         cost = number(each[who]) if who in each else RAGE_SPEND_AT
+        if who in each and level < cost and not RAGE_COST_FREE and cost <= most:
+            # (MECHC64: RAGE_COST_FREE's note: a cost use waits for its Rage, then pays in full)
+            wait = (cost - level) / gain
+            if n >= 300:
+                area, seconds, waited = area + wait * (level + cost) / 2, seconds + wait, waited + wait
+            level = cost
         if level >= cost and rng.random() >= RAGE_SKIP_CHANCE.get(rage_spender(who), 0.0):
             level -= cost
     mean = min(area / seconds, most)
     if out is not None:
+        out["wait"] = waited / seconds
         out["at_max"] = topped / seconds
         out["below"] = (area - most * topped) / (seconds - topped) if seconds - topped > 0 else most
     took = (f"{RAGE_SPEND_AT:g}" if not each else " / ".join(
         sorted({f"{number(each[n]) if n in each else RAGE_SPEND_AT:g}" for n in names})))
+    if each and not RAGE_COST_FREE:
+        return mean, (f"the spenders take {took} a use (a Rage cost waits until that much is there, then pays in "
+                      f"full: R61-4): Rage climbs {rise:.2f} between uses ({total:.2f} uses/s) and drops by {took} at a "
+                      f"spend, {mean:.1f} held on average (MEDIUM: uses evenly spaced, gains steady)")
     return mean, (f"the spenders take {took} a use only while that much is there: Rage climbs "
                   f"{rise:.2f} between uses ({total:.2f} uses/s) and drops by {took} at a spend, "
                   f"{mean:.1f} held on average (MEDIUM: uses evenly spaced, gains steady)")
@@ -3565,6 +3589,18 @@ def rage_held(lines: list[str], stats: dict) -> tuple[float, str]:
             "" if net > 0 else f" (asking {asked:.2f}/s, more than comes: {real:.2f}/s)"))
         # (MECHC48, the manager's 23:25 for MECHB49's Molten Crash reading: the paid share as plain numbers, not text)
         stats["_rage_paid"] = {"share": min(1.0, real / asked), "asked": asked, "paid": real}
+        costs = sum(number(spend.get(k)) for k in stats.get("_rage_cost_each") or {})
+        if costs > 0 and not RAGE_COST_FREE:  # (MECHC64: RAGE_COST_FREE's note: cost uses wait for their Rage)
+            prev = number(stats.get("_rage_cost_scale_prev")) or 1.0
+            scale = min(1.0, prev * gain / costs)
+            stats["_rage_paid"]["cost_share"] = scale
+            if scale < 1:
+                others = asked - costs
+                stats["_rage_paid"]["share"] = 0.0 if others > 1e-9 else 1.0
+                basis += (f" (the Rage costs ask {costs:.2f}/s against {gain:.2f}/s gained: a cost use waits for its Rage "
+                          f"and pays in full (R61-4, MEDIUM-HIGH), so the skills run at {scale:.0%} of their full rate"
+                          + (", and the optional 'consume Rage' spenders find none" if others > 1e-9 else "")
+                          + "; row, used anyway paying nothing: every use)")
     # (MECHC60: RAGE_SPEND_AT's note) per-use spenders: the sawtooth's average, where the loss never runs
     saw_out: dict = {}
     weigh = None  # (MECHC63: (share at the maximum, the box below it), RAGE_AT_MAX_LINE's note)
@@ -11991,6 +12027,8 @@ class Conditions:
                 stats["_channel_min"] = sum(number(own.get(k)) for k in CHANNEL_MIN_STATS) / 1000
                 stats["_channel_gap"] = number(own.get(CHANNEL_GAP_STAT)) / 1000
         stats["_rage_cost_each"] = {}
+        # (MECHC64: RAGE_COST_FREE's note: the use-rate scale charged last round, for the next round's solve)
+        stats["_rage_cost_scale_prev"] = number((getattr(self.build, "rage_paid", None) or {}).get("cost_share")) or 1.0
         if any(RAGE_COST_LINE.search(t) for t in texts):  # (MECHC63: RAGE_COST_LINE's note)
             costs, each = self._rage_costs(stats)
             rage_spend.update(costs)

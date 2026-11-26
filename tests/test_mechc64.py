@@ -181,3 +181,28 @@ def test_real_pob_shockwave_totem_main_gains_no_rage_from_its_hits(engine):
     got = c._rage_gain("Gain 5 Rage on Melee Hit", {**stats, "_main_types": {"Melee", "Attack"}}, True)
     print("PROBE rage", got)
     assert got[0] == 0.0 and "its totem's" in got[2]
+
+
+# R61-4: a Rage-cost use waits for its Rage, then pays in full (conditions.RAGE_COST_FREE's note)
+def test_a_rage_cost_use_waits_for_its_rage_and_pays_in_full():
+    from builder.search import conditions as c
+
+    out: dict = {}
+    # 2 Rage/s gained, a 5-Rage cost asked 1 use/s (5/s): the uses wait most of the time
+    mean, how = c.rage_sawtooth(2.0, {"Strike (Rage cost)": 5.0}, 40.0, each={"Strike (Rage cost)": 5.0}, out=out)
+    assert out["wait"] > 0.4 and "waits until" in how and mean < 5.0
+    out = {}
+    c.rage_sawtooth(10.0, {"Strike (Rage cost)": 5.0}, 40.0, each={"Strike (Rage cost)": 5.0}, out=out)
+    assert out["wait"] == 0.0  # (gains cover the cost: no waiting)
+
+
+def test_rage_cost_wait_charges_the_use_rate_scale():
+    class Build:
+        rage_paid = {"share": 0.0, "asked": 5.0, "paid": 2.0, "cost_share": 0.4}
+
+    hook = Assumptions.__new__(Assumptions)
+    hook.build = Build()
+    mods, notes = hook.rage_cost_wait()
+    assert mods[0]["name"] == "Speed" and mods[0]["value"] == pytest.approx(-60.0) and "R61-4" in notes[0]["basis"]
+    Build.rage_paid = {"share": 1.0, "asked": 1.5, "paid": 1.5, "cost_share": 1.0}
+    assert hook.rage_cost_wait() == ([], [])
