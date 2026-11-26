@@ -5212,7 +5212,9 @@ class Assumptions:
                     models.spectral_strength(main), 1.0 / models.SPECTRAL_WAIT, models.SPECTRAL_MAX,
                     "a Spectral Projectile over the attack's own projectile, spectral_volley_model's reading", forbidden)
                 hand_mods, hand_notes = hand_mods + st_mods, hand_notes + st_notes
-        hand_notes = hand_notes + models.ice_shards_note(main)  # (MECHB51: R41-13, rows only)
+        if main is not None and main.name == models.ICE_SHARDS:  # (MECHB51: R41-13, rows only; MECHB67: R61-11)
+            hand_notes = hand_notes + models.ice_shards_note(main, number(build.call("stats", fields=["Speed"]).get(
+                "Speed")) or 0.0, bosses.moving_ceiling({"_boss": boss}))
         hand_notes = hand_notes + models.behead_note(main, supports.get(main.group, []) if main else [])  # (R42-18)
         hand_notes = hand_notes + models.knockback_note(main, number(build.call("stats", fields=[
             "KnockbackChanceOnHit"]).get("KnockbackChanceOnHit")))  # (MECHB51: R42-26, a LOW row)
@@ -7216,13 +7218,18 @@ class Assumptions:
         own = next(iter(build.call("useRates", indices=[group["index"]])["rates"]), None) or {}
         at_will = number(own.get("speed"))
         bells = min(cap.uses, at_will) if cap is not None else at_will
-        sets = {str(x.get("label")): x for x in build.call("setRates", index=group["index"])["sets"]}
+        level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[name])["skills"]
+                      if x["name"] == name), {})  # (MECHB59: the all-Bells row, R55-2; MECHB67: the Ailments' stats)
+        per = number(level.get(models.BELL_AILMENT_STAT))
+        threshold = number(level.get(models.BELL_THRESHOLD_STAT))
+        gain = {"label": "Shockwave", "percent": per, "types": list(models.BELL_AILMENT_TYPES)} if per > 0 else None
+        sets = {str(x.get("label")): x for x in build.call("setRates", index=group["index"], gainAs=gain)["sets"]}
         impact = number((sets.get("Impact") or {}).get("AverageDamage"))
         wave = number((sets.get("Shockwave") or {}).get("AverageDamage"))
         duration = number((sets.get(models.TEMPEST_BELL) or {}).get("Duration"))
         m = re.search(r"Combo: (\d+(?:\.\d+)?)", cap.how) if cap is not None else None
         found = Usage(build, None).combo_rate(name, float(m.group(1))) if m else None
-        builder = None
+        builder = ailments = None
         if found:
             where = next((g["index"] for g in build.call("groups")["groups"] if g.get("enabled") is not False
                           and any(x["name"] == found[2] and x.get("enabled", True) for x in g["gems"])), None)
@@ -7231,11 +7238,20 @@ class Assumptions:
                 every = getattr(build.ctx, "all_gems", None) or build.ctx.gems  # (a builder the request didn't name)
                 types = set(((every.get(found[2]) or build.ctx.gems.get(found[2])) or {}).get("skillTypes") or [])
                 builder = (found[2], number(row.get("speed")), number(row.get("HitChance")) or 100.0, "Area" in types)
-        level = next((x.get("levelStats") or {} for x in build.call("activeSkills", levelStats=[name])["skills"]
-                      if x["name"] == name), {})  # (MECHB59: the all-Bells row, R55-2)
+                if gain is not None and threshold > 0:  # (MECHB67, R63-3: the builder's Ailments against the Bell's own)
+                    rated = next(iter(build.call("useRates", indices=[where], ailmentThreshold=threshold)["rates"]),
+                                 None) or {}
+                    got = rated.get("ailmentChances") or {}
+                    shock_set = sets.get("Shockwave") or {}
+                    ailments = {"threshold": threshold,
+                                "chance": {a: number(got.get(a)) for a in models.BELL_AILMENT_TYPES.values()},
+                                "lasts": {a: number(got.get(a + "Duration")) for a in models.BELL_AILMENT_TYPES.values()},
+                                "extra": {t: max(0.0, number((shock_set.get("gainAs") or {}).get(t)) - wave)
+                                          for t in models.BELL_AILMENT_TYPES}}
         return models.tempest_bell_model(bells, at_will, builder, impact, wave, duration, texts,
                                          allowed=number(level.get("base_number_of_tempest_bells_allowed")) or 1.0,
-                                         ramp=number(level.get(models.BELL_RAMP_STAT)))  # (MECHB61: quality's ramp)
+                                         ramp=number(level.get(models.BELL_RAMP_STAT)),  # (MECHB61: quality's ramp)
+                                         ailments=ailments)
 
 
     def combo_feed(self, builder: str, share: float) -> tuple[str, float, str] | None:
@@ -9750,7 +9766,17 @@ class Assumptions:
             found = (1 / models.APOCALYPSE_DURATION, found[1] + " (taken as kept up)")
         info = next(s for s in skills if s["name"] == models.APOCALYPSE)
         frequency = number((info.get("levelStats") or {}).get(models.APOCALYPSE_FREQUENCY))
-        mods, notes = models.apocalypse_model(found[0], found[1], frequency, present)
+        crash = None  # (MECHB67: Crash Lightning's pulses and Final Strike, PoB's two sets)
+        lightning = next((s for s in skills if s["name"] == "Crash Lightning" and s.get("group")), None)
+        if lightning is not None:
+            where = next((i for g in self.build.groups() if g["index"] == lightning["group"]
+                          for i, x in enumerate(g.get("skills") or [], 1) if x["name"] == "Crash Lightning"), 0)
+            if where:
+                got = self.build.call("setRates", index=lightning["group"], active=where)
+                sets = {str(x.get("label")): x for x in got.get("sets") or []}
+                crash = (number((sets.get("Crash Lightning") or {}).get("AverageDamage")),
+                         number((sets.get(models.CRASH_FINAL) or {}).get("AverageDamage")), str(got.get("chosen") or ""))
+        mods, notes = models.apocalypse_model(found[0], found[1], frequency, present, crash)
         # The disasters count through Full DPS (MECHB8's engine probe POE2T1012: they sit in Apocalypse's own group, the
         # granted skill's, which PoB leaves out of Full DPS, so their rates alone moved nothing)
         groups = {s["group"] for s in skills if s["name"] in present and not s["disabled"] and s.get("group")}

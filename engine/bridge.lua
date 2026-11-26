@@ -5310,6 +5310,15 @@ function bridge.useRates(args)
 			end
 		end
 		local skill = ok and env and env.player.mainSkill
+		-- (MECHB67, RESEARCH63 R63-3: models.bell_ailment_bonus) args.ailmentThreshold, if given: the enemy's ailment
+		-- threshold for this call (Tempest Bell's own bell_ailment_threshold), a MORE on PoB's EnemyAilmentThreshold
+		-- (CalcOffence 4810: the monster table at the enemy's level x its modifiers), so the chances below are against it
+		if skill and args and args.ailmentThreshold and env.enemyDB and env.enemyLevel then
+			local own = (data.monsterAilmentThresholdTable[env.enemyLevel] or 0) * calcLib.mod(env.enemyDB, nil, "EnemyAilmentThreshold")
+			if own > 0 then
+				env.enemyDB:NewMod("EnemyAilmentThreshold", "MORE", (tonumber(args.ailmentThreshold) / own - 1) * 100, "Bridge threshold")
+			end
+		end
 		if skill and pcall(calcs.perform, env, true) then
 			local output = env.player.output
 			rates[#rates + 1] = {
@@ -5379,6 +5388,24 @@ function bridge.useRates(args)
 			-- (MECHB7, for COVE8: a side skill's own Heavy Stun buildup, hit / crit chance and per-type averages under
 			-- PoB's own output names, models.HEAVY_STUN_GROUP_FIELDS: Practical Magic on a stunning side skill)
 			local entry = rates[#rates]
+			-- (MECHB67) with args.ailmentThreshold: the chance a hit inflicts Shock / Ignite / Chill (on hit x (1 - crit) +
+			-- on crit x crit, as shockChancePerHit) and each one's duration, against that threshold
+			if args and args.ailmentThreshold then
+				local crit = (output.CritChance or 0) / 100
+				local src = (type(output.ShockChanceOnHit) == "number" or not output.MainHand) and output or output.MainHand
+				local chances = { }
+				for _, ailment in ipairs({ "Shock", "Ignite", "Chill" }) do
+					local onHit, onCrit = src[ailment .. "ChanceOnHit"], src[ailment .. "ChanceOnCrit"]
+					if type(onHit) == "number" then
+						chances[ailment] = jsonNumber(onHit * (1 - crit) + (onCrit or onHit) * crit)
+					end
+					local lasts = output[ailment .. "Duration"] or src[ailment .. "Duration"]
+					if type(lasts) == "number" then
+						chances[ailment .. "Duration"] = jsonNumber(lasts)
+					end
+				end
+				entry.ailmentChances = setmetatable(chances, { __jsontype = "object" })
+			end
 			-- (MECH64, conditions.cull_window_scale's other skill) where this skill Culls, its Culling multiplier, hit
 			-- chance, hit DPS and raw thresholds, so a Cull on another skill than the main one is priced at its own hits
 			if type(output.CullMultiplier) == "number" and output.CullMultiplier > 1 then
@@ -5963,6 +5990,22 @@ function bridge.setRates(args)
 					"IceCrystalLife" }) do
 				if type(output[field]) == "number" then
 					entry[field] = jsonNumber(output[field])
+				end
+			end
+		end
+		-- (MECHB67, RESEARCH63 R63-3: models.bell_ailment_bonus) args.gainAs = { label, percent, types }: the named set's
+		-- AverageDamage once more per type with "percent% of Physical as extra <type>" (PoB's SkillPhysicalDamageGainAs,
+		-- CalcOffence 2305), for a skill stat PoB maps to nothing (tempest_bell_physical_damage_%_as_elemental_per_ailment)
+		local gain = args and args.gainAs
+		if gain and entry.AverageDamage and statSet.label == gain.label then
+			entry.gainAs = setmetatable({ }, { __jsontype = "object" })
+			for _, kind in ipairs(gain.types or { }) do
+				local okGain, envGain = pcall(calcs.initEnv, build, "CALCULATOR")
+				if okGain and envGain and envGain.player.mainSkill then
+					envGain.modDB:NewMod("SkillPhysicalDamageGainAs" .. kind, "BASE", tonumber(gain.percent) or 0, "Bridge gain")
+					if pcall(calcs.perform, envGain, true) and type(envGain.player.output.AverageDamage) == "number" then
+						entry.gainAs[kind] = jsonNumber(envGain.player.output.AverageDamage)
+					end
 				end
 			end
 		end

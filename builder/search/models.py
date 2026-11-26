@@ -6647,15 +6647,60 @@ BELL_LIMIT_BASE = 10.0  # (TempestBellPlayer's bell_hit_limit)
 BELL_WAVE_EVERY = 0.3  # s (bell_shockwave_cooldown_ms 300)
 BELL_RAMP_STAT = "tempest_bell_damage_+%_final_per_time_hit"  # (MECHB61: the quality's per-Hit ramp)
 BELL_EXTRA_HITS = re.compile(r"^Tempest Bells are destroyed after an additional (\d+) Hits?$", re.I)
+# (MECHB67; RESEARCH63 R63-3, MEDIUM-HIGH, the manager 20:43, GEM44's question on example build 20) The Ailments on the
+# Bell, "Not counted" above until now: the Shockwave set's tempest_bell_physical_damage_%_as_elemental_per_ailment 30
+# ("Gains 30% of Physical Damage as Extra Damage of each Type matching an Elemental Ailment on the Bell"; PoB maps it to
+# nothing: no statMap on the Shockwave set, no SkillStatMap entry) and its bell_ailment_threshold (6,357 at gem level 20,
+# about 11x below a boss's). The Bell takes all five Elemental Ailments from your hits (R63-3); a type counts once: Fire
+# (Ignite), Cold (Chill / Freeze), Lightning (Shock / Electrocute), +90% at most. Counted: the Strikes that hit the Bell
+# (the same ones that make the shockwaves) inflict Ignite / Chill / Shock at PoB's own chances for the builder rated
+# against the Bell's threshold (bridge useRates ailmentThreshold: a MORE on EnemyAilmentThreshold), each lasting its PoB
+# duration for the builder; the extra damage of each type is PoB's Shockwave AverageDamage with "30% of Physical as extra
+# <type>" added (bridge setRates gainAs: SkillPhysicalDamageGainAs, so the build's modifiers, crits and the boss's
+# resistances are PoB's) less the plain one. The k-th shockwave of a Bell has a type when one of the k - 1 earlier Hits
+# on it inflicted it within that ailment's duration (the NEXT hit after it lands: R63-3's headline); the applying Hit's
+# own shockwave counting too is a row (UNVERIFIED). Freeze / Electrocute (buildup) aren't read: a type only they'd add is
+# left out (the lower reading).
+BELL_AILMENT_STAT, BELL_THRESHOLD_STAT = "tempest_bell_physical_damage_%_as_elemental_per_ailment", "bell_ailment_threshold"
+BELL_AILMENT_TYPES = {"Fire": "Ignite", "Cold": "Chill", "Lightning": "Shock"}
+
+
+def bell_ailment_bonus(ailments: dict | None, n: float, gap: float) -> tuple[float, float, str]:
+    """(extra AverageDamage a shockwave, the row's with the applying Hit's own shockwave counted, the words) from the
+    Ailments on the Bell (see above). ailments: {"threshold", "chance": {ailment: % a Hit}, "lasts": {ailment: s},
+    "extra": {type: added AverageDamage a shockwave with the type present}}; n: shockwaves a Bell; gap: seconds between
+    Hits on it."""
+    if not ailments or n <= 0:
+        return 0.0, 0.0, ""
+    count = max(1, int(round(n)))
+    head = row = 0.0
+    parts = []
+    for kind, ailment in BELL_AILMENT_TYPES.items():
+        extra = max(float((ailments.get("extra") or {}).get(kind) or 0.0), 0.0)
+        c = min(max(float((ailments.get("chance") or {}).get(ailment) or 0.0), 0.0), 100.0) / 100
+        if extra <= 0 or c <= 0:
+            continue
+        lasts = float((ailments.get("lasts") or {}).get(ailment) or 0.0)
+        window = (lasts / gap) if gap > 0 and lasts > 0 else float(count)
+
+        def share(own: int) -> float:
+            return sum(1 - (1 - c) ** min(k - 1 + own, window) for k in range(1, count + 1)) / count
+        head, row = head + share(0) * extra, row + share(1) * extra
+        parts.append(f"{kind} ({ailment} {c:.0%} a Hit, {lasts:.2f} s): +{extra:.1f} on {share(0):.0%} of them")
+    words = (f"the Ailments your Strikes put on the Bell (its threshold {float(ailments.get('threshold') or 0):,.0f}; "
+             "R63-3): " + ("; ".join(parts) if parts else "none of Ignite / Chill / Shock from the builder"))
+    return head, row, words
 
 
 def tempest_bell_model(bells: float, at_will: float, builder: tuple[str, float, float, bool] | None,
                        impact: float, wave: float, duration: float, texts: list[str], limit: float = 0.0,
-                       allowed: float = 1.0, ramp: float = 0.0) -> tuple[list[dict], list[dict]]:
+                       allowed: float = 1.0, ramp: float = 0.0, ailments: dict | None = None
+                       ) -> tuple[list[dict], list[dict]]:
     """Tempest Bell's shockwaves on the boss (see above). `bells`: Bells a second (the Combo cut); `at_will`: PoB's
     Speed; `builder`: (name, uses a second, HitChance %, has the Area type) of the Combo builder; `impact` / `wave`: the
     Impact's and the Shockwave's AverageDamage; `duration`: the Bell's (s); `limit`: its bell_hit_limit (0: the base 10);
-    `allowed`: the gem's Bell limit (the all-Bells row only); `ramp`: its % more a Hit the Bell has taken (quality)."""
+    `allowed`: the gem's Bell limit (the all-Bells row only); `ramp`: its % more a Hit the Bell has taken (quality);
+    `ailments`: bell_ailment_bonus's input (MECHB67)."""
     label = f"{TEMPEST_BELL}: its shockwaves from your Strikes on the Bell*"
     if bells <= 0 or impact <= 0 or wave <= 0 or builder is None:
         return [], [{"label": label, "value": "0", "confidence": "LOW",
@@ -6671,6 +6716,9 @@ def tempest_bell_model(bells: float, at_will: float, builder: tuple[str, float, 
     waves = min(fed, bells * per_bell)
     aimed = min(landed, bells * per_bell)  # (the row: Strikes aimed at the Bell; what they'd cost in Combo not read)
     n = waves / bells
+    plain = wave
+    add, add_row, ail_words = bell_ailment_bonus(ailments, n, 1 / fed if fed > 0 else 0.0)  # (MECHB67: R63-3)
+    wave = wave + add
     lift = 1 + max(ramp, 0.0) / 100 * max(n - 1, 0.0) / 2  # (MECHB61: the quality's ramp, the lower reading)
     gain = waves * wave * lift / (bells * impact)
     factor = 1 + gain
@@ -6683,14 +6731,17 @@ def tempest_bell_model(bells: float, at_will: float, builder: tuple[str, float, 
              + f"; a Bell makes at most min({cap:g} Hits"
              + (f" (10 + {extra:g} from your 'destroyed after an additional' lines)" if extra else "")
              + f", {duration:.2f} s / {BELL_WAVE_EVERY:g} s) = {per_bell:.3g} shockwaves: {waves:.2f} shockwaves a "
-             f"second x {wave:.1f} (PoB's Shockwave set)"
+             f"second x {wave:.1f} (PoB's Shockwave set's {plain:.1f}"
+             + (f", plus {add:.1f} from {ail_words}; the applying Hit's own shockwave counted too (UNVERIFIED) "
+                f"+{add_row:.1f}, x{1 + waves * (plain + add_row) * lift / (bells * impact):.3f}" if ail_words else "")
+             + ")"
              + (f" x{lift:.3f} (the quality's {ramp:g}% more a Hit the Bell has taken, over its {n:.2f} shockwaves; "
                 f"counting the Hit that makes it, x{lift + ramp / 100 * (1 if n > 0 else 0):.3f})" if ramp > 0 else "")
              + f" beside the Impact's {bells:.3f} x {impact:.1f}: x{factor:.3f}. "
              f"Rows: Strikes don't reach the Bell x1; every Strike aimed at the Bell x{1 + aimed * wave / (bells * impact):.3f} "
              f"(their Combo lost not counted); one Strike hitting every Bell alive ({alive:.2f} of at most {allowed:g}; "
-             f"R55-2, LOW: one untested guide) x{1 + every * wave / (bells * impact):.3f}. Not counted: Ailments on "
-             "the Bell, other skills' hits on it")
+             f"R55-2, LOW: one untested guide) x{1 + every * wave / (bells * impact):.3f}. Not counted: other "
+             "skills' hits on the Bell" + ("" if ail_words else ", the Ailments on it (none read)"))
     note = {"label": label, "value": f"x{factor:.3f}", "confidence": "LOW", "basis": basis,
             "play": (f"Drop the Bell at the boss and keep Striking with {name} beside it: each Strike that hits the Bell "
                      f"makes a shockwave (up to {cap:g} a Bell)" if waves > 0 else "")}
@@ -23593,31 +23644,58 @@ def coursing_current_note(skills: list[Skill]) -> list[dict]:
 #     counted, since one rate covers both sets and the gem search switches between them).
 # Each sub-skill gets that rate as its trigger rate, so PoB's own average hit x the rate is its DPS (Full DPS sums them;
 # a sub-skill picked as the main skill counts alone).
+# (MECHB67; GEM44 via the manager 20:06: an UNDERCOUNT) Crash Lightning now counts its whole trigger: 3 pulses of its
+# first set (unleash_static_field_number_of_pluses 3, "a rapid buildup of pulsing Lightning damage in an area that
+# culminates in a powerful final Lightning strike": ApocalypseLightningPlayer, PoB other.lua 1270 / the game's text) and
+# 1 hit of its "Final Strike" set (unleash_static_field_time_till_final_strike_ms 3000; base effectiveness 3 against the
+# pulses' 1.05), both PoB's own average hits (bridge setRates on its group). One trigger rate covers both sets, so the
+# hits a trigger are written in the calculated set's units: pulses calculated, 3 + Final / pulse; Final Strike
+# calculated, 1 + 3 pulse / Final. All of them on the boss: it targets the boss and its 1.6 m area stays where it was
+# cast (MEDIUM: a boss that leaves the area in the 3 s before the Final Strike loses it, a row). Sets unread: 1 (as before).
 APOCALYPSE = "Apocalypse"
 APOCALYPSE_SUBS = {"Hailstorm": 9, "Meteor": 1, "Crash Lightning": 1}  # hits on the boss per trigger
 APOCALYPSE_DURATION = 12.0
 APOCALYPSE_INTERVAL = 0.75
 APOCALYPSE_FREQUENCY = "unleash_the_elements_trigger_frequency_+%"
+CRASH_PULSES, CRASH_FINAL = 3.0, "Final Strike"  # (unleash_static_field_number_of_pluses; the second set's label)
+
+
+def crash_lightning_hits(pulse: float, final: float, chosen: str) -> tuple[float, float, str]:
+    """(hits a Crash Lightning trigger in the calculated set's units, the same without the Final Strike (the row), the
+    words) from PoB's two sets' average hits (see above); (1, 1, "") when either is unread."""
+    if pulse <= 0 or final <= 0:
+        return 1.0, 1.0, ""
+    if chosen == CRASH_FINAL:
+        hits, row = 1 + CRASH_PULSES * pulse / final, CRASH_PULSES * pulse / final
+    else:
+        hits, row = CRASH_PULSES + final / pulse, CRASH_PULSES
+    return hits, row, (f"Crash Lightning: {CRASH_PULSES:g} pulses of {pulse:,.0f} and a Final Strike of {final:,.0f} a "
+                       f"trigger (PoB's two sets; {chosen or 'the pulses'} calculated: {hits:.2f} of its hits a trigger; "
+                       f"the boss out of the area before the Final Strike, a row: {row:.2f})")
 
 
 def apocalypse_model(uses: float, basis: str, frequency: float = 0.0,
-                     present: set[str] | frozenset[str] = frozenset(APOCALYPSE_SUBS)) -> tuple[list[dict], list[dict]]:
+                     present: set[str] | frozenset[str] = frozenset(APOCALYPSE_SUBS),
+                     crash: tuple[float, float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """Trigger rates for Apocalypse's sub-skills from its uses per second (`uses`, glory_uses; `basis` says how) and its
-    trigger frequency increase in % (quality)."""
+    trigger frequency increase in % (quality). `crash`: crash_lightning_hits' input (MECHB67)."""
     share = min(1.0, max(uses, 0.0) * APOCALYPSE_DURATION)
     per_second = (1 + frequency / 100) / APOCALYPSE_INTERVAL
     each = share * per_second / len(APOCALYPSE_SUBS)
     mods: list[dict] = []
+    crash_hits, _, crash_words = crash_lightning_hits(*(crash or (0.0, 0.0, "")))
     for name, hits in APOCALYPSE_SUBS.items():
         if name in present:
-            mods += trigger_rate(name, each * hits)
+            mods += trigger_rate(name, each * (crash_hits if name == "Crash Lightning" else hits))
     notes = [{"label": "Apocalypse's disasters per second", "value": round(share * per_second, 3),
               "basis": (f"the buff is up {share:.0%} of the fight ({uses:.3f} uses/s x {APOCALYPSE_DURATION:g} s; {basis}); "
                         f"one disaster every {APOCALYPSE_INTERVAL / (1 + frequency / 100):.2f} s while it's up "
                         f"({frequency:g}% increased frequency); a third each Hailstorm, Meteor, Crash Lightning "
                         "(MEDIUM: no rule says which fires); Hailstorm's 9 bolts all counted on the boss (LOW: where they "
-                        "land is UNVERIFIED); Crash Lightning counts one hit of the set calculated (an undercount: its "
-                        "other pulses and its Final Strike aren't counted); increased duration isn't read (an undercount)"),
+                        "land is UNVERIFIED); "
+                        + (crash_words + " (MEDIUM)" if crash_words else "Crash Lightning counts one hit of the set "
+                           "calculated (its two sets unread: an undercount)")
+                        + "; increased duration isn't read (an undercount)"),
               "play": "Use Apocalypse whenever you have 100 Glory; its disasters fire by themselves while it lasts.",
               "confidence": "LOW"}]
     return mods, notes
@@ -27628,24 +27706,52 @@ def spectral_volley_model(main: Skill | None, supports: list[str], stats: dict,
 # hazards_on_boss), so each goes off as it arms, t = 0: the headline x1 (no flat wait guessed). A row for the play
 # "lay shards ahead of where the boss will stand": x(1 + 4 t / 2) on the shards' hits (t 1 s, 2 s), the boss's path the
 # fight's (LOW).
+# (MECHB67; RESEARCH61 R61-11, research/ice-shards-armed-bonus-r61.md, the manager 20:06: an OVERCOUNT CHECK.) R61-11:
+# the full 400% comes 2 s after arming, 3.5 s after the shard lands (HIGH; ice_shards.csd "{2} seconds after arming");
+# an armed shard explodes when an enemy steps on it (0.8 m detect, 2.5 m explosion); a shard under a standing boss goes
+# off at arming with ~0 bonus (MEDIUM-HIGH); a shard nobody steps on never explodes (R61-11, checked there: the five
+# permafrost_shard_* stats and hazard; no duration-end explosion in the stat set or the skill text). Checked here, no
+# overcount: (a) the headline gives no bonus (x1 above); (b) PoB counts ONE shard per attack, each set off: Ice Shards'
+# skillTypes hold no Barrageable, so CalcOffence.lua 962's barrage multiplier (extra projectiles as extra hits) never
+# applies (checked: act_str.lua IceShardsPlayer skillTypes; SkillStatMap projectiles_crossbow_barrage only sets
+# SequentialProjectiles), so no shard landing beside the boss is counted; (c) hazard_early_model leaves the shards alone
+# (1.5 s arming). Rows refined: (1) the boss's movement, from the preset's moving ceiling (bosses.moving_ceiling, an
+# upper bound, LOW): while it dashes it leaves the shards that are still arming under its old spot; whether it later
+# walks back onto them (the bonus) or never (lost) the preset doesn't say (no boss-path data: 0 in the headline, both
+# readings rows); (2) the 16-shard limit (permafrost_shard_limit): under a standing boss a shard lives 1.5 s, so more
+# than 16 / 1.5 = 10.7 attacks a second would replace shards before they arm (if the oldest is replaced unexploded:
+# UNVERIFIED, R61-11), a row with x(10.7 / rate) on the shards when the build's rate passes it.
 ICE_SHARDS, ICE_SHARDS_MORE, ICE_SHARDS_RAMP = "Ice Shards", 400.0, 2.0
+ICE_SHARDS_ARM, ICE_SHARDS_LIMIT = 1.5, 16.0  # seconds (permafrost_shard_arming_time_ms), shards (permafrost_shard_limit)
 
 
-def ice_shards_note(main: Skill | None) -> list[dict]:
-    """The armed bonus's play rows for Ice Shards as the main skill (see above); the headline unchanged."""
+def ice_shards_note(main: Skill | None, rate: float = 0.0, moving: tuple[float, str] | None = None) -> list[dict]:
+    """The armed bonus's play rows for Ice Shards as the main skill (see above); the headline unchanged. rate: the
+    build's attacks a second (PoB's Speed, one shard each); moving: bosses.moving_ceiling's (share, basis)."""
     if main is None or main.name != ICE_SHARDS:
         return []
 
     def more(t: float) -> float:
         return 1 + ICE_SHARDS_MORE / 100 * min(1.0, t / ICE_SHARDS_RAMP)
+    rows = [f"laid ahead of the boss and stepped on t s after arming: t 1 s x{more(1):.1f}, t 2 s x{more(2):.1f} (3.5 s "
+            f"after landing) on the shards' hits"]
+    if moving is not None and moving[0] > 0:
+        rows.append(f"the boss moving ({moving[1]}): shards still arming when it dashes stay behind; walked onto "
+                    f"later they explode with up to x{more(2):.1f}, never walked onto they never explode (x0 on those); "
+                    "the boss's path is in no data (0 in the headline)")
+    cap = ICE_SHARDS_LIMIT / ICE_SHARDS_ARM
+    if rate > cap:
+        rows.append(f"the {ICE_SHARDS_LIMIT:g}-shard limit: {rate:.2f} attacks a second lay shards faster than "
+                    f"{cap:.1f} a second can arm under a standing boss ({ICE_SHARDS_ARM:g} s each); if the oldest is "
+                    f"replaced unexploded (UNVERIFIED, R61-11): x{cap / rate:.3f} on the shards' hits")
     return [{"label": f"{main.name}: shards' armed bonus (0 at the boss's feet)*", "value": "x1.000",
              "confidence": "LOW",
              "basis": (f"'Shards deal up to {ICE_SHARDS_MORE:g}% more damage {ICE_SHARDS_RAMP:g} seconds after arming', "
-                       "gained smoothly (patch 0.3.0; linear: RESEARCH41 R41-13, MEDIUM); PoB reads none of it. The "
-                       "build fires its shards at the boss, so each goes off as it arms: no bonus counted. Rows (laid "
-                       f"ahead of the boss, set off t s after arming): t 1 s x{more(1):.1f}, t 2 s x{more(2):.1f} on the "
-                       "shards' hits"),
-             "play": "Lay shards where the boss will walk 2 s before it gets there: up to 5x their damage."}]
+                       "gained smoothly (patch 0.3.0; linear: RESEARCH41 R41-13, MEDIUM; the timing HIGH: R61-11); PoB "
+                       "reads none of it. The build fires its shards at the boss, so each goes off as it arms (R61-11, "
+                       "MEDIUM-HIGH): no bonus counted; a shard nobody steps on never explodes, and PoB counts one shard "
+                       "an attack, all under the boss. Rows: " + "; ".join(rows)),
+             "play": "Lay shards where the boss will walk 3.5 s before it gets there: up to 5x their damage."}]
 
 
 # Align Fate (MECHB51; PLANS7 gs-align-fate.md; RESEARCH41 R41-9). "While active, visages of yourself from alternate
