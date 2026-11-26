@@ -98,8 +98,8 @@ def test_the_result_carries_why_items():
 
 
 def test_the_ascendancy_unlock_trial_runs_only_behind_its_switch(engine, monkeypatch):
-    """(the manager, 23 Nov 15:45) POE2_SEARCH_ASCEND_UNLOCK: OFF (the default) never calls unlock_trial; ON reaches it on
-    an Oracle build, whose The Unseen Path unlocks the Oracle-only passives."""
+    """(the manager, 23 Nov 15:45; ON by default since 26 Nov 04:50) POE2_SEARCH_ASCEND_UNLOCK=0 never calls
+    unlock_trial; ON (the default) reaches it on an Oracle build, whose The Unseen Path unlocks the Oracle-only passives."""
     from builder import clock
     from builder.request.schema import BuildRequest
     from builder.search.context import make_payload
@@ -114,14 +114,15 @@ def test_the_ascendancy_unlock_trial_runs_only_behind_its_switch(engine, monkeyp
     calls = []
     monkeypatch.setattr(Tree, "unlock_trial", lambda self, ids, *a: calls.append(ids) or False)
 
-    monkeypatch.delenv(Tree.SWITCH_UNLOCK, raising=False)
+    monkeypatch.setenv(Tree.SWITCH_UNLOCK, "0")
     assert Tree.unlock_enabled() is False
     snap = search.build.snapshot()
     search.tree.ascendancy_round(clock.now() + 600)
     assert calls == []
 
     search.build.restore(snap)
-    monkeypatch.setenv(Tree.SWITCH_UNLOCK, "1")
+    monkeypatch.delenv(Tree.SWITCH_UNLOCK, raising=False)
+    assert Tree.unlock_enabled() is True
     search.tree.ascendancy_round(clock.now() + 600)
     assert calls, "the Oracle build offers no unlocking notable"
 

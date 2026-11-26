@@ -585,13 +585,15 @@ class Tree:
         it: the manager, 22 Nov). Read at call time, so a probe or a gate arm can set it per run."""
         return os.environ.get(cls.SWITCH_JOINT, "0") == "1"
 
-    SWITCH_UNLOCK = "POE2_SEARCH_ASCEND_UNLOCK"  # "1": ascendancy_round runs unlock_trial (OFF by default)
+    SWITCH_UNLOCK = "POE2_SEARCH_ASCEND_UNLOCK"  # ascendancy_round runs unlock_trial; "0" turns it off (ON by default)
 
     @classmethod
     def unlock_enabled(cls) -> bool:
-        """POE2_SEARCH_ASCEND_UNLOCK=1 turns the ascendancy unlock trials on (OFF until a gate set of at least 3 seeds per
-        arm measures them higher: the manager, 23 Nov 15:45). Read at call time, so a gate arm can set it per run."""
-        return os.environ.get(cls.SWITCH_UNLOCK, "0") == "1"
+        """The ascendancy unlock trials, ON by default since SEARCH41 (the manager, 26 Nov 04:50, on SEARCH40's gate set:
+        2b75d --cpu 600 s on ab930ee8, 3 seeds an arm, ON 154,478 (PASS) / 65,105 / 23,787 vs OFF 77,332 / 29,584 / 21,797,
+        median x2.20, ON higher on every seed pair); POE2_SEARCH_ASCEND_UNLOCK=0 turns them off. Read at call time, so a
+        gate arm can set it per run."""
+        return os.environ.get(cls.SWITCH_UNLOCK, "1") != "0"
 
     JOINT_GEAR_SHARE = 0.6  # of a joint_regrow's time its gear round may take (LOW, a search-effort setting)
 
