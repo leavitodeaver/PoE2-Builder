@@ -11684,15 +11684,24 @@ def shield_wall_model(main: Skill | None, scored: str | None, sets: list[dict], 
 # fuse, with "fuse unchanged" (the raised Limit / the full duration) a row. Not counted:
 # patches must not overlap, so the cap needs room to place them beside the boss, each Aftershock reaching it (LOW; a row
 # at one spot, 1 / duration); the Impact's own hit beside the Aftershock (PoB scores one set: an UNDERCOUNT).
+# (GEM47; MECHD9's survey: "Earthquake / Jagged Ground fuse ~1.5 m, 4 s delay", 0.60 against the default boss; the
+# manager's reader rule, 26 Nov 06:30) the Aftershock erupts where its patch lies, a fuse after the slam placed it on the
+# boss: it hits the boss with the chance it is still inside the Aftershock's area then, bosses.still_there(R, fuse) (R:
+# PoB's Aftershock set radius, setRates' AreaOfEffectRadius; EARTHQUAKE_THERE_RADIUS only without it). Rows: the boss
+# standing still (before), every move its mean length.
+EARTHQUAKE_THERE_RADIUS = 1.5  # (metres: MECHD9's survey estimate, used only without PoB's radius)
 EARTHQUAKE, EARTHQUAKE_SET = "Earthquake", "Aftershock"
 EARTHQUAKE_ENTRY = "model-gem38-earthquake-patch-limit"
 
 
 def earthquake_limit_model(main: Skill | None, scored: str | None, speed: float, limit: float, seconds: float,
                            short_seconds: float | None = None,
-                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                           forbidden: set[str] = frozenset(),
+                           there: tuple[float, float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """Earthquake's Aftershock set held to the patches' Limit / fuse (see above). `short_seconds`: the fuse with
-    Overabundance's less duration (the headline, R56-6); `seconds` without it (the row)."""
+    Overabundance's less duration (the headline, R56-6); `seconds` without it (the row). (GEM47) `there`: (the chance
+    the boss is still in an Aftershock's area when it erupts, the fixed-move row's, how): bosses.still_there at the
+    fuse (EARTHQUAKE_THERE's note)."""
     if main is None or main.name != EARTHQUAKE or EARTHQUAKE_ENTRY in forbidden or scored != EARTHQUAKE_SET:
         return [], []
     if speed <= 0 or limit <= 0 or seconds <= 0:
@@ -11700,7 +11709,10 @@ def earthquake_limit_model(main: Skill | None, scored: str | None, speed: float,
     shorter = short_seconds if short_seconds and short_seconds < seconds else None
     fuse = shorter or seconds
     cap = limit / fuse
-    factor = min(1.0, cap / speed)
+    capped = min(1.0, cap / speed)
+    stay, stay_fixed, stay_how = there if there is not None else (1.0, 1.0, "")
+    stay = min(1.0, max(0.0, number(stay)))
+    factor = capped * stay
     if factor >= 1.0 and shorter is None:
         return [], []
     mods = ([with_hit_cut(raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=EARTHQUAKE_ENTRY), factor)]
@@ -11713,7 +11725,11 @@ def earthquake_limit_model(main: Skill | None, scored: str | None, speed: float,
                   + (f" (Overabundance's less duration on the fuse: R56-6, MEDIUM). If the fuse stays {seconds:g} s: "
                      f"x{min(1.0, limit / seconds / speed):.3f}" if shorter else "")
                   + f". All at one spot (patches can't overlap): {1 / fuse:.2f} a second, "
-                  f"x{min(1.0, 1 / fuse / speed):.3f}"),
+                  f"x{min(1.0, 1 / fuse / speed):.3f}"
+                  + (f". Each erupts {fuse:g} s after it was placed on the boss, so it hits only if the boss is still in "
+                     f"its area: {stay:.0%} ({stay_how}; GEM47, MECHD9's reader rule, LOW): x{capped:.3f} x {stay:.2f}. "
+                     f"Rows: the boss standing still x{capped:.3f}; every move its mean length "
+                     f"x{capped * stay_fixed:.3f}" if there is not None else "")),
         "play": (f"Place Earthquake's patches side by side at the boss: a patch can't go on an existing one, and only "
                  f"{limit:g} can be up. This build: {min(speed, cap):.2f} Aftershocks a second; attacking faster than "
                  f"{cap:.2f} a second adds no Aftershocks.")}]

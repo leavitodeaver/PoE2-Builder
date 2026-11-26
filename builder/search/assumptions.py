@@ -6074,8 +6074,19 @@ class Assumptions:
             hit_cut(build, sw_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
         if main is not None and group and main.name == models.EARTHQUAKE:  # (GEM38: Aftershocks capped by its patches)
             eq_limit, eq_seconds, eq_short = self.earthquake_patches(group, texts)
+            eq_there = None  # (GEM47: MECHD9's reader rule, the boss walks off before the Aftershock erupts)
+            if main.stat_set == models.EARTHQUAKE_SET:
+                from builder.search import bosses
+                eq_sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
+                eq_radius = number(next((x for x in eq_sets if x.get("label") == models.EARTHQUAKE_SET), {}).get(
+                    "AreaOfEffectRadius")) / 10 or models.EARTHQUAKE_THERE_RADIUS
+                eq_fuse = eq_short if eq_short and eq_short < eq_seconds else eq_seconds
+                if eq_fuse > 0:
+                    there, there_how = bosses.still_there(stats, eq_radius, eq_fuse)
+                    there_fixed, _ = bosses.still_there(stats, eq_radius, eq_fuse, moves="fixed")
+                    eq_there = (there, there_fixed, f"its {eq_radius:.1f} m area: {there_how}")
             eq_mods, eq_notes = models.earthquake_limit_model(main, main.stat_set, number(stats.get("Speed")), eq_limit,
-                                                              eq_seconds, eq_short, forbidden)
+                                                              eq_seconds, eq_short, forbidden, there=eq_there)
             hand_mods, hand_notes = hand_mods + eq_mods, hand_notes + eq_notes
             hand_notes += models.earthquake_jagged_note(main, main.stat_set)  # (GEM45, R63-1: the bridge's mute)
             hit_cut(build, eq_mods, main.name)

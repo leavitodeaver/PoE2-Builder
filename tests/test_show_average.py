@@ -48,7 +48,9 @@ def engine():
 
 
 def _build(engine, skill: str):
-    payload = make_payload(BuildRequest(main_skill=skill))
+    # (GEM47: Earthquake's own model, which now cuts the Aftershock to the share that still finds the boss, is left
+    # out, so this test keeps reading PoB's per-use -> per-second conversion alone, as before)
+    payload = make_payload(BuildRequest(main_skill=skill, forbid_ledger_entries=[models.EARTHQUAKE_ENTRY]))
     ctx = Context(payload)
     skeleton = enumerate_skeletons(ctx, [skill])[0][0]
     search = Search(engine, None, payload, skeleton.as_dict(), 0)

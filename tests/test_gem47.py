@@ -63,3 +63,11 @@ def test_cloud_stay_radius_is_a_fallback_only():
     # (GEM47: the cloud's radius comes from PoB's Poison Cloud set; 1.5 m only without it)
     assert models.CLOUD_STAY_RADIUS == 1.5
     assert models.gas_cloud_poisons(4.0 * 0.8) < models.gas_cloud_poisons(4.0)
+
+
+def test_earthquakes_aftershock_needs_the_boss_still_there_when_it_erupts():
+    skill = models.Skill("Earthquake", group=1, attack=True)
+    still, _ = models.earthquake_limit_model(skill, "Aftershock", 0.5, 6, 4.0)  # (cap 1.5 a second: no cut)
+    moved, notes = models.earthquake_limit_model(skill, "Aftershock", 0.5, 6, 4.0, there=(0.7, 0.9, "the boss moves"))
+    assert still == [] and abs(moved[0]["value"] - (-30.0)) < 1e-6
+    assert "standing still" in notes[0]["basis"]
