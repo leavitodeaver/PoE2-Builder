@@ -13179,6 +13179,197 @@ def _mirror_breaker(dive: dict, player_dps: float, raven_dps: float, drive_speed
                      f"+{dps:,.1f} DPS; without it +0.")}
     return dps, ([added_input("MirrorBreaker", dps)] if dps > 0 else []), [note]
 
+
+
+# The Skeletal Sniper's Gas Arrow (MECHB66; MECH110's lead on example build 6, an UNDERCOUNT: PoB scores a minion on its
+# first skill only (CalcActiveSkill 1195-1203), the Sniper's Basic Attack, so its Command's arrow and cloud were never
+# counted). The game (26650308): GasShotSkeletonSniperMinion, Cooldown 6000 ms, 1 stored use, CastTime 1000 ms, three
+# sets: Impact (the arrow's area hit), GasShotCloudSkeletonSniperMinion (the Poison Cloud: base_skill_effect_duration
+# 8000, display_statset_no_hit_damage, display_skill_poisons_without_hit: its damage is its Poison, no hit) and
+# GasShotCloudExplodeSkeletonSniperMinion (the Explosion: 100% Physical to Fire). ActiveSkills: "Rain an arrow down from
+# above, creating a cloud of flammable poisonous gas where it lands. The cloud will detonate if hit by a Detonator skill or
+# if an Ignited enemy touches it". The player's Command (CommandSkeletalSniperPlayer, CastTime 1250 ms, skill_is_command,
+# base_deal_no_damage) shares its CooldownGroup 67. KeywordPopups Command: "use the corresponding Command skill, which will
+# cause one of your Minions to carry out the Command" (HIGH: one arrow a press, whatever the Sniper count). Patch 0.3.0:
+# "Command: Gas Arrow cooldown is now 6 seconds". Counted, as an added source (added_input):
+#   - one use per its cooldown (PoB's minion Cooldown: the minion's own Cooldown Recovery in it), at least the Command's
+#     1.25 s cast: a press under the button cap (ITEM_PRESSES);
+#   - the Impact hit each use (PoB's minion with the skill chosen, set 1);
+#   - the cloud's Poison: one Poison of the Sniper's held on the boss while a cloud lives plus the Poison's duration
+#     (PoB's PoisonStacksMax: the Sniper's limit, 1 by default, MECH109 / R60-12), one application every 2 s while the
+#     boss stands in it (the player's Gas Arrow reading, GAS_POISON_EVERY: MEDIUM-LOW for the minion's cloud, which carries
+#     the same display_fake_attack_hit_poison stat); a cloud's life its set's Duration plus Persistent Ground's
+#     ground_effect_duration_+% x its 8 s base (PoB's duration doesn't hold that stat: MECH110's ded55b7e reading); the
+#     boss stays in the cloud (MEDIUM, as the player's Gas Arrow);
+#   - the Explosion x the share of clouds set off (an Ignited boss or a Detonator while a cloud lives,
+#     Assumptions.sniper_gas_arrow), 0 when the Sniper's group holds ground_effects_cannot_trigger (Persistent Ground II /
+#     III: "Ground Surfaces created by Supported Skills cannot be destroyed except by expiring"; MECH110's ded55b7e,
+#     MEDIUM-HIGH): a row shows the explosions without it; an exploded cloud ends at a uniform moment of its life (LOW);
+#   - less the main skill's time for the Command's 1.25 s cast (0 when a minion skill is the main skill: the player's
+#     action doesn't stop minions) and the Sniper's own Basic Attack for the arrow's action (1 / its CastRate) where the
+#     score counts the Sniper; a net loss isn't pressed (0).
+SNIPER = "Skeletal Sniper"
+SNIPER_GAS_ARROW = "GasShotSkeletonSniperMinion"
+SNIPER_COMMAND_CAST = 1.25  # s (CommandSkeletalSniperPlayer CastTime 1250)
+SNIPER_COOLDOWN = 6.0  # s (GrantedEffectsPerLevel Cooldown 6000; patch 0.3.0)
+SNIPER_CLOUD_SECONDS = 8.0  # s (GasShotCloudSkeletonSniperMinion base_skill_effect_duration 8000)
+GROUND_NO_TRIGGER = "ground_effects_cannot_trigger"  # (Persistent Ground II / III; the stat MECH110's reader reads)
+GROUND_DURATION = "ground_effect_duration_+%"  # (Persistent Ground I-III: 50)
+
+
+def sniper_cloud_poison(cloud: dict, alive: float, every: float) -> tuple[float, float, float]:
+    """(Poison DPS, Poisons held on the boss on average, one Poison's DPS) from the Sniper's clouds: one cloud every
+    `every` s living `alive` s on the boss (see above). PoB's PoisonDPS is one Poison's DPS x its stacks (its stack
+    potential x limit, under the limit), so one Poison's DPS = PoisonDPS / that."""
+    limit = number(cloud.get("PoisonStacksMax")) or 1.0
+    potential = number(cloud.get("PoisonStackPotential"))
+    pdps = number(cloud.get("PoisonDPS"))
+    stacks = min(potential * limit, limit) if potential > 0 else 1.0
+    one = pdps / stacks if stacks > 0 else pdps
+    seconds = number(cloud.get("PoisonDuration")) or 2.0
+    if every <= 0 or one <= 0:
+        return 0.0, 0.0, one
+    if limit <= 1:  # (one at a time: held while a cloud keeps re-applying it, and its duration after)
+        held = min(1.0, (max(alive, 0.0) * min(1.0, seconds / GAS_POISON_EVERY) + seconds) / every)
+    else:
+        held = min(limit, gas_cloud_poisons(alive) * seconds / every)
+    return one * held, held, one
+
+
+def sniper_gas_arrow_model(impact: dict, cloud: dict, blast: dict, explode: float, explode_how: str, no_trigger: bool,
+                           duration_inc: float, player_dps: float, sniper_dps: float
+                           ) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for the Skeletal Sniper's Gas Arrow Command (see above). `impact` / `cloud` / `blast`:
+    the bridge's minionSkillHit for its sets 1 / 2 / 3; `explode` (how): the share of clouds an Ignited boss or a
+    Detonator sets off; `no_trigger`: its group holds ground_effects_cannot_trigger; `duration_inc`: its supports'
+    ground_effect_duration_+%; `player_dps`: the main skill's DPS a press costs time from (0 for a minion main);
+    `sniper_dps`: the Sniper's own counted DPS (0 when the score doesn't count it)."""
+    label = "Gas Arrow (the Skeletal Sniper's Command, added to the boss DPS)"
+    hit = number(impact.get("AverageDamage")) or number(impact.get("AverageHit"))
+    if hit <= 0 and number(cloud.get("PoisonDPS")) <= 0:
+        return 0.0, [], [{"label": label, "value": 0, "confidence": "LOW",
+                          "basis": "PoB gave no hit or Poison for the Skeletal Sniper with Gas Arrow chosen: not counted (0)"}]
+    every = max(number(impact.get("Cooldown")) or SNIPER_COOLDOWN, SNIPER_COMMAND_CAST)
+    life = (number(cloud.get("Duration")) or SNIPER_CLOUD_SECONDS) + SNIPER_CLOUD_SECONDS * max(duration_inc, 0.0) / 100
+    open_share = min(1.0, max(0.0, explode))
+    share = 0.0 if no_trigger else open_share
+    blast_hit = number(blast.get("AverageDamage")) or number(blast.get("AverageHit"))
+
+    def total(sh: float) -> tuple[float, float, float, float, float]:
+        alive = life * (1.0 - sh / 2)
+        poison, held, one = sniper_cloud_poison(cloud, alive, every)
+        boom = blast_hit * sh / every
+        return hit / every + poison + boom, poison, boom, held, one
+
+    gross, poison, boom, held, one = total(share)
+    acting = 1.0 / number(impact.get("CastRate")) if number(impact.get("CastRate")) > 0 else 1.0
+    lost = player_dps * SNIPER_COMMAND_CAST / every + sniper_dps * min(acting / every, 1.0)
+    dps = max(gross - lost, 0.0)
+    row = ""
+    if no_trigger and open_share > 0 and blast_hit > 0:
+        other = max(total(open_share)[0] - lost, 0.0)
+        row = (f"; without Persistent Ground's protection {open_share:.0%} of clouds would explode ({explode_how}): "
+               f"{other:,.1f} DPS")
+    basis = (f"one arrow a Command press (KeywordPopups Command: one minion carries it out), every {every:.3g} s (PoB's "
+             f"minion cooldown, the Command's {SNIPER_COMMAND_CAST:g} s cast the floor: a press under the button cap): "
+             f"the Impact hit {hit:,.0f} = {hit / every:,.1f} DPS; the cloud's Poison {poison:,.1f} DPS (one Poison "
+             f"{one:,.1f} DPS, PoB's; {held:.2f} held on average: a cloud lives {life:.1f} s"
+             + (f" (its {number(cloud.get('Duration')) or SNIPER_CLOUD_SECONDS:.1f} s + {duration_inc:g}% of 8 s from "
+                "Persistent Ground, which PoB's duration doesn't hold)" if duration_inc > 0 else "")
+             + f", re-Poisoning every 2 s while the boss stands in it (MEDIUM-LOW), up to the Sniper's Poison limit "
+             f"{number(cloud.get('PoisonStacksMax')) or 1:g}); "
+             + ("no cloud explodes (its group's Persistent Ground: ground_effects_cannot_trigger, MEDIUM-HIGH)"
+                if no_trigger else f"{share:.0%} of clouds explode ({explode_how}): +{boom:,.1f} DPS")
+             + f"; less {lost:,.1f} DPS for the press ({player_dps:,.0f} main-skill DPS x {SNIPER_COMMAND_CAST:g} s; a "
+             f"minion main loses none) and the Sniper's {acting:.2f} s arrow off its Basic Attack ({sniper_dps:,.0f} DPS "
+             f"where the score counts it): {dps:,.1f} DPS" + row)
+    if gross - lost <= 0:
+        basis += "; a net loss, so not pressed (0)"
+    note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM-LOW", "uses": 1.0 / every,
+            "play": (f"Command the Skeletal Sniper's Gas Arrow on the boss each time it's ready (every {every:.3g} s): "
+                     f"with it +{dps:,.1f} DPS; without it +0.")}
+    return dps, ([added_input("SniperGasArrow", dps)] if dps > 0 else []), [note]
+
+
+# Decompose (MECHB66; COV58 row 3 and MECH110's lead: no explosion model; an OVERCOUNT found on the way). The game
+# (26650308): ActiveSkills corpse_cloud "Consume a Corpse to create a cloud of flammable Poisonous gas. Any Burning effects
+# or Detonator skills will explode the gas cloud, creating a fiery explosion" (CorpseCloudPlayer; Corpsewade's
+# CorpsewadeCorpseCloudPlayer the same); its cloud set's corpse_explosion_monster_life_permillage_chaos 100 reads
+# "Poisons enemies as though dealing Chaos damage equal to {0}% of Corpse's maximum Life" (skill_stat_descriptions; patch
+# 0.2.0: "causes the Poison Cloud to poison enemies as though dealing Chaos damage equal to 10% of Corpse's Maximum
+# Life", the latest Decompose entry on that: grep_notes --history "Decompose"), base_skill_effect_duration 4000,
+# number_of_poison_cloud_allowed 6; its CorpseCloudExplosionPlayer set is the fiery explosion (PoB: a Fire spell hit).
+# PoB scores the cloud set as a corpse-explosion HIT of 10% of the corpse's Life (explodeCorpse, PoB act_int /
+# CalcOffence) plus that hit's Poison, every use; the Explosion set as a hit every use. So the game's cloud deals only its
+# Poison (probe POE2T9050, a level 90 Fireball build: Poison Cloud 2,079 hit DPS + 494 Poison DPS; Explosion 249), and
+# the explosion comes only when the boss Burns or a Detonator hits a cloud. Counted, as a scale on PoB's Full DPS entry
+# (Objective.entry_scales, so PoB's own Poison stacks aren't scaled by a DPS line; the entry holds the scored set's hit,
+# probe POE2T9052): the cloud's Poison stays as PoB counts it (its Full DoT DPS keeps your strongest Poison, Calcs.lua
+# PoisonDPS mode "max", one a use; the cloud re-applying it every 2 s while the boss stands in it, the Gas Arrow reading,
+# MEDIUM-LOW for Decompose's cloud, is a row) and the entry keeps the Explosion x the share of clouds set off (the boss Ignited by the build's Ignites or Burning from its Fire DoT skills at some moment of a cloud's
+# life, or a Detonator use: Gas Grenade's reading, GEM36 / R48-5); an exploded cloud ends at a uniform moment (LOW).
+# Persistent Ground II / III in its group (ground_effects_cannot_trigger, MECH110's ded55b7e, MEDIUM-HIGH): no cloud
+# explodes (the row shows the explosions without it); Persistent Ground I-III's ground_effect_duration_+% x the 4 s base
+# added to the cloud. Its uses are PoB's (corpse_model's corpse supply: 0 on a lone boss with no adds and no corpse
+# source, with corpse_model's note). Not rescaled: a Decompose MAIN skill scored on its own (a main-only objective, not
+# Full DPS): its PoB number stands there (named, an OVERCOUNT of the cloud's hit).
+DECOMPOSE = "Decompose"
+DECOMPOSE_CLOUD_SECONDS = 4.0  # s (CorpseCloudPlayer base_skill_effect_duration 4000)
+
+
+def decompose_model(cloud: dict, blast: dict, entry_dps: float, explode: float, explode_how: str, no_trigger: bool,
+                    duration_inc: float, scored: str = "Poison Cloud") -> list[dict]:
+    """Notes (with a "full_dps" scale on PoB's Decompose entry) for Decompose's cloud and explosion (see above).
+    `cloud` / `blast`: the bridge's setRates rows for its Poison Cloud / Explosion sets; `entry_dps`: PoB's Full DPS entry
+    for it (the scored set's hit: PoB puts its Poison in the "Full DoT DPS" entry, probe POE2T9052), `scored` that set; `explode` (how): the share of clouds the boss's Burning / a Detonator sets off; `no_trigger` / `duration_inc`:
+    its group's Persistent Ground stats."""
+    uses = number(cloud.get("Speed"))
+    if entry_dps <= 0 or uses <= 0:
+        return []
+    life = (number(cloud.get("Duration")) or DECOMPOSE_CLOUD_SECONDS) + DECOMPOSE_CLOUD_SECONDS * max(duration_inc, 0) / 100
+    open_share = min(1.0, max(0.0, explode))
+    share = 0.0 if no_trigger else open_share
+    blast_dps = number(blast.get("TotalDPS")) + number(blast.get("IgniteDPS"))
+
+    def real(sh: float) -> tuple[float, float, float]:
+        poison, held, one = sniper_cloud_poison(cloud, life * (1.0 - sh / 2), 1.0 / uses)
+        return poison + blast_dps * sh, poison, held
+
+    total, poison, held = real(share)
+    # (PoB's Full DPS keeps one Poison, the strongest of all your skills', in its "Full DoT DPS" entry (Calcs.lua 165:
+    # PoisonDPS mode "max"), as the game's limit of one: Decompose's Poison of the scored Poison Cloud set stands there as
+    # PoB counts it (one a use; the cloud's re-Poisoning reading is a row); the entry, the set's hit, keeps only the
+    # Explosion x the share set off. With the Explosion set scored, the cloud's Poison isn't counted (an undercount the
+    # search avoids: the Poison Cloud set then scores at least as much))
+    pob_poison = number(cloud.get("PoisonDPS")) if scored == "Poison Cloud" else 0.0
+    scale = blast_dps * share / entry_dps
+    hit = entry_dps
+    row = ""
+    if no_trigger and open_share > 0 and blast_dps > 0:
+        row = (f"; without Persistent Ground's protection {open_share:.0%} of clouds would explode: "
+               f"{real(open_share)[0]:,.1f} DPS")
+    return [{
+        "label": "Decompose: its cloud Poisons without a hit and explodes only when set off*", "value": f"x{scale:.3f}",
+        "confidence": "MEDIUM-LOW", "full_dps": {DECOMPOSE: round(scale, 6)},
+        "basis": (f"PoB scores the {scored} set: its entry {hit:,.1f} DPS "
+                  + ("counts the cloud as a hit (10% of the corpse's Life each use), its Poison "
+                     f"{pob_poison:,.1f} in the Full DoT DPS entry" if scored == "Poison Cloud" else
+                     "counts the Explosion every use")
+                  + ". The game: \"Poisons enemies as "
+                  f"though dealing Chaos damage equal to 10% of Corpse's maximum Life\" (no hit): {poison:,.1f} Poison DPS "
+                  f"({held:.2f} of your Poisons held on average: {uses:.2f} clouds a second, each {life:.1f} s"
+                  + (f" with Persistent Ground's {duration_inc:g}% of the 4 s base" if duration_inc > 0 else "")
+                  + f", re-Poisoning every 2 s while the boss stands in it: MEDIUM-LOW; your Poison limit "
+                  f"{number(cloud.get('PoisonStacksMax')) or 1:g}); the Explosion ({blast_dps:,.1f} DPS were every cloud set off) only "
+                  "when \"Burning effects or Detonator skills\" set a cloud off: "
+                  + ("none (its group's Persistent Ground: ground_effects_cannot_trigger, MEDIUM-HIGH)" if no_trigger
+                     else f"{share:.0%} ({explode_how})")
+                  + f" = {total:,.1f} DPS; PoB's Full DoT DPS keeps its strongest Poison ({pob_poison:,.1f} from this set, one "
+                  f"a use), so the entry keeps the Explosion part: x{scale:.3f} (the cloud's re-Poisoning reading {poison:,.1f} "
+                  f"Poison DPS: a row){row}"),
+        "play": ("Decompose's cloud deals its damage as Poison; set the clouds off with a Burning effect (Ignite, a Fire "
+                 "DoT skill) or a Detonator for the fiery explosion")}]
+
 # Inevitable Agony (MECHB30, PATCH_CHECK H1-4; plans/term-agony.md, PLANS5): Chronomancer's Inevitability grants it
 # (ActiveSkills inevitable_agony): "Debuff all targets in an area, causing a portion of Damage they take from Hits to be
 # tracked by the Debuff. When the debuff's duration expires or can kill the target, the target loses life equal to that

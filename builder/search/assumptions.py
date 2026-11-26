@@ -1947,6 +1947,77 @@ def mist_raven(build: Build, main: models.Skill | None) -> tuple[float, list[dic
                                            number(drive.get("Speed")))
     return 0.0, [], []
 
+
+def sniper_gas_arrow(build: Build, main: models.Skill | None, explode) -> tuple[float, list[dict], list[dict]]:
+    """(added DPS, mods, notes) for the Skeletal Sniper's Gas Arrow Command (models.sniper_gas_arrow_model, MECHB66): the
+    bridge's minionSkillHit scores the Sniper with Gas Arrow chosen, each of its three sets; its group's support stats
+    (activeSkills supportStats: Persistent Ground's) by stat; `explode(life)` gives (the share of clouds an Ignited boss
+    or a Detonator sets off in `life` s, how). Costs as eternal_hunt's (a minion main loses no time to the press)."""
+    for group in build.groups():
+        if group.get("enabled") is False:
+            continue
+        for n, skill in enumerate(group["skills"], 1):
+            if models.SNIPER not in skill["name"] or (group["index"], skill["name"]) in pob_disabled(build):
+                continue
+            sets = []
+            for at in (1, 2, 3):
+                got = build.call("minionSkillHit", index=group["index"], active=n, skill=models.SNIPER_GAS_ARROW,
+                                 statSet=at)
+                sets.append(got if isinstance(got, dict) else {})  # (an empty Lua table reaches Python as a list)
+            impact, cloud, blast = sets
+            if impact.get("reason") and cloud.get("reason"):
+                return 0.0, [], []
+            row = next((x for x in build.call("activeSkills", supportStats=[models.GROUND_NO_TRIGGER,
+                                                                             models.GROUND_DURATION])["skills"]
+                        if x.get("group") == group["index"] and models.SNIPER in str(x.get("name"))), {})
+            support = row.get("supportStats") or {}
+            no_trigger = number(support.get(models.GROUND_NO_TRIGGER)) > 0
+            inc = number(support.get(models.GROUND_DURATION))
+            life = ((number(cloud.get("Duration")) or models.SNIPER_CLOUD_SECONDS)
+                    + models.SNIPER_CLOUD_SECONDS * inc / 100)
+            share, how = explode(life)
+            sniper_main = main is not None and models.SNIPER in main.name
+            minion_main = main is not None and bool(main.summon)
+            full = bool(getattr(getattr(build, "objective", None), "full", False))
+            counted = sniper_main or (full and group.get("fullDPS"))
+            player = 0.0 if minion_main else per_second(build.call("stats", fields=HUNT_FIELDS))
+            return models.sniper_gas_arrow_model(impact, cloud, blast, share, how, no_trigger, inc, player,
+                                                 number(impact.get("baseDPS")) if counted else 0.0)
+    return 0.0, [], []
+
+
+def decompose(build: Build, explode) -> list[dict]:
+    """Notes for Decompose (models.decompose_model, MECHB66): each enabled group holding it, its Poison Cloud and
+    Explosion sets (bridge setRates), PoB's Full DPS entry for it, its group's Persistent Ground stats by stat
+    (activeSkills supportStats); `explode(life)` gives (the share of clouds Burning / a Detonator sets off, how)."""
+    entries = build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+    entry = sum(number(e.get("dps")) * (e.get("count") or 1) for e in entries if e.get("name") == models.DECOMPOSE)
+    if entry <= 0:
+        return []
+    for group in build.groups():
+        if group.get("enabled") is False:
+            continue
+        for n, skill in enumerate(group["skills"], 1):
+            if skill["name"] != models.DECOMPOSE or (group["index"], skill["name"]) in pob_disabled(build):
+                continue
+            rates = build.call("setRates", index=group["index"], active=n)
+            sets = rates.get("sets") or []
+            cloud = next((x for x in sets if x.get("label") == "Poison Cloud"), {})
+            blast = next((x for x in sets if x.get("label") == "Explosion"), {})
+            row = next((x for x in build.call("activeSkills", supportStats=[models.GROUND_NO_TRIGGER,
+                                                                             models.GROUND_DURATION])["skills"]
+                        if x.get("group") == group["index"] and x.get("name") == models.DECOMPOSE), {})
+            support = row.get("supportStats") or {}
+            inc = number(support.get(models.GROUND_DURATION))
+            life = ((number(cloud.get("Duration")) or models.DECOMPOSE_CLOUD_SECONDS)
+                    + models.DECOMPOSE_CLOUD_SECONDS * inc / 100)
+            share, how = explode(life)
+            return models.decompose_model(cloud, blast, entry, share, how,
+                                          number(support.get(models.GROUND_NO_TRIGGER)) > 0, inc,
+                                          rates.get("chosen") or "Poison Cloud")
+    return []
+
+
 def living_lightning(build: Build) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Living Lightning (models.living_lightning_model, MECHB42): each enabled group holding the
     triggered skill; its supported skill's row (speed, hit chance, Lightning hit), the trigger's row (cooldown), its level
@@ -5919,6 +5990,35 @@ class Assumptions:
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
                 presses["Command: Mist Raven"] = (1 / models.MIRROR_BREAKER_COOLDOWN, raven_notes[-1]["play"])
+        def sniper_explode(life: float, burning: bool = False) -> tuple[float, str]:  # (MECHB66: an Ignited boss (or,
+            # with `burning`, one taking Fire DoT: Decompose's "Burning effects", fire_dot_uptime) or a Detonator)
+            det, det_how = self.detonator_rate(group["index"] if group else 0)
+            duration = conditions_mod.AILMENT_DURATION["Ignite"]
+            read = {"Speed": 0.0, "HitChance": 100.0, "IgniteChancePerHit": 0.0, "IgniteDuration": duration,
+                    "_ailment_others": dict(getattr(build, "ailment_others", None) or {}),
+                    "_ailment_ground": dict(getattr(build, "ailment_ground", None) or {})}
+            up = ailment_uptime(read, "Ignite")
+            within = models.gas_ignite_within(up, duration, life)
+            burn_how = ""
+            if burning:
+                burn, burn_d, burn_how = self.fire_dot_uptime(group["index"] if group else 0)
+                burn_within = models.gas_ignite_within(burn, burn_d, life) if burn > 0 else 0.0
+                within = 1.0 - (1.0 - within) * (1.0 - burn_within)
+                burn_how = f"; Fire DoT: Burning {burn:.0%} of the fight ({burn_how})"
+            detonated = 1.0 - math.exp(-det * life) if det > 0 else 0.0
+            return (1.0 - (1.0 - within) * (1.0 - detonated),
+                    f"the boss Ignited {up:.0%} of the fight by the build's Ignites{burn_how}, so at some moment of a "
+                    f"cloud's {life:.1f} s {within:.0%}; Detonators {det:.2f} uses/s: {detonated:.0%} ({det_how})")
+        sniper, sniper_mods, sniper_notes = sniper_gas_arrow(build, main, sniper_explode)  # (MECHB66: a Command)
+        hand_mods, hand_notes = hand_mods + sniper_mods, hand_notes + sniper_notes
+        if sniper > 0:  # (a Command press: the button cap counts it, as the Mist Raven's)
+            presses = getattr(build, models.ITEM_PRESSES, None)
+            if isinstance(presses, dict):
+                presses["Command: Skeletal Sniper"] = (sniper_notes[-1]["uses"], sniper_notes[-1]["play"])
+        decomp_notes = decompose(build, lambda life: sniper_explode(life, True))  # (MECHB66: its cloud is Poison only)
+        hand_notes = hand_notes + decomp_notes
+        for note in decomp_notes:
+            build.objective.entry_scales.update(note.get("full_dps") or {})
         # separately computed damage (Melting Maelstrom's pulses, Eternal Hunt: models.added_input); what-ifs get their own
         # sum from the bridge's LedgerAddedDPS; set_added (SEARCH14) keeps each source for the result's list
         thorn, thorn_notes = thorns(build, main, stats, [e["text"] for e in source_lines])  # (MECHB22)
