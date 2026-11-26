@@ -186,6 +186,19 @@ def round_split(now: float, deadline: float) -> tuple[float, float, float]:
     return loop, deadline, deadline
 
 
+def tail_ends(start: float, end: float, now: float, tail: float, swap: float) -> tuple[float, float]:
+    """(the round-level work's deadline, resist_swap_round's) once the slot loop is over, at `now`. The slot loop can run
+    past its own deadline by a whole slot step (a rare build, a settle: up to ~9.5 s on 2b75b, POE2T8446), so a share
+    taken only off the loop's deadline can still leave nothing; with a switch on, its work gets at least its share of
+    the round's time from where it really starts. Both switches off: unchanged."""
+    span = max(0.0, end - start)
+    if os.environ.get(SWITCH_RESIST_SWAP, "0") == "1":
+        swap = max(swap, now + RESIST_SWAP_SHARE * span)
+    if os.environ.get(SWITCH_ROUND_SHARE, "0") == "1":
+        tail = max(tail, now + ROUND_SHARE * span)
+    return tail, swap
+
+
 def round_log(path: str, row: dict) -> None:
     """One JSON line (POE2_SEARCH_ROUND_LOG; a diagnostic, never read by the search). Workers append side by side."""
     try:
@@ -2466,6 +2479,8 @@ class Gear:
             if build.score > before + EPSILON and (checkpoint := getattr(self, "checkpoint", None)) is not None:
                 checkpoint()  # (SEARCHD1 hook, F1: a hard stop later in the round keeps this slot's kept item)
         tail_start = clock.now()
+        if whole:
+            tail_deadline, swap_deadline = tail_ends(round_start, round_end, tail_start, tail_deadline, swap_deadline)
         if whole:
             improved = self.character_rune_round(tail_deadline) or improved
         if whole and os.environ.get(SWITCH_RESIST_SWAP, "0") == "1":

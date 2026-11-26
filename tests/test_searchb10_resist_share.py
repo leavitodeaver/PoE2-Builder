@@ -50,7 +50,7 @@ def test_a_cut_slot_loop_leaves_the_swap_round_its_time(monkeypatch, switch):
     assert gear.Gear.gear_round(g, 100.0) is False
     assert g.resume == "Helmet"  # (the loop was cut at its first slot)
     if switch == "1":
-        assert calls["swap"] == 100.0  # (the round's end, not the loop's 70)
+        assert calls["swap"] == pytest.approx(150.0)  # (the loop overran to t=120: its share counts from there, tail_ends)
         assert calls["runes"] == pytest.approx(70.0)
         assert g.resist_swap_rows == []
     else:
@@ -89,7 +89,19 @@ def test_a_cut_slot_loop_leaves_the_round_level_work_its_time(monkeypatch, tmp_p
     g.fill_granted = lambda d: None
     g.granted_meta_trials = lambda d: calls.setdefault("granted", d) and False
     gear.Gear.gear_round(g, 100.0)
-    assert g.resume == "Helmet" and calls["runes"] == 100.0 and calls["granted"] == 100.0
+    assert g.resume == "Helmet" and calls["runes"] == pytest.approx(110.0) and calls["granted"] == pytest.approx(110.0)
     import json
     row = json.loads(log.read_text().splitlines()[0])
-    assert row["cut"] and row["share"] and row["left"] == 20.0
+    assert row["cut"] and row["share"] and row["left"] == pytest.approx(30.0)
+
+
+def test_tail_ends_survive_a_slot_loop_overrun(monkeypatch):
+    """POE2T8446: the slot loop ran up to ~9.5 s past its deadline; the tail's share counts from its own start."""
+    monkeypatch.delenv(gear.SWITCH_RESIST_SWAP, raising=False)
+    monkeypatch.delenv(gear.SWITCH_ROUND_SHARE, raising=False)
+    assert gear.tail_ends(0.0, 10.0, 13.0, 10.0, 10.0) == (10.0, 10.0)  # (off: unchanged, nothing left)
+    monkeypatch.setenv(gear.SWITCH_RESIST_SWAP, "1")
+    assert gear.tail_ends(0.0, 10.0, 13.0, 7.0, 10.0) == (7.0, pytest.approx(16.0))
+    monkeypatch.setenv(gear.SWITCH_ROUND_SHARE, "1")
+    assert gear.tail_ends(0.0, 10.0, 13.0, 10.0, 10.0) == (pytest.approx(16.0), pytest.approx(16.0))
+    assert gear.tail_ends(0.0, 10.0, 5.0, 10.0, 10.0) == (10.0, 10.0)  # (no overrun: the round's own end stands)
