@@ -144,3 +144,15 @@ def test_flame_pillar_is_grisly_pyres_shape_at_25_percent():
     _, how = models.grisly_pyre_model(0.0, 0.5, 1000.0, 4.0, 0.5, share=0.25, source="Boneshatter",
                                       pillar=models.FLAME_PILLAR)
     assert "Boneshatter isn't used" in how
+
+
+def test_crushing_fears_shockwave_takes_nothing_on_a_lone_boss():
+    # (its shockwave comes only from a kill; the line is tagged to the Shockwave set, so the Strike keeps its damage)
+    skill = models.Skill("Crushing Fear", group=1, attack=True,
+                         level_stats={"crushing_fear_damage_+%_final_per_power_of_culled_enemy": 10})
+    for scored in ("Strike", "Shockwave"):
+        skill.stat_set = scored
+        mods, notes = models.gem_stat_model([skill])
+        assert [(m["line"], m["scale"], m.get("statSets")) for m in mods if "less" in m["line"]] == [
+            ("1% less Damage", 100, ["Shockwave"])], scored
+        assert any(n["entry"] == "gem-gem46-crushing-fear-shockwave-on-kill" for n in notes)

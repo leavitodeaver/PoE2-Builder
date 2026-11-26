@@ -79,3 +79,32 @@
   sources: ["builder/search/models.py (grisly_pyre_model, FLAME_PILLAR)", "builder/search/assumptions.py (grisly_pyre)"]
   test_in_game: "Not needed beyond Grisly Pyre's reading (the pillar isn't scaled again by your modifiers: UNVERIFIED either way, the lower reading)."
   status: proposed
+
+- id: gem-gem46-crushing-fear-shockwave-on-kill
+  title: "Crushing Fear's Shockwave comes only when the skill kills an enemy: none on a lone boss (the kill ends the fight)"
+  kind: gem_stat
+  match: '^crushing_fear_damage_\+%_final_per_power_of_culled_enemy$'
+  replace: ["1% less Damage"]
+  factor: 10
+  stats: ["crushing_fear_damage_+%_final_per_power_of_culled_enemy"]
+  skill: [Crushing Fear]
+  stat_sets:
+    Crushing Fear: [Shockwave]
+  confidence: datamined
+  notes: >-
+    ActiveSkills crushing_fear (26650308): "Dash to an enemy and [Strike] them, [CullingStrike|Culling] enemies if their
+    life is low enough. When this skill kills an enemy you draw out their final fears, crushing them to create a
+    shockwave"; its Shockwave set's own lines (crushing_fear/statset_1.csd): "{0}% more Damage per [Power] of killed
+    target", "{0}% more Area of Effect per [Power] of killed target". On a lone boss the only kill is the boss's death,
+    which ends the fight, so the Shockwave deals nothing; the boss presets have no adds near the boss (bosses.adds_near:
+    0 for every preset, MECHD9). PoB scores the Shockwave set as a hit on every use and the search kept it: probe
+    POE2T9732 (scratch/gem46/probe_crushing.log; a level-90 Crushing Fear skeleton): Shockwave 886.9 DPS kept vs Strike
+    178.4 (x4.97, an OVERCOUNT). Counted as 100% less Damage tagged to the Shockwave set only (the stat is a constant
+    10, so factor 10 gives exactly 100%; GEM46's stat-set tag), so the search keeps the Strike. Granted by the unique
+    gloves Horror's Flight (PoB Data/Uniques/gloves.lua; no patch-note entry names Crushing Fear: grep_notes, no hit, not
+    evidence of absence).
+  sources: ["data/game-26650308/tables/ActiveSkills.json (crushing_fear)",
+            "files/data/statdescriptions/specific_skill_stat_descriptions/crushing_fear/statset_1.csd",
+            "scratch/gem46/probe_crushing.log"]
+  test_in_game: "Not needed: the game's own text ties the shockwave to a kill."
+  status: proposed
