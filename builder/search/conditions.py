@@ -4433,6 +4433,14 @@ ARCANE_SURGE_NOT_SOURCE = re.compile(r"companions|minions (?:have|gain)|\ballies
                                      r"(?:while|if) you have arcane surge|effect of arcane surge", re.I)
 ARCANE_SURGE_SUPPORT_STATS = ("support_arcane_surge_gain_buff_on_%_of_maximum_mana_use_threshold",
                               "support_arcane_surge_base_duration_ms")
+# The Arcane Surge support on a skill other than the main one (MECHC66; the manager 25 Nov 22:57 from MECHB67's b10 walk,
+# an UNDERCOUNT: only the main skill's support was read, so example build 10's Arcane Surge on Contagion gave no buff at
+# all). PoB's sup_int.lua: "Supported Skills grant Arcane Surge after Spending a total of X% of your Maximum Mana on
+# them" (the counter counts the SUPPORTED skills' spend only). Each such skill: its uses a second (models.press_use_rate:
+# its cooldown, once per its duration, or the search's chosen rate; none: 0, labelled) x PoB's ManaCost of one use (the
+# bridge's useRates) is its spend; the fill and the buff as for the main skill's (the counter restarting at each gain,
+# the lower bound; the running counter the row). Two supported skills: taken as separate counters, combined as
+# independent sources (UNVERIFIED: one shared counter would fill faster, the upper side; MEDIUM-LOW).
 
 
 def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[float, str] | None:
@@ -4492,6 +4500,34 @@ def _arcane_surge_source(text: str, lines: list[str], stats: dict) -> tuple[floa
     return up, f"{chance:.0%} x {events:.2f} {how}/s, {duration:g} s: {up:.0%} up"
 
 
+def arcane_surge_sides(build, main: str | None) -> tuple:
+    """((skill, threshold % of maximum Mana, seconds, Mana a second spent on it, how), ...) for each enabled skill other
+    than the main one that the Arcane Surge support supports (ARCANE_SURGE_SUPPORT_STATS' second note)."""
+    raw = build.call("activeSkills", supportStats=list(ARCANE_SURGE_SUPPORT_STATS))
+    found = []
+    for skill in raw["skills"]:
+        got = skill.get("supportStats") or {}
+        if (skill.get("name") == main or skill.get("disabled") or not skill.get("group")
+                or not all(got.get(stat) for stat in ARCANE_SURGE_SUPPORT_STATS)):
+            continue
+        found.append((skill["name"], int(skill["group"]), number(got[ARCANE_SURGE_SUPPORT_STATS[0]]),
+                      number(got[ARCANE_SURGE_SUPPORT_STATS[1]]) / 1000))
+    if not found:
+        return ()
+    rates = build.call("useRates", indices=sorted({group for _, group, _, _ in found}))["rates"]
+    choices = models.press_choices(build)
+    out = []
+    for name, group, pct, seconds in found:
+        mine = [r for r in rates if r.get("index") == group]
+        row = next((r for r in mine if str(r.get("name") or "").startswith(name)), mine[0] if mine else None)
+        if row is None:
+            continue
+        uses, how, _ = models.press_use_rate(row, models.press_choice(row, choices))
+        cost = number(row.get("manaCost"))
+        out.append((name, pct, seconds, uses * cost, f"{uses:.3g} uses/s {how}, {cost:.0f} Mana each"))
+    return tuple(out)
+
+
 def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
     main_types = stats.get("_main_types") or set()
     support = stats.get("_arcane_surge_support")
@@ -4499,6 +4535,18 @@ def arcane_surge_uptime(lines: list[str], stats: dict) -> tuple[object, str]:
         lines = [*lines, f"Gain Arcane Surge for {support[1]:g} seconds after Spending a total of {support[0]:g}% of "
                          f"your Maximum Mana on Supported Skills"]
     down, down_high, how = 1.0, 1.0, []
+    for name, pct, seconds, spend, spend_how in stats.get("_arcane_surge_sides") or ():  # (MECHC66: the note above)
+        mana = pct / 100 * number(stats.get("Mana"))
+        seconds *= _buff_scale(stats)
+        if spend <= 0 or mana <= 0:
+            how.append(f"Arcane Surge on {name}: needs {mana:.0f} Mana spent on it, it spends none ({spend_how})")
+            continue
+        fill = mana / spend
+        up, high = seconds / (seconds + fill), min(1.0, seconds / fill)
+        down *= 1 - up
+        down_high *= 1 - high
+        how.append(f"Arcane Surge on {name}: {mana:.0f} Mana spent on it every {fill:.1f} s ({spend_how}), {seconds:g} s "
+                   f"each: {up:.0%} up (Mana spent during the buff not counted, the lower bound); {high:.0%} if it counts")
     for text in lines:
         # ("when a Minion Dies" is yours, not a minion's line: kept, so it's labelled rather than dropped)
         own = re.sub(r"when a minion dies", "", text, flags=re.I)
@@ -12338,6 +12386,9 @@ class Conditions:
             got = main.get("supportStats") or {}
             if all(got.get(stat) for stat in ARCANE_SURGE_SUPPORT_STATS):
                 stats["_arcane_surge_support"] = (got[ARCANE_SURGE_SUPPORT_STATS[0]], got[ARCANE_SURGE_SUPPORT_STATS[1]] / 1000)
+        if any(g.get("name") == "Arcane Surge" for grp in self.build.groups() for g in grp.get("gems") or []
+               if grp.get("enabled") is not False):  # (MECHC66: ARCANE_SURGE_SUPPORT_STATS' second note)
+            stats["_arcane_surge_sides"] = arcane_surge_sides(self.build, self.main_skill)
         if any(models.UNBOUND_GRANT.match(t.strip()) for t in texts):  # (Unbound Avatar: its duration, the box's state)
             raw = self.build.call("activeSkills", levelStats=[models.UNBOUND])
             got = next((s.get("levelStats") or {} for s in raw["skills"] if s["name"] == models.UNBOUND), {})

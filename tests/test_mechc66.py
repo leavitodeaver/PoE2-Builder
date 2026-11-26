@@ -63,6 +63,37 @@ def test_the_stock_switch_and_the_fight_length(monkeypatch):
     assert flasks.fight_length(zero)[0] == 0.0
 
 
+def test_arcane_surge_support_on_a_side_skill_counts_at_its_own_spend():
+    stats = {"Mana": 1000.0, "_arcane_surge_sides": (("Contagion", 15.0, 4.0, 30.0, "0.5 uses/s, 60 Mana each"),)}
+    value = conditions.arcane_surge_uptime([], stats)
+    # 150 Mana every 5 s, 4 s each: 4 / 9 up (the lower bound), 80% if Mana spent during the buff counts
+    assert "Contagion" in value[1] and "44%" in value[1]
+    nothing = conditions.arcane_surge_uptime([], {"Mana": 1000.0, "_arcane_surge_sides": (("Contagion", 15.0, 4.0, 0.0,
+                                                                                          "0 uses"),)})
+    assert "spends none" in nothing[1]
+
+
+def test_arcane_surge_sides_reads_each_supported_skill_but_the_main_one():
+    stat_a, stat_b = conditions.ARCANE_SURGE_SUPPORT_STATS
+
+    class Fake:
+        objective = None
+
+        def call(self, method, **kw):
+            if method == "activeSkills":
+                return {"skills": [
+                    {"name": "Despair", "group": 4, "supportStats": {stat_a: 15, stat_b: 4000}},
+                    {"name": "Contagion", "group": 9, "supportStats": {stat_a: 15, stat_b: 4000}},
+                    {"name": "Essence Drain", "group": 7, "supportStats": {}}]}
+            assert method == "useRates" and kw["indices"] == [9]
+            return {"rates": [{"index": 9, "name": "Contagion", "speed": 2.0, "cooldown": 2.0, "manaCost": 60}]}
+
+    sides = conditions.arcane_surge_sides(Fake(), "Despair")
+    assert len(sides) == 1
+    name, pct, seconds, spend, how = sides[0]
+    assert (name, pct, seconds) == ("Contagion", 15, 4.0) and spend == pytest.approx(0.5 * 60)
+
+
 @pytest.fixture(scope="module")
 def engine():
     import faulthandler
