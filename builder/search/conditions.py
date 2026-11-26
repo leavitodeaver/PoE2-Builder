@@ -6198,7 +6198,8 @@ def sigil_stages(lines: list[str], stats: dict) -> tuple[float, str]:
     got = stats.get("_sigil")
     if not got:
         return 0.0, ""
-    duration, mana, spend = got
+    duration, mana, spend = got[:3]
+    cap = got[3] if len(got) > 3 else 1.0  # (MECHC64: the Mana cap's scale already in `spend`)
     duration = duration or SIGIL_SECONDS
     per = SIGIL_MANA_SHARE * mana
     if spend <= 0 or per <= 0:
@@ -6206,7 +6207,9 @@ def sigil_stages(lines: list[str], stats: dict) -> tuple[float, str]:
     step = max(SIGIL_GAP, per / spend)
     held = sum(max(0.0, duration - k * step) for k in range(1, SIGIL_STAGES + 1)) / duration
     stages = held * LEYLINE_UPTIME
-    return stages, (f"{SIGIL}: {spend:.1f} Mana/s spent against {per:,.0f} a stage (50% of {mana:,.0f} maximum Mana), a "
+    return stages, (f"{SIGIL}: {spend:.1f} Mana/s spent"
+                    + (f" (the {spend / cap:.1f}/s the main skill asks x{cap:.3f}, the share its Mana income pays: "
+                       "the Mana cap, R60-4)" if cap < 1 else "") + f" against {per:,.0f} a stage (50% of {mana:,.0f} maximum Mana), a "
                     f"stage every {step:.2f} s (at least {SIGIL_GAP:g} s), at most {SIGIL_STAGES}, over its {duration:.1f} "
                     f"s: {held:.2f} on average while in it, x {LEYLINE_UPTIME:.0%} of the fight standing in it (the user's "
                     f"Leylines reasoning, the manager 16:11: LOW) = {stages:.2f}")
@@ -12062,7 +12065,13 @@ class Conditions:
         if any(g.get("name") == SIGIL and g.get("enabled", True) for grp in self.build.call("groups")["groups"]
                for g in grp.get("gems") or []):  # (MECHC29: Sigil of Power's duration, the Mana and the main skill's spend)
             pool = self.build.call("stats", fields=["Mana", "ManaPerSecondCost"])
-            stats["_sigil"] = (self._skill_duration(SIGIL), number(pool.get("Mana")), number(pool.get("ManaPerSecondCost")))
+            # (MECHC64; MECHB65's build 4 note: the spend the build can pay, models.mana_cap_row's scale on a triggered
+            # main skill, Assumptions' build.mana_cap_scale, a round behind; before, PoB's uncapped spend)
+            cap = number(getattr(self.build, "mana_cap_scale", 1.0) or 1.0)
+            if os.environ.get("POE2_SIGIL_UNCAPPED") == "1":  # (the old reading, for a before / after probe)
+                cap = 1.0
+            stats["_sigil"] = (self._skill_duration(SIGIL), number(pool.get("Mana")),
+                               number(pool.get("ManaPerSecondCost")) * min(cap, 1.0), min(cap, 1.0))
         if any(FULL_LIFE_LINE.search(t) for t in texts):  # (MECHC27: the share on Full Life, recovery.full_life_share)
             stats["_full_life"] = self._full_life()
         if any(LEECHING_LINE.search(t) for t in texts):  # (MECHC31, R26-40 (c): Leech only while its pool is below full)

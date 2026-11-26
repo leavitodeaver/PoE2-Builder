@@ -3997,6 +3997,8 @@ class Assumptions:
                                                                        models.press_choices(build), feeders,
                                                                        getattr(self, "undeath_limit", None))
         cap_mods, cap_notes = self.mana_cap(main, feeders)  # (MECHB64, R60-4: the headline)
+        # (MECHC64: the capped share of the main skill's Mana spend, for conditions' Sigil of Power stages)
+        build.mana_cap_scale = 1 + number(cap_mods[0]["value"]) / 100 if cap_mods else 1.0
         energy_mods, energy_notes = energy_mods + cap_mods, energy_notes + full_mana_notes + cap_notes
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = models.rates_by_name(energy_mods)  # (MECHB62: summed over a spell's meta groups)

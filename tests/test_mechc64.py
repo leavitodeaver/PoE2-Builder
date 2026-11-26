@@ -206,3 +206,13 @@ def test_rage_cost_wait_charges_the_use_rate_scale():
     assert mods[0]["name"] == "Speed" and mods[0]["value"] == pytest.approx(-60.0) and "R61-4" in notes[0]["basis"]
     Build.rage_paid = {"share": 1.0, "asked": 1.5, "paid": 1.5, "cost_share": 1.0}
     assert hook.rage_cost_wait() == ([], [])
+
+
+def test_sigil_stages_read_the_mana_spend_the_build_can_pay():
+    """MECHB65's build 4 note: 1,854 Mana/s asked, x0.2 paid (the Mana cap): a stage every 587.5 / 370.8 = 1.58 s, not
+    the 1 s minimum."""
+    from builder.search import conditions as c
+
+    capped, how = c.sigil_stages([], {"_sigil": (4.0, 1175.0, 1854.0 * 0.2, 0.2)})
+    full, _ = c.sigil_stages([], {"_sigil": (4.0, 1175.0, 1854.0)})
+    assert capped < full and "the Mana cap" in how and "1.58 s" in how
