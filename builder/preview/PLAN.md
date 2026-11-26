@@ -87,6 +87,23 @@ curve (gems.json curve_reference: Lightning Spear; 20/13 = 1.406, the median of 
    tree adds the Duelist's start (Shadow / Duelist starts wait for the 1.0 tree). Then: its Valour / Glory lines through
    MECH-C's models, the "15% more damage while a Rare or Unique enemy is present" notable's two readings as rows.
 
+## Reveal checks (what changed in the sources since the catalogue; newest last)
+- 26 Nov 2026 (PREVIEW6; web fetches, nothing on screen). poe2db Conquerors_of_Wraeclast_gems: "/69" rows, 66 names
+  (47 skills, 19 supports; Demon Magus, Shroud and Fan The Flames listed twice), vs 65 rows / 62 names on 23 Nov.
+  NEW since 23-24 Nov: three of the Knight's Bannerlord Standards now have gem pages, level 13, req 52, text only:
+  Vaal Standard (Spell; banners periodically make blood ground: damage over time + Corrupted Blood), Maraketh Standard
+  (Attack; banners periodically kick up Whirlwinds that Slow and Blind), Ezomyte Standard (Meta aura; its banner applies
+  socketed Curses; "Supported Curses have 21% reduced Magnitude"). No damage numbers, cost or cooldown shown; Karui and
+  Kalguuran Standard still have no page. MEDIUM (one source, one level, paraphrased). Not modelled: the Knight isn't
+  allocatable until the 1.0 tree, and none of them shows a number to score.
+  Unchanged: the 16 new and 13 changed uniques (uniques index and home page lists match R53's names exactly), the 6
+  crafting items (Scarlet Hide / Crimson Iron / Vermilion Gold apply Forgemarks; Bloodvial of Komaki / Eldra / Rithva
+  apply Bloodmarks), the Assassin page (no nodes; only "[DNT-UNUSED] Ice Fisher" as its start), Infiltrator (404),
+  Shadow (no nodes; Nightmare "in development"), Rain of Steel (no page, as on 23 Nov).
+  GGG: no 1.0 post dated 24-26 Nov on pathofexile.com's Announcements or PoE2 patch-notes forums (newest PoE2 post:
+  0.5.5h, thread 4016665); pathofexile2.com/conquerors doesn't render for a fetch (UNVERIFIED there). A web search
+  for news since 24 Nov found no new 1.0 reveal. Patch notes still expected ~4 Dec.
+
 ## Release day (~11 Dec 2026; patch notes ~4 Dec)
 1. ~4 Dec: read the full patch notes into the patch-notes archive (NOTES lane) and check every preview row and every
    flag against them; mark rows that changed; turn flags into tasks for the lanes that own the code (supports: GEM;
