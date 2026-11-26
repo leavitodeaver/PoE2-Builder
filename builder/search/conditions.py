@@ -9761,6 +9761,27 @@ def _heavy_contact(lines: list[str], stats: dict) -> tuple[object, str]:
 # cannot_consume over Mods, PassiveSkills, GrantedEffectStatSets, game 26650308: Inhibitor's StatSet the one user of
 # both; second source PoB's sup_dex.lua 2601 and patch 0.2.0e / 0.4.0, R40-2.)
 INHIBITOR = "Inhibitor"
+# (MECHC67, AUDIT39 A39-66: the rule went by Inhibitor's NAME, but the stat has other carriers) Every gem whose own or
+# granted effect carries cannot_consume_power_frenzy_endurance_charges ("Supported Skills cannot consume Charges"):
+# "group" where it is a SUPPORT effect on the other skills in its group, "self" where it is on the gem's own skill.
+# - Inhibitor (SupportChargeInhibitionPlayer): the support itself.
+# - Mirage Archer / Mirage Deadeye / Hollow Form: their meta gem's hidden support (SupportMirageArcherPlayer,
+#   SupportMirageDeadeyePlayer, SupportHollowFormPlayer: additionalGrantedEffectId1 in PoB's Gems.lua) supports the
+#   skills socketed in them, which the Mirage ("dodge rolling will create a Mirage that uses socketed ranged Attacks")
+#   or the illusions use, not you: those copies can't spend your charges. Your own copy of the same skill in another
+#   group still can, so a skill counts as blocked only when EVERY enabled group holding it blocks it.
+# - Gemini Surge, Chaotic Surge, Elemental Surge: the triggered Surge skills themselves (no charge-consuming skill type,
+#   so nothing moves today; kept so a future consumer reading stays right).
+# (checked: Stats ids holding cannot_consume over GrantedEffectStatSets (Implicit / Constant), GrantedEffectStatSetsPerLevel,
+# GrantedEffectsPerLevel, GrantedEffectQualityStats, Mods, PassiveSkills, SoulCoreStats, game 26650308: the 11 stat sets
+# are these 7 effects' (with cold variants) plus two Rogue Exile monster sets, no item / passive / Soul Core / quality
+# carrier; second source PoB's Data/Skills/*.lua + Gems.lua, the same 7 effects and gems, scanned by
+# tests/test_mechc67.py; PoB maps the stat to Condition:CannotConsumeCharges, which none of its charge calculations
+# reads (grep of Modules / Classes).) cannot_consume_infusions: Inhibitor alone (the same search).
+CHARGE_BLOCK_STAT = "cannot_consume_power_frenzy_endurance_charges"
+CHARGE_BLOCKERS = {INHIBITOR: "group", "Mirage Archer": "group", "Mirage Deadeye": "group", "Hollow Form": "group",
+                   "Gemini Surge": "self", "Chaotic Surge": "self", "Elemental Surge": "self"}
+INFUSION_BLOCKERS = {INHIBITOR: "group"}
 # Steward of Kulemak (MECHC49; GEM29 via the manager's 03:40, a likely OVERCOUNT before): the Abyssal Lich notable's
 # "Damaging Spells consume a Power Charge if able to trigger Abyssal Apparition" (PoB tree 0_5 29150-29157; GEM29's
 # the Abyssal Apparition model, GEM29 a921e7a6) spends a Power Charge on each cast of the main damaging Spell, but the
@@ -9773,16 +9794,22 @@ STEWARD_OF_KULEMAK = re.compile(r"^damaging spells consume a power charge if abl
 STEWARD_EXCLUDED = {"Channel", "Cooldown", "Triggered"}
 
 
-def inhibited_skills(groups: list[dict]) -> set[str]:
-    """The skills an enabled Inhibitor supports: every other enabled gem in its enabled group."""
-    out: set[str] = set()
+def inhibited_skills(groups: list[dict], infusions: bool = False) -> set[str]:
+    """The skills that can't consume Power, Frenzy or Endurance Charges (CHARGE_BLOCKERS: every other enabled gem in an
+    enabled group holding a "group" blocker, and a "self" blocker itself), or with `infusions` the ones that can't
+    consume Infusions (INFUSION_BLOCKERS: Inhibitor). (MECHC67) A skill some enabled group holds unblocked is not in it:
+    that copy still spends them."""
+    blockers = INFUSION_BLOCKERS if infusions else CHARGE_BLOCKERS
+    blocked: set[str] = set()
+    free: set[str] = set()
     for g in groups:
         if g.get("enabled") is False:
             continue
-        gems = [n for n in g.get("gems") or [] if n.get("enabled", True)]
-        if any(n["name"] == INHIBITOR for n in gems):
-            out |= {n["name"] for n in gems if n["name"] != INHIBITOR}
-    return out
+        gems = [n["name"] for n in g.get("gems") or [] if n.get("enabled", True)]
+        here = {n for n in gems if blockers.get(n) == "group"}
+        for n in gems:
+            (blocked if n != INHIBITOR and (blockers.get(n) == "self" or here - {n}) else free).add(n)
+    return blocked - free
 
 
 # Selfless Remnants (MECHC50; plans/kw-allies.md D; an OVERCOUNT for a build that sockets it on a Remnant source).
@@ -11394,7 +11421,7 @@ class Conditions:
 
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
-        users = {n for n in names if "Lightning" in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups)
+        users = {n for n in names if "Lightning" in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups, True)
         others = self._group_uses(groups, users - {self.main_skill})
         uses = {n: number(stats.get("Speed")) * _main_share(stats) if n == self.main_skill  # (MECHC45: at its share)
                 else others.get(n, self._chosen_use(n)) for n in users}
@@ -11465,7 +11492,7 @@ class Conditions:
 
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)} | {self.main_skill}
-        users = {n for n in names if element in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups)
+        users = {n for n in names if element in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups, True)
         others = self._group_uses(groups, users - {self.main_skill})
         uses = {n: number(stats.get("Speed")) * _main_share(stats) if n == self.main_skill
                 else others.get(n, self._chosen_use(n)) for n in users}
@@ -11490,7 +11517,7 @@ class Conditions:
         """(Infusions consumed per second, how): the build's consumers (INFUSION_CONSUMERS) take what it makes."""
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
         names = {n["name"] for g in groups for n in g.get("gems") or [] if n.get("enabled", True)}
-        blocked = inhibited_skills(groups)  # (MECHC49: INHIBITOR)
+        blocked = inhibited_skills(groups, True)  # (MECHC49: INHIBITOR)
         consumers = {n: INFUSION_CONSUMERS[n] for n in names | {self.main_skill} if n in INFUSION_CONSUMERS
                      and n not in blocked}
         if not consumers:
@@ -11562,7 +11589,7 @@ class Conditions:
             out[BURNING_INSCRIPTION] = self._inscriptions(groups, stats)
         if not names & set(INFUSED_MAKERS):
             return out
-        fire = {n for n in names if "Fire" in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups)
+        fire = {n for n in names if "Fire" in INFUSION_CONSUMERS.get(n, ())} - inhibited_skills(groups, True)
         others = self._group_uses(groups, fire - {self.main_skill})
         uses = {n: number(stats.get("Speed")) if n == self.main_skill else others.get(n, self._chosen_use(n))
                 for n in fire}
@@ -12210,7 +12237,8 @@ class Conditions:
                 and "Damage" in main_types and not main_types & STEWARD_EXCLUDED and self.main_skill
                 and self.main_skill not in (consumers.get("Power") or {})):  # (MECHC49: STEWARD_OF_KULEMAK's note)
             consumers.setdefault("Power", {})[self.main_skill] = number(stats.get("Speed")) * _main_share(stats)
-        if consumers and (blocked := inhibited_skills(self.build.call("groups")["groups"])):  # (MECHC49: INHIBITOR)
+        if consumers and (blocked := inhibited_skills(self.build.call("groups")["groups"])):  # (MECHC49 / MECHC67:
+            # CHARGE_BLOCKERS: Inhibitor, and the Mirage's / illusions' copies)
             for each in consumers.values():
                 for n in [n for n in each if n in blocked]:
                     del each[n]

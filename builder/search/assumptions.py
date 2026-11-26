@@ -4589,7 +4589,7 @@ class Assumptions:
                 "RemovableEnduranceCharges"))  # (MECHB42, GEM23: +50% duration per Endurance Charge consumed)
             if cry.name in self.inhibited():  # (GEM31: MECHC49's INHIBITOR: it consumes none)
                 charges = 0.0
-                hand_notes = hand_notes + [self.inhibited_note(cry.name, "its duration gets no +50% per charge")]
+                hand_notes = hand_notes + [self.inhibited_note(cry.name, "its duration gets no +50% per charge", self.charge_blocker(cry.name))]
             up, kaom_busy, kaom_how = models.kaom_uptime(uses, models.number(row.get("duration")),
                                                          models.number(row.get("castTime")) or cry.cast_time, how, charges)
             embodiment = (up, kaom_how)
@@ -5711,7 +5711,8 @@ class Assumptions:
             charges = number(build.call("stats", fields=["RemovablePowerCharges"]).get("RemovablePowerCharges"))
             if main.name in self.inhibited():  # (GEM31: the manager 09:10, MECHC49's INHIBITOR; a DPS OVERCOUNT before)
                 charges = 0.0
-                hand_notes = hand_notes + [self.inhibited_note(main.name, "its uses fire no Power-Charge projectiles")]
+                hand_notes = hand_notes + [self.inhibited_note(main.name, "its uses fire no Power-Charge projectiles",
+                                                          self.charge_blocker(main.name))]
             thunder_mods, thunder_notes = models.falling_thunder_model(main, main.stat_set, sets, charges, forbidden)
             hand_mods, hand_notes = hand_mods + thunder_mods, hand_notes + thunder_notes
             hand_notes = hand_notes + models.melee_projectiles_note(  # (MECHB59: R56-1, a row; no number moves)
@@ -10319,7 +10320,7 @@ class Assumptions:
         main skill's casts per second when PoB's Speed isn't them (GEM16: Firestorm's one storm a Duration, models.
         firestorm_infusion_model); None reads PoB's Speed, net of the Remnant presses, as before."""
         build = self.build
-        if self.main_skill() in conditions_mod.inhibited_skills(build.call("groups")["groups"]):
+        if self.main_skill() in conditions_mod.inhibited_skills(build.call("groups")["groups"], True):
             return 0.0, (f"Inhibitor supports {self.main_skill()}: it cannot consume Infusions, so none of its casts is "
                          "Infused (R40-2, HIGH)")  # (MECHC49: conditions.INHIBITOR)
         raw = build.call("activeSkills", supportStats=[EXTRA_REMNANT_STAT])["skills"]  # (MECHC60: Harmonic Remnants II)
@@ -10372,7 +10373,7 @@ class Assumptions:
         groups = build.call("groups")
         main = groups["mainSocketGroup"]
         want = re.compile(rf"\b{element}-infused\b", re.I)
-        blocked = conditions_mod.inhibited_skills(groups["groups"])  # (MECHC49: an Inhibitor-supported skill takes none)
+        blocked = conditions_mod.inhibited_skills(groups["groups"], True)  # (MECHC49: an Inhibitor-supported skill takes none)
         pressed = [g for g in groups["groups"]
                    if g["index"] != main and g["enabled"] and pressed_group({**g, "fullDPS": True}, build.ctx.gems)
                    and not any(n["name"] in blocked for n in g.get("gems") or [])]
@@ -12375,15 +12376,27 @@ class Assumptions:
         return head, row_rate, ("; ".join(parts) if parts else "no Lightning Rod or Shockchain Arrow in the build"), fastest
 
     def inhibited(self) -> set[str]:
-        """The skills an enabled Inhibitor supports (conditions.inhibited_skills, MECHC49): they consume no Power, Frenzy
-        or Endurance Charges and no Infusions (R40-2). GEM31: GEM's charge-consuming models check it."""
+        """The skills that consume no Power, Frenzy or Endurance Charges (conditions.inhibited_skills, MECHC49; MECHC67:
+        by the stat, conditions.CHARGE_BLOCKERS: Inhibitor's group, and the copies Mirage Archer / Mirage Deadeye /
+        Hollow Form's Mirage or illusions use). GEM31: GEM's charge-consuming models check it."""
         return conditions_mod.inhibited_skills(self.build.call("groups")["groups"])
 
+    def charge_blocker(self, skill: str) -> str:
+        """(MECHC67) The CHARGE_BLOCKERS gem(s) that keep `skill` from consuming charges, for inhibited_note."""
+        found = sorted({n["name"] for g in self.build.call("groups")["groups"] if g.get("enabled") is not False
+                        and any(m["name"] == skill for m in g.get("gems") or [])
+                        for n in g.get("gems") or [] if n.get("enabled", True) and n["name"] != skill
+                        and conditions_mod.CHARGE_BLOCKERS.get(n["name"]) == "group"})
+        return " / ".join(found) or skill
+
     @staticmethod
-    def inhibited_note(skill: str, what: str) -> dict:
-        return {"label": f"Inhibitor: {skill} consumes no charges*", "value": "0 charges", "confidence": "HIGH",
-                "basis": (f"Inhibitor supports {skill}: it cannot consume Power, Frenzy or Endurance Charges "
-                          f"(cannot_consume_power_frenzy_endurance_charges, R40-2 HIGH; PoB reads no such stat), so {what}")}
+    def inhibited_note(skill: str, what: str, by: str = conditions_mod.INHIBITOR) -> dict:
+        whose = ("" if by == conditions_mod.INHIBITOR else
+                 " (the copy its Mirage or illusions use, not yours: conditions.CHARGE_BLOCKERS)")
+        return {"label": f"{by}: {skill} consumes no charges*", "value": "0 charges", "confidence": "HIGH",
+                "basis": (f"{by} supports {skill}{whose}: it cannot consume Power, Frenzy or Endurance Charges "
+                          f"(cannot_consume_power_frenzy_endurance_charges, R40-2 HIGH; PoB maps it to a condition none of "
+                          f"its charge calculations reads), so {what}")}
 
     def walking_calamity_buff(self, skill: models.Skill) -> tuple[float, float, str]:
         """(GEM38) (the gem's % gained as Fire with its quality, the Buff's share of the fight, how): its uses a second
@@ -12542,7 +12555,7 @@ class Assumptions:
                  "_main_types": main_types}
         found = []
         if skill in ("Glacial Lance", models.OIL_BARRAGE) and skill in self.inhibited():  # (GEM31: MECHC49's INHIBITOR)
-            return 0.0, self.inhibited_note(skill, "none of its uses is empowered")["basis"]
+            return 0.0, self.inhibited_note(skill, "none of its uses is empowered", self.charge_blocker(skill))["basis"]
         if skill == models.FROSTBOLT:  # (GEM32: the explosion only where the bolt meets terrain)
             return 0.0, ("no source gives terrain within 2.4 m of the boss (where the boss stands is the fight's): 0, "
                          "LOW; the bolt pierces the boss and explodes only on terrain")
