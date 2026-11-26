@@ -23,3 +23,85 @@
   sources: ["scratch/manager/research/explosion-aftershock-delays-r62.md (R62-4, R62-5)",
             "scratch/manager/research/delayed-hit-cancel-r59.md (R59-12)", "the manager's 18:14 and 18:37 notes"]
   status: proposed
+
+# COV59 turn 4 (the manager's 20:40 order): GEM44's offense_split2.txt "READ BY OUR CODE (ledger entry missing)" rows,
+# each checked against the reader in cov at c1984ff1 (COV43's rule): only rows whose stat value a model really uses on
+# the scored skill are marked (a link only: each model holds the stat's value as a named constant or reads the stat
+# id). Left OPEN on purpose (checked): Frozen Locus / Grim Pillars' frost_wall_damage_taken_+%_final_from_enemies (no
+# number read: a hit breaks the crystal; Grim Pillars not counted); Incinerate's active_skill_consumes_a_fire_infusion
+# and Flame Wall's ..._lightning_infusion (INFUSED_GATED holds Fireball / Ember Fusillade only); Rite of Restoration's
+# circle_of_power_max_stages (SIGIL_STAGES is Sigil of Power's); Feral Invocation's energy_generated_+% and
+# generic_ongoing_trigger_maximum_energy (not in models.META_GEMS); Magma Barrier's igneous_shield_charge_up_time_+%
+# (MAGMA_CHARGE_UP takes the base only); Encase in Jade's Jade Guard (a row only: COV55's rule); Heart of Ice's
+# skill_chill_magnitude_is_aura_magnitude (its effect UNVERIFIED, not read); Arctic Howl's wolf_warcry_buff_freeze_
+# buildup_+% ("Not counted"); Bleeding Concoction's base_aggravate_bleeding_on_attack_hit_chance_% (no reader found for
+# the skill's own stat); Undermine's two (PoB scores it 0, it stays out: context.py); Electromagnetism's two (MECH69:
+# "out", never fires on a lone boss: a decision, not a reader); Syzygy's crushing_blow_vs_ignited_and_fully_armour_broken
+# ("not counted here"); Powered by Verisium's verisium_infusion_duration_+% (not read); Seismic Cry's
+# seismic_cry_slam_skill_additional_aftershocks, Triskelion Cascade's two, Flame Breath's
+# wyvern_devour_empowered_flame_breath_rage_consumption_+% (no reader in cov at c1984ff1: GEM44 / later code, mark when
+# it lands). Already marked before: recover_%_maximum_mana_on_cull, active_skill_life_gained_on_cull,
+# wyvern_devour_flask_charm_charge_gain_chance_% (COV58, items-cov58c.yaml). Already held by other entries (not repeated
+# here; test_ledger's one-entry rule): consume_parry_debuff_on_hit_to_gain_X_frenzy_charges (model-stats-parry-consume),
+# triggered_by_charged_staff (model-mechb53-charged-shockwave), triggered_by_staggering_palm_on_hit_with_other_skill
+# (model-mechb51-staggering-palm).
+
+- id: model-read-cov59-trigger-and-charge-supports
+  title: "Support / trigger stats held by their models: Ailith's Chimes, Guatelitzi's Ablation, Frenzied Riposte, Fist of Kalguur, Helbrym's Hide, Runeforged Blades"
+  kind: model
+  model: charges
+  stats: ["chance_%_to_gain_power_charges_per_combo_spent", "supported_offerings_grant_you_a_powercharge_every_x_ms",
+          "runic_boosted_attack_damage_%_gained_as_physical",
+          "support_hide_of_helbrym_gain_rage_from_%_of_damage_taken", "consume_armour_break_to_trigger_rune_forged_blades"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code: conditions.AILITH_CHANCE 0.25 (Power Charges a Combo spent, conditions.py 1202) and
+    GUATELITZI_EVERY 4.0 (one a 4 s while its Offering persists, 1204); assumptions.FIST_OF_KALGUUR_GAIN 20 (Runic-boosted damage as extra Physical on the main skill,
+    assumptions.py 10613); recovery.HELBRYM_RAGE_SHARE 0.03 (Rage from damage taken, conditions.py 10283); Runeforged
+    Blades' Consume of Fully Broken Armour in the Battershout consumer cycle (conditions.py 5810-5818, MECH98). A link only.
+  sources: ["builder/search/conditions.py", "builder/search/models.py", "builder/search/assumptions.py", "builder/search/recovery.py"]
+  status: proposed
+
+- id: model-read-cov59-ailment-swaps-and-aggravate
+  title: "Malady's base-chance swap (bridge.lua, MECH96) and Rupture / Rusted Spikes' Aggravate (MECH103) read by their models"
+  kind: model
+  model: ailments
+  stats: ["base_bleed_chance_is_poison_chance_instead", "base_poison_chance_is_bleed_chance_instead",
+          "support_rupture_aggravate_bleeding_on_hitting_heavy_stunned_enemy", "aggravate_bleeding_on_pin_chance_%"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code: engine/bridge.lua 2036-2046 (MECH96: the swapped ailment's base reads the other's own base);
+    models.py 16564-16575 (MECH103: RUPTURE / RUSTED_SPIKES, Aggravated Bleeds over the Heavy Stun / Pin cycle,
+    aggravate_cycle_shares). A link only.
+  sources: ["engine/bridge.lua (MECH96)", "builder/search/models.py (MECH103)"]
+  status: proposed
+
+- id: model-read-cov59-skill-models
+  title: "Skill stats held by their own models: Ice Shards' armed delay, Bone Shrapnel, Charged Shockwave, Staggering Palm's projectile, Empowered Sparks, Ancestral Cry's Volcanic Steps, Flame Pillar's Ignite consume"
+  kind: model
+  model: skill_models
+  stats: ["permafrost_shard_bonus_damage_delay_ms", "support_bone_shrapnel_physical_damage_equal_to_%_monster_life",
+          "skill_has_empowered_spark_support", "ancestral_cry_triggers_shockwave_every_X_units_travelled",
+          "pillar_of_flame_consume_ignite_to_create_X_pillars"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code: models.ICE_SHARDS_RAMP 2.0 (2000 ms; 1 + 400% x min(1, t / 2 s), models.py 26890; the headline
+    takes the build's own wait); models.SHRAPNEL_PERCENT 25 (models.py 8137); bridge.lua 448
+    (the Empowered Sparks support's Empower skill); assumptions.VOLCANIC_STEP_METRES 1.2 (12 units; one Steps per 1.2 m,
+    assumptions.py 12192-12200); conditions' consume table (conditions.py 6385: Flame Pillar consumes Ignite). A link only.
+  sources: ["builder/search/models.py", "builder/search/assumptions.py", "builder/search/conditions.py", "engine/bridge.lua"]
+  status: proposed
+
+- id: model-read-cov59-stun-and-ground
+  title: "Refutation's and Parry's stun thresholds (recovery) and Holy Descent's Consecrated Ground duration (assumptions)"
+  kind: model
+  model: recovery
+  stats: ["runic_fortress_stun_threshold_+%_final", "stun_threshold_+%_final_while_performing_action",
+          "support_holy_descent_consecrated_ground_base_duration_ms"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code: recovery.REFUTATION_THRESHOLD 0.5 (x(1 + 5% a 10 Ward spent), recovery.py 1713);
+    recovery.PARRY_STUN_THRESHOLD 0.6 (Parry's -40% while parrying; its link to 0.3.1's note UNVERIFIED as written there);
+    Holy Descent's 4 s Consecrated Ground on landing (assumptions.py 1434-1442). A link only.
+  sources: ["builder/search/recovery.py", "builder/search/assumptions.py"]
+  status: proposed

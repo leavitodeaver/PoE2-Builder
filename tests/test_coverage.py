@@ -1195,7 +1195,9 @@ def test_train91_reads_are_model_read():
     for stat in ("support_hide_of_helbrym_gain_guard_from_%_of_damage_taken", "support_hide_of_helbrym_guard_duration_ms",
                  "support_hide_of_helbrym_soak_duration_ms"):
         assert coverage.stat_covered(covered, stat, "Helbrym's Hide") == ("model", "model-mechc41-helbryms-hide-guard")
-    assert coverage.stat_covered(covered, "support_hide_of_helbrym_gain_rage_from_%_of_damage_taken", "Helbrym's Hide") is None
+    # (COV59: Helbrym's Rage is counted since conditions.py's HELBRYM_RAGE_SHARE reader: model-read now)
+    assert coverage.stat_covered(covered, "support_hide_of_helbrym_gain_rage_from_%_of_damage_taken", "Helbrym's Hide") == (
+        "model", "model-read-cov59-trigger-and-charge-supports")
     assert (recovery.HELBRYM_SHARE, recovery.HELBRYM_SOAK, recovery.HELBRYM_SECONDS) == (0.5, 2.0, 4.0)
 
 
