@@ -34,7 +34,7 @@ def test_cov60_entangle_expiry_decided_and_the_unread_stay_open():
     entry = coverage.gem_stat_pattern_entry("entangle_duration_speed_+%_when_wet", "Entangle")
     assert entry is not None and entry.id == "gem-cov60-entangle-slower-expiry"
     covered = coverage.stat_entries()
-    for stat, skill in (("seismic_cry_slam_skill_additional_aftershocks", "Seismic Cry"),  # (no reader at d374dcae)
-                        ("wyvern_devour_empowered_flame_breath_rage_consumption_+%", "Flame Breath")):
+    # (Seismic Cry's aftershock stat got its reader in TRAIN 151, GEM44: marked in items-cov60b.yaml / test_cov60b)
+    for stat, skill in (("wyvern_devour_empowered_flame_breath_rage_consumption_+%", "Flame Breath"),):
         assert coverage.stat_covered(covered, stat, skill) is None, stat
         assert coverage.gem_stat_pattern_entry(stat, skill) is None, stat

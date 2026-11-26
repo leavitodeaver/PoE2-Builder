@@ -39,7 +39,7 @@
   kind: model
   model: kalguur_rune
   stats: ["base_number_of_runic_aftershocks_allowed", "triggered_by_fist_of_kalguur_support_%"]
-  skill: [Fist Of Kalguur]
+  skill: [Fist Of Kalguur, Fist of Kalguur]  # (COV60: + the audited skill name)
   confidence: theory
   notes: >-
     MECHB53 (MECHC51's routed item; an UNDERCOUNT: PoB never triggers the Aftershock). At the rune limit the oldest rune

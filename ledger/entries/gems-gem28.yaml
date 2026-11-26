@@ -29,7 +29,7 @@
   kind: model
   model: stomping_ground
   stats: ["stomping_ground_trigger_on_footstep_%_chance"]
-  skill: [Stomping Ground]
+  skill: [Stomping Ground, Stomping Ground Shockwave]  # (COV60: + the audited skill name)
   confidence: theory
   notes: >-
     models.stomping_ground_model + assumptions.stomping_ground (GEM28). "Triggers a Shockwave when you take a step while

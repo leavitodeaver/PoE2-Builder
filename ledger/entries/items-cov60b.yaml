@@ -1,0 +1,97 @@
+# COV60 turn 3 (the manager's 26 Nov 05:58 order, item 3): TRAIN 151's readers (MECH110 / 111, MECHB66 / 67,
+# MECHC64 / 65, GEM44 / 45), each checked against the landed code on origin/main b9c941b2 (COV43's rule: the stat's
+# value or flag is used in the scored number, as a named constant, a read of the stat id, or the model the stat's
+# mechanic feeds). Found by crossing the audit's open stat ids (scratch/cov60/g0.json) with the lines TRAIN 151 added
+# (git diff d374dcae b9c941b2 -- builder engine), plus MECHB66's "modelled by name" list (MECHB66.report.md, Turn 1).
+# Left OPEN on purpose (checked at b9c941b2): permafrost_shard_limit (models.ice_shards_note: a play row only, the
+# headline unchanged: COV55's ruling); unleash_static_field_time_till_final_strike_ms (Crash Lightning: no reader, the
+# Final Strike counted per use); wyvern_devour_empowered_flame_breath_rage_consumption_+% (named "Not counted" beside
+# FLAME_BREATH_GAIN_STAT); number_of_triskelion_cascades_for_next_skill (no code use; GEM45's own entry holds the
+# skill's other three); Decompose's number_of_poison_cloud_allowed (named in a comment only; GAS_CLOUD_LIMIT is Gas
+# Arrow / Gas Grenade's); active_skill_ground_effect_area_of_effect_+%_final_per_second on Decompose / Gas Arrow / Gas
+# Grenade (CREEPING_CHILL_GROWTH reads Creeping Chill's; the cloud rows are named only to identify the clouds);
+# display_skill_poisons_without_hit and skill_is_command (comments only); Caltrops' triggered_by_generic_ongoing_trigger
+# (already held by GEM24's entries with other skills: test_ledger's one-entry rule; that entry could add "Caltrops":
+# for the manager); base_deal_no_damage / display_statset_no_hit_damage (read by bridge.lua's noDamageSet / hitsOnUse,
+# but the audit classes both as flavour, outside the ranking, and base_deal_no_damage already has per-skill entries:
+# COVC13's gem-active-base-set-deals-no-damage, MECH93's Repulsion; one entry per stat).
+
+- id: model-read-cov60-mechb66-triggers
+  title: "Trigger stats held by the models that give the triggered skill its rate (MECHB66's list)"
+  kind: model
+  model: skill_models
+  stats: ["triggered_by_battershout_support_%", "triggered_by_caltrops_support_%",
+          "caltrops_on_dodge_first_trigger_at_%_dodge", "caltrops_on_dodge_trigger_interval_%_dodge",
+          "generic_ongoing_trigger_does_not_use_energy", "chance_to_trigger_volcanic_eruption",
+          "ancestral_cry_projectile_triggered_by_empowered_skill_on_hit", "skill_triggered_on_hit_while_have_vivid_stag_wisps",
+          "triggered_by_flame_pillar_unique_%", "triggered_by_hayhoxis_binding_%", "triggered_by_lich_consuming_power",
+          "triggered_by_mana_flare_support_%", "support_trigger_mana_flare_on_crit",
+          "triggered_by_support_electrocute_lineage_%", "triggered_by_vaal_lineage_detonate_on_landing_support_%_chance",
+          "support_vaal_lineage_trigger_detonate_on_landing", "triggered_fan_the_flames_spread_ignite_to_hit_enemies",
+          "triggered_on_critical_strike_%", "deal_thorns_damage_twice_on_hit_for_X_hits_after_thorns_trigger",
+          "triggered_by_fiery_death_support_%", "chance_to_trigger_fiery_death_on_ignited_enemy_death_%",
+          "triggered_by_burning_runes_support_%", "triggers_burning_runes_on_placing_ground_rune"]
+  confidence: MEDIUM
+  notes: >-
+    MECHB66's list (its report, Turn 1: "modelled by skill name, only a ledger entry is missing"), each model checked
+    to exist on b9c941b2 and to give that triggered skill its rate: Battershout models.battershout_model /
+    assumptions.battershout; Caltrops caltrops_support_model / assumptions.caltrops_support; Trail of Caltrops
+    trail_of_caltrops_model (3 a dodge roll; the 5 / 25 / 45% points of the roll place them in time and move no count);
+    Volcanic Eruption models.EVENT_TRIGGER_SUPPORTS / assumptions.event_triggers (on an Ignited boss) and
+    side_trigger_keep (Ancestral Cry's); Vivid Stampede vivid_stampede_model; Stomping Ground stomping_ground_model
+    (a shockwave a footstep, the animation's events); Fist of Kalguur kalguur_rune_model; Grisly Pyre grisly_pyre_model;
+    Annihilation annihilation_model; Abyssal Apparition abyssal_apparition_model; Mana Flare models.mana_flare
+    (MANA_FLARE_SHARE 25) / Assumptions.mana_flare; Voltaic Fulmination voltaic_fulmination_model; Fiery Reclamation /
+    Xibaqua's Rending models.CORPSE_EXPLOSIONS in corpse_model; Fan the Flames fan_the_flames_model; Lightning Bolt
+    models.ITEM_TRIGGERS ("Trigger Lightning Bolt Skill on Critical Hit": the main skill's crits a second); Barbs III
+    models.BARBS (1, 2); Fiery Death fiery_death_model (FIERY_DEATH_CHANCE_STAT, 60); Burning Inscription conditions'
+    Burning Inscriptions a second (MECH84, BURNING_INSCRIPTION). A link only.
+  sources: ["builder/search/models.py", "builder/search/assumptions.py", "builder/search/conditions.py",
+            "workers/MECHB66.report.md (Turn 1)"]
+  status: proposed
+
+- id: model-read-cov60-train151-readers
+  title: "TRAIN 151's stat readers: Tempest Bell, Crash Lightning, Persistent Ground, Ice Nova on Frostbolt, Astral Projection, Esh's Prowess, Remnant walking, Spear of Solaris, Seismic Cry, Relentless Rage"
+  kind: model
+  model: skill_models
+  stats: ["tempest_bell_physical_damage_%_as_elemental_per_ailment", "bell_ailment_threshold",
+          "unleash_static_field_number_of_pluses", "ground_effects_cannot_trigger",
+          "ice_nova_number_of_frost_bolts_to_cast_on", "nova_skills_cast_at_target_location",
+          "lightning_damage_roll_always_min_or_max", "remnant_pickup_range_+%", "base_remnant_duration_ms",
+          "breach_flame_spawn_radius", "breach_walk_base_visibility_range", "chance_to_retain_40%_of_glory_on_use_%",
+          "seismic_cry_slam_skill_additional_aftershocks", "support_relentless_rage_spending_X_rage_grants_rage_on_next_skill_use"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code on b9c941b2: Tempest Bell (MECHB67) models.BELL_AILMENT_STAT / BELL_THRESHOLD_STAT read from the
+    level stats (assumptions.py 7246-7247) into bell_ailment_bonus; Crash Lightning (MECHB67) models.CRASH_PULSES 3.0
+    (crash_lightning_hits); Persistent Ground II / III (MECH110) models.PERSISTENT_GROUND_STAT: no cloud explodes, each
+    lives its whole duration; Ice Nova (MECH-A) conditions.NOVA_FROSTBOLT_STAT; Astral Projection conditions.NOVA_TARGET_STATS
+    / models.TRISKELION_AT_TARGET (a Nova at the target); Esh's Prowess (MECH110) bridge.lua 726-756 (the min-or-max
+    roll); remnant_pickup_range_+% remnant_walk.PICKUP_STAT / assumptions.py 7605 and flasks.py 502 (supportStats);
+    base_remnant_duration_ms assumptions.BREACH_LIFE_STAT (each Remnant skill's own level stat) and
+    remnant_walk.LIFE_SECONDS; breach_flame_spawn_radius 35 + breach_walk_base_visibility_range 50 (0.1 m units):
+    remnant_walk.SPAWN_METRES 8.5 and REVEAL_METRES 5.0 (MECHC64, R61-1); Spear of Solaris (MECHC65)
+    models.GLORY_RETAIN_STAT read from its level stats (models.py 19411); Seismic Cry (GEM44) models.SEISMIC_CRY:
+    Assumptions.empowered_uses(only=Seismic Cry) into the aftershock model (assumptions.py 5522-5524); Relentless Rage
+    (MECHC65) conditions.RELENTLESS_SPEND 30 / RELENTLESS_GAIN 10 (the refund). A link only.
+  sources: ["builder/search/models.py", "builder/search/assumptions.py", "builder/search/conditions.py",
+            "builder/search/remnant_walk.py", "builder/search/flasks.py", "engine/bridge.lua"]
+  status: proposed
+
+- id: model-mech110-herald-of-plague-spread
+  title: "Herald of Plague: Poison spread from killed adds onto the boss (MECH110 / MECH111)"
+  kind: model
+  model: skill_models
+  stats: ["herald_of_agony_poison_spread_on_kill_radius_base_magnitude_to_grant"]
+  skill: [Herald of Plague]
+  confidence: MEDIUM
+  notes: >-
+    The id models.HERALD_OF_PLAGUE_ENTRY names (models.py 10882; the entry was missing). Checked in the code: the stat
+    gives Herald of Plague's spread ("killing a Poisoned enemy spreads its Poison to other nearby enemies"); PoB maps it
+    to PoisonProlifRange and reads that nowhere. MECH110's model (models.py 10861-10882; assumptions.py 5864): kills
+    only from the boss preset's adds (0 on a lone boss), one Poison an add at the main skill's chance, onto the boss
+    with half its duration left (MEDIUM-LOW), every add taken within the radius (UNVERIFIED; the row: out of reach, 0):
+    so the radius's value itself is not read, the mechanic it grants is. MECH111 / R61-15 refine it.
+  sources: ["builder/search/models.py (Herald of Plague)", "builder/search/assumptions.py",
+            "research/herald-of-plague-spread-r61.md (R61-15)"]
+  status: proposed
