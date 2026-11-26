@@ -132,3 +132,52 @@ def test_real_pob_into_the_breach_collects_a_share_and_the_stacks_follow(engine)
     search.settle()
     print("PROBE wider", build.remnant_collection["share"])
     assert build.remnant_collection["share"] > first["share"]
+
+
+# A totem main skill's hits aren't the player's (MECHC64; RESEARCH61 R61-9: conditions.TOTEM_TYPES' note)
+TOTEM_STATS = {"Speed": 2.0, "HitChance": 100, "CritChance": 10, "_main_types": {"Melee", "Attack"}, "enemySkillTime": 1.0}
+
+
+def test_a_totem_main_skills_hits_give_you_no_rage():
+    from builder.search import conditions as c
+
+    for text in ("Gain 3 Rage on Melee Hit", "Gain 2 Rage on Critical Hit"):
+        own = c._rage_gain(text, TOTEM_STATS, True)
+        totem = c._rage_gain(text, {**TOTEM_STATS, "TotemLife": 1500.0}, True)
+        assert own[0] > 0 and totem[0] == 0.0 and "its totem's, not yours" in totem[2]
+
+
+def test_a_totem_main_skills_hits_give_you_no_charges():
+    from builder.search import conditions as c
+
+    stats = {**TOTEM_STATS, "_main_types": {"Attack", "SummonsTotem"}}
+    for text, kind in (("20% chance to gain a Power Charge on Hit", "Power"),
+                       ("Gain a Frenzy Charge on Critical Hit", "Frenzy")):
+        assert c._charge_rate(text, kind, TOTEM_STATS)[0] > 0
+        rate, how = c._charge_rate(text, kind, stats)
+        assert rate == 0.0 and "R61-9" in how
+
+
+def test_real_pob_shockwave_totem_main_gains_no_rage_from_its_hits(engine):
+    """Real PoB: a Shockwave Totem main skill (PoB's TotemLife > 0) with "Gain 5 Rage on Melee Hit" and a Rage maximum:
+    the reader gives no Rage from the totem's hits (before: the totem's slams at its Speed)."""
+    from builder.request.schema import BuildRequest
+    from builder.search.context import Context, make_payload
+    from builder.search.inner import Search
+    from builder.search.skeletons import enumerate_skeletons
+    from builder.search import conditions as c
+
+    payload = make_payload(BuildRequest(main_skill="Shockwave Totem", level=90))
+    skeleton = enumerate_skeletons(Context(payload), ["Shockwave Totem"])[0][0]
+    search = Search(engine, None, payload, skeleton.as_dict(), 0)
+    search.setup(quests=False)
+    build = search.build
+    ring = chr(10).join(["Rarity: Rare", "Test Loop", "Iron Ring", "Item Level: 82", "Implicits: 0",
+                         "Gain 5 Rage on Melee Hit", "+20 to Maximum Rage"])
+    build.call("equip", slot="Ring 1", raw=ring, fields=[])
+    stats = build.call("stats", fields=c.EVIDENCE_FIELDS)
+    print("PROBE totem", stats.get("TotemLife"), stats.get("Speed"), stats.get("MaximumRage"))
+    assert c._totem_main({**stats, "_main_types": set()})
+    got = c._rage_gain("Gain 5 Rage on Melee Hit", {**stats, "_main_types": {"Melee", "Attack"}}, True)
+    print("PROBE rage", got)
+    assert got[0] == 0.0 and "its totem's" in got[2]

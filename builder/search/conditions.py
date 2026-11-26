@@ -15,6 +15,7 @@ from __future__ import annotations
 from functools import lru_cache
 import functools
 import math
+import os
 import pathlib
 import re
 from collections.abc import Callable
@@ -794,6 +795,34 @@ def _main_share(stats: dict) -> float:
     return 1.0 if got is None else max(0.0, min(1.0, number(got)))
 
 
+# A totem main skill's hits aren't yours (MECHC64; RESEARCH61 R61-9, research/shockwave-totem-eruptions-and-totem-on-hit-r61.md,
+# MEDIUM-LOW; GEM44's find: an OVERCOUNT before). KeywordPopups Totem: "Totems are allied constructs which use skills for
+# you ... though they have their own defensive stats"; the game words its totem lines "you and your Totems each gain" /
+# "you or your Totems Hit" (so a totem's hit isn't yours), and a hitter gains its own Rage ("Companions in your Presence
+# gain {0} Rage on hit"). So the player's Rage and charges from "on Hit" / "when you Hit / Crit" lines take none of a
+# totem main skill's hits; effects the hit itself creates or inflicts (Remnants, curses on hit) are read elsewhere and
+# still count (LOW-MEDIUM). Totem main: PoB's TotemLife (computed only for a totem skill, CalcOffence 1945) or the skill's
+# SummonsTotem / UsedByTotem type. POE2_TOTEM_HITS_YOURS=1: the row where they count (the old reading).
+TOTEM_TYPES = {"SummonsTotem", "UsedByTotem"}
+TOTEM_HITS_YOURS = os.environ.get("POE2_TOTEM_HITS_YOURS") == "1"
+
+
+def _totem_main(stats: dict) -> bool:
+    """Whether the main skill is used by a totem (TOTEM_TYPES' note)."""
+    return number(stats.get("TotemLife")) > 0 or bool(TOTEM_TYPES & set(stats.get("_main_types") or ()))
+
+
+def _totem_cut(hits: float, stats: dict) -> tuple[float, str]:
+    """(the main skill's hits that are yours, why): 0 for a totem main skill (its hits are the totem's; R61-9), with the
+    old reading as a row; unchanged otherwise."""
+    if hits <= 0 or not _totem_main(stats):
+        return hits, ""
+    if TOTEM_HITS_YOURS:
+        return hits, " (a totem's hits counted as yours: POE2_TOTEM_HITS_YOURS, the row)"
+    return 0.0, (f" (the main skill's {hits:.2f} hits/s are its totem's, not yours: none count for your Rage or charges; "
+                 "R61-9, MEDIUM-LOW; if they counted: those hits)")
+
+
 # Thaumaturgical Dynamism (MECHC50; RESEARCH39 R39-18; an UNDERCOUNT before: no code read it, PoB parses the line to
 # nothing). KeywordPopups ThaumaturgicalDynamism: you "passively generate a Power, Frenzy or Endurance Charge once every five
 # seconds"; the type follows "the Attribute Requirements of the Skills you have socketed in your Skill Gem sockets" (higher
@@ -1067,6 +1096,8 @@ def _charge_rate_uncapped(text: str, kind: str, stats: dict) -> tuple[float, str
         many = (f" ({number(per_use[0]):.2f} hits a use, each may grant: {per_use[1]}; at one hit a use: "
                 f"{hits:.2f}/s)")
         hits *= max(number(per_use[0]), 0.0)
+    hits, totem = _totem_cut(hits, stats)  # (MECHC64: TOTEM_TYPES' note)
+    many += totem
     crits = hits * number(stats.get("CritChance")) / 100
     boss = 1 / bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHC11)
     if re.search(r"\bkill", when):  # (MECHC38: "kill" inside "This skill ..." read as on-kill before)
@@ -3206,6 +3237,7 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
                                          f"spending {rate:.1f}/s (other skills' Mana not counted): {events:.2f} gains/s")
     hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100) / 100
     hits *= _main_share(stats) * models.per_use_factor(stats)  # (MECHC44: at its share; MECHC52: MECH99's per-use cut)
+    hits, totem = _totem_cut(hits, stats)  # (MECHC64: TOTEM_TYPES' note)
     every = bosses.benefit_skill_time(stats)  # (a "when hit" benefit: one hit per boss skill use, MECHD4 / MECHC11)
     # (red-flash hits always land, MECHC5; MECHC20: a gain, so the worst case reads the lowest real boss's landed hits)
     land = boss_hits.gain_hits(stats)[0]
@@ -3230,17 +3262,17 @@ def _rage_gain(text: str, stats: dict, own_hits: bool) -> tuple[float, float, st
             hits = 0.0
         if "ignite" in when:
             events = hits * min(number(stats.get("IgniteChancePerHit")), 100) / 100
-            how = f"{events:.2f} Ignites/s"
+            how = f"{events:.2f} Ignites/s{totem}"
         elif "critical" in when:
             events = hits * number(stats.get("CritChance")) / 100
-            how = f"{events:.2f} crits/s"
+            how = f"{events:.2f} crits/s{totem}"
             if text not in (stats.get("_gem_line_texts") or ()):  # (MECHC46: the other groups' crits, GENERIC_HIT's note)
                 side = _side_sum(stats, melee=bool(re.search(r"\bmelee\b", when)))
                 if side[1] + side[3] > 0:
                     events += side[1] + side[3]
                     how += f" + the other groups' {side[1] + side[3]:.2f} crits/s ({side[4]})"
         elif "hit" in when:
-            events, how = hits, f"{hits:.2f} hits/s"
+            events, how = hits, f"{hits:.2f} hits/s{totem}"
             if text not in (stats.get("_gem_line_texts") or ()):  # (MECHC46: the other groups' hits, GENERIC_HIT's note)
                 side = _side_sum(stats, melee=bool(re.search(r"\bmelee\b", when)))
                 if side[0] + side[2] > 0:
