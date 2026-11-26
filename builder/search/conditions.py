@@ -9692,6 +9692,15 @@ def pob_check_vars() -> frozenset[str]:
 
 
 FREEZE_SHARE_INPUT = "mechFreezeShare"  # (the bridge's boss action speed: Freeze as a stop for this share; MECH55)
+# Chaotic Freeze (MECH113; RESEARCH65 R65-16, research/chaotic-freeze-condition-r65.md): "Enemies taking damage over
+# time from Debuffs caused by supported skills will suffer Freeze build up from Chaos damage Hits from any source"
+# (sup_int.lua; the game's text). So Freeze buildup from Chaos hits needs the boss to carry the supported skill's DoT
+# when the hit lands, and the supported skill itself (Contagion: no hit) builds none. PoB's statMap sets ChaosCanFreeze
+# as an always-on global Buff whenever the support is in the build, so the main skill's FreezeBuildupAvg that this reader
+# takes holds Chaos buildup even where the DoT isn't on the boss: an OVERCOUNT by the DoT's absent share. Not gated here
+# yet: build 10 (Contagion), the only holder among the example builds and gate references (checked: the 21 example XMLs
+# and 2b75a-e decoded), leaves the Frozen box off (4.5% of the fight, under
+# MIN_UPTIME; POE2T8997), so nothing moves; a build whose Frozen share reaches the box needs that gate.
 
 
 def _immobilised(ailment: str, name: str) -> Callable[[list[str], dict], tuple[object, str]]:

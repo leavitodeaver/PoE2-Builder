@@ -11176,7 +11176,7 @@ def static_shocks_model(parts: list[dict]) -> tuple[float, list[dict]]:
     """(added DPS, notes) for Static Shocks (see above): `parts`, one per group holding it: {"group": a label,
     "sources": [(skill, hits a second on the boss, Shock chance a hit 0-1)], "duration": one Static Shock's (s),
     "pulse": one pulse's damage on the boss (PoB's AverageHit), "pob": PoB's Full DPS entry}."""
-    total, rows = 0.0, []
+    total, rows, restart = 0.0, [], 0.0
     for part in parts:
         sources = [(name, max(number(h), 0.0), min(max(number(c), 0.0), 1.0)) for name, h, c in part.get("sources") or ()]
         hits = sum(h for _, h, _ in sources)
@@ -11191,6 +11191,10 @@ def static_shocks_model(parts: list[dict]) -> tuple[float, list[dict]]:
             wait, rate = float("inf"), 0.0
         dps = rate * pulse
         total += dps
+        # (MECH113, RESEARCH65 R65-3: unsettled, no source) the other reading: a new Shock replaces the attached one and
+        # restarts its pulse timer, so each Shock attaches and pulses until the next Shock (taken at random times,
+        # MEDIUM-LOW): pulses per attach sum_k e^(-shocks x k x 0.65 s), k up to the duration's pulses
+        restart += shocks * pulse * sum(math.exp(-shocks * k * STATIC_SHOCKS_PULSE) for k in range(1, pulses + 1))
         made = ", ".join(f"{name} {h:.2f} hits/s x {c:.1%} Shock" for name, h, c in sources) or "no supported hits"
         rows.append(f"{part.get('group') or 'its group'}: {made} = {shocks:.3f} Shocks a second; one attached for "
                     f"{duration:.3g} s = {pulses} pulses"
@@ -11206,7 +11210,14 @@ def static_shocks_model(parts: list[dict]) -> tuple[float, list[dict]]:
                   + ". A Shock while one is attached taken to do nothing (UNVERIFIED); adds pulsed nearby not counted"),
         "play": (f"Shock the boss with the Static Shocks skill and keep hitting it: each Static Shock pulses for its "
                  f"duration, the next attaching on your next Shock after it ends. With this build {total:,.1f} DPS; "
-                 f"without Shocks from the supported skill (or the skill unused): 0.")}]
+                 f"without Shocks from the supported skill (or the skill unused): 0.")}, {
+        "label": "Static Shocks: if a new Shock replaces the attached one (pulse timer restarts)*",
+        "value": f"{restart:,.1f} DPS", "confidence": "LOW", "entry": STATIC_SHOCKS_ENTRY,
+        "basis": ("RESEARCH65 R65-3: what a Shock does to a target already carrying a Static Shock is unsettled (no "
+                  "source). This row: each Shock attaches a new one, replacing the old and restarting its 0.65 s pulse "
+                  "timer, so frequent Shocks cut pulses short (Shocks taken at random times); the headline keeps the "
+                  "other reading (a Shock while one is attached does nothing)"),
+        "play": "The same play; with frequent Shocks this reading gives fewer pulses."}]
 
 
 # Death-fed spreads and bursts, and Shock Conduction II's always-Shock (MECH112; GEM44's MECH-A rows). The game

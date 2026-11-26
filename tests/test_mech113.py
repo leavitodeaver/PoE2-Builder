@@ -153,3 +153,17 @@ def test_the_shared_persistent_ground_reader():
     assert assumptions.persistent_ground(b, 5, "Gas Arrow", 4.0) == (pytest.approx(4.0), False, 0.0)
     assert assumptions.persistent_ground(b, 3, "Skeletal Sniper", 8.0, contains=True) == (pytest.approx(12.0), False, 50.0)
     assert assumptions.persistent_ground(b, 4, "Decompose", 6.0) == (pytest.approx(6.0), False, 0.0)  # disabled: none
+
+
+def test_static_shocks_replace_and_restart_row():
+    """(R65-3) The row where a new Shock replaces the attached Static Shock and restarts its pulse timer."""
+    import math
+
+    from builder.search import models
+
+    part = {"group": "Spark", "sources": [("Spark", 2.0, 0.5)], "duration": 4.026, "pulse": 100.0}
+    dps, notes = models.static_shocks_model([part])
+    assert len(notes) == 2 and "replaces" in notes[1]["label"] and "full_dps" not in notes[1]
+    want = 1.0 * 100.0 * sum(math.exp(-1.0 * k * models.STATIC_SHOCKS_PULSE) for k in range(1, 7))
+    assert notes[1]["value"] == f"{want:,.1f} DPS"
+    assert models.static_shocks_model([{**part, "sources": []}])[1][1]["value"] == "0.0 DPS"
