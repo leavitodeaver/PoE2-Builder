@@ -11659,7 +11659,10 @@ def earthquake_limit_model(main: Skill | None, scored: str | None, speed: float,
 # which PoB's own map turned into Damage MORE (the evidence is in the bridge's comment). This note says so on every
 # Earthquake build scoring the Aftershock, with PoB's reading as the row: measured on a level-90 Warbringer Earthquake 20
 # skeleton (probe POE2T9703, scratch/gem45/probe_quake.log), PoB's map multiplies the Aftershock's hit by x2.915 (456.88
-# -> 156.74 average damage; the Impact unchanged), not the x2 its 100 would give (why: not traced, UNVERIFIED).
+# -> 156.74 average damage; the Impact unchanged): its MORE is exactly x2 on the raw hit, and the boss's Armour (9,675
+# there) mitigates the doubled Physical hit proportionally less, x1.46 more (GEM46, R64-4: probe POE2T9730,
+# scratch/gem46/probe_quake2.log, boss Armour 0: 426.21 -> 852.02, x2.00; the skeleton inflicts no ailments). So the
+# mute removes all of PoB's overcount; the factor in the row depends on the build's hit against the boss's Armour.
 EARTHQUAKE_JAGGED_ENTRY = "model-gem45-earthquake-jagged-magnitude"
 EARTHQUAKE_POB_MORE = 2.915  # PoB's factor on the reference skeleton (POE2T9703), for the row only
 
@@ -11674,7 +11677,8 @@ def earthquake_jagged_note(main: Skill | None, scored: str | None) -> list[dict]
                        "Aftershock only inherits it and already deals its own 184-666% (0.5.0; poe2db), and PoB reads the "
                        "same stat on passives as magnitude (RESEARCH63 R63-1, MEDIUM-HIGH; no in-game damage test). PoB "
                        "maps it to Damage MORE on the Aftershock; the bridge mutes that. Row: PoB's reading, the "
-                       f"Aftershock x{EARTHQUAKE_POB_MORE:g} (measured on a level-90 Warbringer skeleton)"),
+                       f"Aftershock x{EARTHQUAKE_POB_MORE:g} (measured on a level-90 Warbringer skeleton: x2 on the "
+                       "raw hit, the rest the boss's Armour mitigating a bigger Physical hit less)"),
              "play": ""}]
 
 

@@ -63,7 +63,14 @@
     PoB sup_str.lua SupportFlamePillarPlayer (26650308): "Supported Skills Consume Ignite on Hit to create pillars of
     flame, but cannot themselves inflict Ignite" (never_ignite: PoB's CannotIgnite, applied); TriggeredFlamePillarPlayer:
     "Deal Fire Damage in an Area based on a percentage of the expected Damage of the Consumed Ignite", 25%, radius 1.5 m,
-    made within 1 m of the consumed enemy. PoB holds no damage for the pillar. Counted as MECH71's Grisly Pyre (the same
+    made within 1 m of the consumed enemy. PoB holds no damage for the pillar, and nothing read the support's stat
+    before GEM46 (checked, 26 Nov: grep of support_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage over
+    builder/, engine/, ledger/ (only gems-gem46.yaml and models.py's FLAME_PILLAR, both GEM46) and PoB's Modules,
+    SkillStatMap.lua, ModCache.lua and Data/Skills (only sup_str.lua's TriggeredFlamePillarPlayer constantStats, no
+    statMap); the one other "% of remaining Ignite damage" reader is MECH71's model of the unique's own stat,
+    unique_flame_pillar_fire_damage_equal_to_%_of_remaining_ignite_damage (Grisly Pyre, gems-gem14.yaml); second
+    source: the coverage audit's open gem-stat rows, scratch/gem44/offense_split2.txt, listed it as unread by any code).
+    Counted as MECH71's Grisly Pyre (the same
     shape at 30%): assumptions.grisly_pyre / models.grisly_pyre_model with share 0.25, the supported skill's uses, the
     boss's Ignited share after the consumption, the Ignite from the build's other skills (MECH74's path where the
     supported skill can't Ignite); an added source. Probe POE2T9727 (scratch/gem46/probe_pillar2.log; a level-90

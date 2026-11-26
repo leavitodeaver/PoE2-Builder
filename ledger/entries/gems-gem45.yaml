@@ -40,7 +40,9 @@
     every Earthquake build scoring the Aftershock. engine/bridge.lua's STAT_SET_SLOT_FIXES mutes it (removing exactly
     what PoB applies, in hits and ailments alike). Probe scratch/gem45/probe_quake.log (level-90 Warbringer Earthquake
     20, endgame): Aftershock 456.88 -> 156.74 average damage (x2.915; TotalDPS 322.74 -> 110.72), the Impact 19.99 both.
-    Row: PoB's reading (x2.915 on that skeleton; why not x2 is not traced). No in-game damage test exists.
+    Row: PoB's reading (x2.915 on that skeleton: exactly x2 on the raw hit, x2.00 with the boss's Armour at 0; the rest is
+    the boss's 9,675 Armour mitigating the doubled Physical hit less: GEM46, RESEARCH64 R64-4, probe POE2T9730). No in-game
+    damage test exists.
   sources: ["engine/bridge.lua (STAT_SET_SLOT_FIXES)", "builder/search/models.py (earthquake_jagged_note)",
             "scratch/gem45/probe_quake.log"]
   test_in_game: "Hover Earthquake at gem level 20: do the Impact and Aftershock damage ranges differ by about 5.3x (this reading) or about 10.7x (PoB's)?"
