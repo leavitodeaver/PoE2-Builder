@@ -198,6 +198,50 @@ def test_a_side_groups_trials_go_to_a_what_if_signal_then_to_model_valued_suppor
     assert Gems._side_ranked(g, options, scored, 2) == ["Signal", "Plain"]
 
 
+
+def test_last_empty_gives_the_kept_back_time_to_the_empty_slots_alone(monkeypatch):
+    """(SEARCH38's next gear-first try) POE2_SEARCH_GEAR_FIRST=last_empty: as `last` (the resumed pass's steps stop
+    GEAR_SHARE early), but the time kept back works the empty slots only, not the cut round from where it stopped."""
+    from builder import clock
+    from builder.search import inner
+
+    now = [0.0]
+    monkeypatch.setattr(clock, "now", lambda: now[0])
+    monkeypatch.setattr(inner, "PERSIST_LINES", True)
+    monkeypatch.setattr(inner, "GEAR_FIRST", True)
+    monkeypatch.setattr(inner, "GEAR_FIRST_EMPTY", False)
+    monkeypatch.setattr(inner, "GEAR_FIRST_LAST", True)
+    monkeypatch.setattr(inner, "GEAR_SHARE", 0.4)
+
+    def run(narrow):
+        monkeypatch.setattr(inner, "GEAR_FIRST_LAST_EMPTY", narrow)
+        now[0] = 0.0
+        ran = []
+
+        def step(phase, fn, *args):
+            ran.append((phase, args))
+            now[0] += 25.0
+            return False
+
+        fake = lambda *a, **k: None  # noqa: E731
+        blocks = SimpleNamespace(**{n: fake for n in (
+            "gear_round", "ascendancy_round", "optimize_supports", "grow", "attributes_round", "jewel_round", "round",
+            "optimize_persistent", "granted_meta_round", "meta_round", "meta_spell_round", "totem_round", "mark_round",
+            "mirage_round", "roar_round", "swap_round")}, resume="Body Armour")
+        search = SimpleNamespace(passes=0, passes_done=0, line_passes=1, resume_step="supports", resume_sweep=True,
+                                 current_step=None, kicked=set(), build=SimpleNamespace(equipped={}),
+                                 gear=blocks, tree=blocks, gems=blocks, jewels=blocks, sources=blocks,
+                                 conditions_round=fake, weapon_set_round=fake, tree_rebuild=fake, press_round=fake,
+                                 skeleton=SimpleNamespace(swap=False), step=step, idle={}, skipped={},
+                                 gear_census=lambda: {"empty": ["Gloves", "Belt"]})
+        inner.Search.blocks(search, deadline=100.0)
+        return ran
+
+    assert run(True)[-1] == ("gear", (100.0, True, ["Gloves", "Belt"]))  # (the empty slots alone)
+    assert run(False)[-1] == ("gear", (100.0, True))  # (plain `last`: the cut round from where it stopped)
+
+
+
 import faulthandler  # noqa: E402
 import json  # noqa: E402
 from pathlib import Path  # noqa: E402

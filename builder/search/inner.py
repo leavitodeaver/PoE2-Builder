@@ -116,7 +116,7 @@ LINE_REGROW = os.environ.get("POE2_SEARCH_LINE_REGROW", "0") == "1"
 # (gear.resume) runs that round on first, from the slot it stopped at, under GEAR_SHARE as a full round. OFF until a
 # gate pair measures it
 GEAR_FIRST_MODE = os.environ.get("POE2_SEARCH_GEAR_FIRST", "0")
-GEAR_FIRST = GEAR_FIRST_MODE in ("1", "empty", "last")
+GEAR_FIRST = GEAR_FIRST_MODE in ("1", "empty", "last", "last_empty")
 # (SEARCH37, the manager's ruling on the 2b75e loss) POE2_SEARCH_GEAR_FIRST=empty: the narrow form. The round that goes on
 # first works only the slots still empty (Gear.gear_round's `only`), and the cut full round keeps its place for the
 # line's next gear step, so the resumed pass reaches supports (on 2b75e seed 1 the full form's round-2 tasks each ran a
@@ -128,7 +128,12 @@ GEAR_FIRST_EMPTY = GEAR_FIRST_MODE == "empty"
 # off, 2b75b's round-2 tasks never got back to the gear step (passes 1, done 0, 6 slots empty at t 390: POE2T7410) while
 # 2b75e's finished the pass and its next gear round filled every slot (passes 2, done 1: POE2T7422 / 7434), and both
 # the full and the narrow forms lost 2b75e by ~x0.5 (POE2T7423 / 7435 / 7436) by running the gear before that pass
-GEAR_FIRST_LAST = GEAR_FIRST_MODE == "last"
+GEAR_FIRST_LAST = GEAR_FIRST_MODE in ("last", "last_empty")
+# (SEARCH40; SEARCH38's next try, its 13:55 report: on 2b75b `last`'s kept-back time went to the cut round from Body
+# Armour and all 6 empty slots stayed empty, POE2T7449) POE2_SEARCH_GEAR_FIRST=last_empty: `last`, its kept-back time on
+# the EMPTY slots only (the narrow form's `only`); the cut round keeps its place for the line's next gear step. OFF
+# until a gate set
+GEAR_FIRST_LAST_EMPTY = GEAR_FIRST_MODE == "last_empty"
 LINE_REGROW_SHARE = 0.3
 LINE_REGROW_CLEARS = ("weak:30", "weak:15", "weak:8")  # (the variants 2b75b kept in POE2T5552; "all" was refused)
 IDLE_STEPS = ("persistent", "condition sources", "meta gems")
@@ -1359,7 +1364,8 @@ class Search:
         if limit < deadline and not finished and clock.now() <= deadline:  # (SEARCH37 GEAR_FIRST_LAST: the pass
             # didn't end in time, so it won't reach its gear step this task: the cut round goes on in the time kept back)
             self.current_step = "gear"
-            improved = self.step("gear", self.gear.gear_round, deadline, True) or improved
+            only = (list(empty),) if GEAR_FIRST_LAST_EMPTY else ()  # (SEARCH40: last_empty, the empty slots alone)
+            improved = self.step("gear", self.gear.gear_round, deadline, True, *only) or improved
         self.current_step = None
         self.kicked.clear()
         self.passes_done += finished
