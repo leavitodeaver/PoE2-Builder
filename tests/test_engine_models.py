@@ -2723,7 +2723,7 @@ def test_which_skills_beside_the_main_one_hit_when_used_for_daze(engine):
     assert not hit["Fortifying Cry"] and not hit["Herald of Ice"] and not hit["Flame Wall"] and not hit["Contagion"]
 
 
-def test_a_part_time_elixirs_life_flask_is_taken_out_of_pobs_regeneration_once(engine):
+def test_a_part_time_elixirs_life_flask_is_taken_out_of_pobs_regeneration_once(engine, monkeypatch):
     """MECHC25 (AUDIT35 A35-20): with a part-time Enduring Elixirs Life flask's slot on, PoB's LifeRegenRecovery holds the
     flask's whole recovery (no charge limit) and our FlaskLifeRecoveryRate its charge-limited share; the readers that
     sum both (the Ward sacrifice's Life recovery, the refill between the boss's hits) take PoB's share off, measured by
@@ -2732,6 +2732,7 @@ def test_a_part_time_elixirs_life_flask_is_taken_out_of_pobs_regeneration_once(e
 
     from builder.search import flasks
 
+    monkeypatch.setattr(flasks, "STOCK", False)  # (MECHC66: this test reads the charges' RATE alone; the starting stock: test_mechc66)
     build = spark_with(engine, []).build
     elixirs = "Life Flask Effects are not removed when Unreserved Life is Filled"
     belt = chr(10).join(["Rarity: Rare", "Test Belt", "Fine Belt", "Item Level: 82", "Implicits: 0",
@@ -4152,15 +4153,16 @@ def test_runic_tempering_feeds_serles_grit_plates_as_thorns_pob_can_read(engine)
     assert any(g["label"] == models.THORNS_GROUP for g in build.groups())
 
 
-def test_blood_of_the_warriors_recoup_reads_its_own_uptime_and_the_bosss_damage(engine):
+def test_blood_of_the_warriors_recoup_reads_its_own_uptime_and_the_bosss_damage(engine, monkeypatch):
     """MECHC48 (COV48 row 12.0, an UNDERCOUNT before): Blood of the Warrior in the Life flask slot hands
     recovery.hit_income its "N% of Damage taken during effect Recouped as Life" at the flask's uptime and the boss's
     damage taken a second (Assumptions.hit_rates)."""
     from types import SimpleNamespace
 
-    from builder.search import recovery
+    from builder.search import flasks, recovery
     from builder.search.assumptions import Assumptions
 
+    monkeypatch.setattr(flasks, "STOCK", False)  # (MECHC66: this test reads the charges' RATE alone; the starting stock: test_mechc66)
     search = spark_with(engine, [])
     build = search.build
     raw = chr(10).join(["Rarity: Unique", "Blood of the Warrior", "Gargantuan Life Flask", "90% less Life Recovered",

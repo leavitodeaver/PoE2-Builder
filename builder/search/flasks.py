@@ -19,6 +19,7 @@ generation and scaling from the committed build (bridge `chargeGain`).
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
 
@@ -166,6 +167,10 @@ class Charges:
     granted_charm: float = 0.0
     granted_how: str = ""
     bloom_how: str = ""  # (MECHC61: BLOOM_REMNANTS' note) the Remnant multiplier and supports on the Bloom rate
+    # (MECHC66, R63-5: STOCK's note) the boss fight's length in seconds the starting stock is spread over (0: no stock
+    # read, the "starts empty" reading), and how it was found
+    fight: float = 0.0
+    fight_how: str = ""
 
     @classmethod
     def of(cls, build) -> Charges:
@@ -246,6 +251,12 @@ class Charges:
                 total += uses
                 parts.append(f"{rate.get('name')} {how}")
             gain = replace(gain, perfect_press_rate=total, perfect_press_how="; ".join(parts))
+        if STOCK and any((getattr(build, "equipped", None) or {}).get(slot) is not None
+                         for slot in [*FLASK_SLOTS, *CHARM_SLOTS]):  # (MECHC66: STOCK's note)
+            from dataclasses import replace
+
+            fight, how = fight_length(build, boss)
+            gain = replace(gain, fight=fight, fight_how=how)
         return gain
 
     @classmethod
@@ -660,7 +671,129 @@ def charges_per_second(info: dict, gain: Charges, pool: str | None) -> float:
         generated, inc = (gain.flask + specific + on_crit + info.get("gainBase", 0) + bloom_charges(gain, pool) + kills,
                           gain.flask_gain_inc)
         granted = gain.granted_life if pool == "Life" else 0.0
-    return max(0.0, generated * (1 + (inc + info.get("gainInc", 0)) / 100) * info.get("gainMod", 1) + granted)
+    return max(0.0, generated * (1 + (inc + info.get("gainInc", 0)) / 100) * info.get("gainMod", 1) + granted
+               + stock_charges(info, gain))
+
+
+# A boss fight starts with the flasks and charms FULL (MECHC66; RESEARCH63 R63-5, research/flask-charm-charges-lone-boss-r63.md,
+# MEDIUM-HIGH; an UNDERCOUNT before: the model read a charge RATE only, so a build with no kill-free charge source had its
+# flasks and charms off all fight: example build 4's two flasks and three charms). The game's words (KeywordPopups Flask /
+# Charm, 26650308): charges come from kills; "Checkpoints and Wells completely refill Flasks" / "completely recharge
+# Charms"; poe2db's Checkpoint: they "will often appear before Boss fights" and refill "your Life, Mana, Flasks and
+# Charms"; and a flask keeps its charges while in its slot (only a unique's "lose all charges on entering a new area"
+# empties it). No recharge over time (HIGH, R63-5's search over KeywordPopups, Stats and the patch notes). So each flask
+# and charm brings floor(maximum charges / charges a use) uses into the fight (PoB's flaskData: chargesMax, chargesUsed,
+# local lines in), spread here over the fight's length T as charges a second (stock_charges), beside what the build
+# generates: uptime = min(1, (stock uses + generated x T / per use) x duration / T), and a Life / Mana flask's recovery
+# gains stock uses x its recovery a use / T, through every reader of charges_per_second (uses, uptime, recovery, Cast on
+# Charm Use's Energy, a Concoction's throws, Zerphi's transfers). The caps after it stay: a charm once per its effect and
+# its trigger, a Life / Mana flask once a dip below full. T from the build, never flat (CLAUDE.md): the boss preset's
+# Life + ES (conditions.boss_pool, all its bars) / the build's Full DPS with every flask and charm OFF (bridge.noFlaskDps:
+# the flasks feed the DPS, so the fight without them is the longer one and the lower reading), at most FIGHT_CAP; no DPS:
+# no stock. The stock is spread evenly over the fight (it is spent at the start: an effect read "at its share" is right
+# on average). "Starts empty" (a player who drank them in the map just before) is the row (stock_note); POE2_FLASK_STOCK=0
+# is that reading. A charm's uses with "N% chance to not consume Charges" are counted in expectation (the stock's charges
+# / the average charges a use).
+STOCK = os.environ.get("POE2_FLASK_STOCK", "1") != "0"
+FIGHT_CAP = 1800.0  # (seconds: assumptions' Soul Eater fight cap, the same 30 minutes)
+
+
+def stock_charges(info: dict, gain: Charges) -> float:
+    """The starting stock's charges a second over the fight (STOCK's note): floor(max / per use) uses' charges / T."""
+    if gain.fight <= 0 or not info.get("kind") or info.get("constant"):
+        return 0.0
+    nominal = float(info.get("chargesUsed") or 0.0)
+    if info.get("kind") == "Charm":
+        nominal *= max(1 + gain.charm_used_inc / 100, 0.0)
+    if nominal <= 0:
+        return 0.0
+    uses = math.floor(float(info.get("chargesMax") or 0.0) / nominal + 1e-9)
+    return uses * nominal / gain.fight
+
+
+def stock_uses(info: dict, gain: Charges) -> int:
+    """The uses a full flask or charm brings into the fight (STOCK's note)."""
+    nominal = float(info.get("chargesUsed") or 0.0)
+    if info.get("kind") == "Charm":
+        nominal *= max(1 + gain.charm_used_inc / 100, 0.0)
+    return math.floor(float(info.get("chargesMax") or 0.0) / nominal + 1e-9) if nominal > 0 else 0
+
+
+def stock_note(build, gain: Charges) -> list[dict]:
+    """The assumption row for the starting stock (STOCK's note): each equipped flask's and charm's uses at the start and
+    the charges it generates in the fight (starting empty, those alone pay for its uses); [] with none equipped or the
+    stock off. Each one's uptime is the flask rows' (Gear.flask_report): a Life / Mana flask's moves with the build's
+    state (its dips and the pool filling up), so it isn't repeated here."""
+    if gain.fight <= 0:
+        return []
+    from dataclasses import replace
+
+    equipped = getattr(build, "equipped", None) or {}
+    slots = [(slot, o) for slot in [*FLASK_SLOTS, *CHARM_SLOTS] if (o := equipped.get(slot)) is not None]
+    if not slots:
+        return []
+    infos = build.call("flaskData", raws=[o.raw for _, o in slots])["results"]
+    empty, parts, rows = replace(gain, fight=0.0), [], []
+    for (slot, option), info in zip(slots, infos):
+        info = info or {}
+        if not info.get("kind"):
+            continue
+        made = charges_per_second(info, empty, slot_pool(slot))
+        per = charges_per_use(info, gain)
+        parts.append(f"{option.name}: {stock_uses(info, gain)} uses at the start, + {made:.2f} charges a second generated"
+                     + (f" (a use every {per / made:,.0f} s)" if made > 0 and per > 0 else " (none: starting empty, never used)"))
+    if not parts:
+        return []
+    rows.append({
+        "label": "Flasks and charms start the boss fight full*",
+        "value": f"a {gain.fight:,.1f} s fight",
+        "basis": (f"{'; '.join(parts)}. The fight: {gain.fight_how}. A Checkpoint before the boss refills Life, Mana, "
+                  "Flasks and Charms, and charges carry over from the map (RESEARCH63 R63-5); no charges come back over "
+                  "time, so the starting uses are spread over the fight beside what the build generates"),
+        "confidence": "MEDIUM-HIGH (full at the start is the normal state, not a game guarantee)",
+        "play": ("Enter the boss with full flasks and charms (use the Checkpoint by the arena); entering with them "
+                 "empty, each runs on its generated charges alone")})
+    return rows
+
+
+def fight_length(build, boss: str | None = None) -> tuple[float, str]:
+    """(seconds, how): the boss preset's pool / the build's Full DPS with its flasks and charms off (STOCK's note), kept
+    per committed build (state.Build.commits)."""
+    key = (getattr(build, "commits", None), boss)
+    cached = getattr(build, "_stock_fight", None)
+    if cached is not None and key[0] is not None and cached[0] == key:
+        return cached[1]
+    from builder.search import bosses
+    from builder.search import conditions as conditions_mod
+
+    name = boss or bosses.DEFAULT
+    pool = conditions_mod.boss_pool(bosses.of({"_boss": name}).name)
+    got = build.call("noFlaskDps", fields=["FullDPS", "CombinedDPS"])
+    dps = float(got.get("FullDPS") or 0.0) or float(got.get("CombinedDPS") or 0.0)
+    # the build's own reading of its DPS where the objective sets it below PoB's Full DPS (its uptime and life factors,
+    # the whole-fight scales): the same share taken off the DPS without flasks (only ever lower: the longer fight)
+    scale, scale_how = 1.0, ""
+    objective, stats = getattr(build, "objective", None), getattr(build, "stats", None)
+    if objective is not None and stats and float(stats.get("FullDPS") or 0.0) > 0:
+        try:
+            ours = float(objective.dps(stats))
+        except Exception:  # (a partial objective in a test double: PoB's figure alone)
+            ours = 0.0
+        if 0 < ours < float(stats["FullDPS"]):
+            scale = ours / float(stats["FullDPS"])
+            scale_how = f" (x{scale:.3f}: the build's scored DPS against PoB's Full DPS)"
+    dps *= scale
+    if dps <= 0 or pool <= 0:
+        out = (0.0, "no DPS without flasks and charms read: their starting stock isn't counted")
+    else:
+        fight = min(pool / dps, FIGHT_CAP)
+        out = (fight, f"the boss's {pool:,.0f} Life and Energy Shield / {dps:,.0f} DPS with every flask and charm off"
+                      f"{scale_how}: {fight:,.1f} s" + (" (the 30-minute cap)" if fight >= FIGHT_CAP else ""))
+    try:
+        build._stock_fight = (key, out)
+    except AttributeError:
+        pass
+    return out
 
 
 # Zerphi's Genesis (MECHC36; PATCH_CHECK H2-3, an UNDERCOUNT): "50% of Charges consumed by used Charms are granted to your
@@ -992,6 +1125,8 @@ def uses_per_second(info: dict, gain: Charges, raw: str, pool: str | None) -> tu
         return 0.0, f"its charges are thrown by {gain.main_skill}"
     made = drink_charges(info, gain, pool)
     uses, how = made / used, f"{made:.2f} charges/s / {used:g} per use"
+    if (stock := stock_charges(info, gain)) > 0:  # (MECHC66: STOCK's note)
+        how += f" (its {stock_uses(info, gain)} starting uses over the {gain.fight:,.0f} s fight in it: {stock:.3f}/s)"
     if pool in ("Life", "Mana") and info.get("kind") == "Flask" and (dips := pool_dips(gain, pool)) is not None:
         if dips[0] <= 0:
             return 0.0, f"never below full {pool}, so never drunk (can't be used at full {pool}: {dips[1]})"
@@ -1460,7 +1595,7 @@ def flask_cross_cost(build, gain: Charges) -> tuple[dict[str, float], str]:
 # PoB's ModCache holds the condition on these two lines only, and no Calc module sets it). The share of the fight the Life
 # Flask has no use left, from the build's own flask model (uses_per_second):
 # - a Life Flask whose uses are paid for by its generated charges (drunk the moment a use fills, as uses_per_second has
-#   it): no use left all fight, 1 (MEDIUM; the starting charges, drunk at the fight's start, aren't weighed);
+#   it): no use left all fight, 1 (MEDIUM; since MECHC66 its starting uses are in that rate, STOCK: a full flask holds uses while they last);
 # - one held back by the pool's dips below full (it can't be drunk at full Life, so its charges fill up): uses left all
 #   fight, 0 (the lower reading);
 # - Life Flasks that can't be used (Reverie) or one waiting for a kill: its charges stay, 0;
@@ -1497,7 +1632,7 @@ def no_life_uses_share(build, gain: Charges | None = None) -> tuple[float, str]:
         return 0.0, (f"{option.name} fills {paid:.3f} uses/s but is drunk only at {dips[0]:.3f} dips/s below full Life "
                      f"({dips[1]}): it can't be drunk at full Life, so it holds uses (the lower reading)")
     return 1.0, (f"{option.name} drunk the moment a use fills ({paid:.3f} uses/s, {used:g} charges each): no use left "
-                 "all fight (MEDIUM; the starting charges, drunk at the start, not weighed)")
+                 "all fight (MEDIUM; its starting uses are in that rate, STOCK)")
 
 
 def no_life_uses_model(build, texts: list[str], gain: Charges | None = None) -> tuple[list[dict], list[dict]]:

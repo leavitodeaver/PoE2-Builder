@@ -4976,6 +4976,10 @@ class Assumptions:
                 "confidence": "MEDIUM-LOW (the split and the unscaled grant are the lower readings, UNVERIFIED)",
                 "play": "use the charms and the Life Flask whenever they can be: each feeds the other (without the belt: "
                         "their own charges only)"}]
+        if any((getattr(build, "equipped", None) or {}).get(s) is not None for s in ("Flask 1", "Flask 2", "Charm 1", "Charm 2", "Charm 3")):
+            from builder.search import flasks  # (MECHC66: flasks.STOCK's note: the starting stock's row)
+
+            hand_notes = hand_notes + flasks.stock_note(build, flasks.Charges.of(build))
         jiquani_mods, jiquani_notes = models.jiquani_model([e["text"] for e in source_lines])  # (MECHC9, A12-2)
         hand_mods, hand_notes = hand_mods + jiquani_mods, hand_notes + jiquani_notes
         unbound_mods, unbound_notes = models.unbound_model([e["text"] for e in source_lines])  # (MECHC10)

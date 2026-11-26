@@ -80,7 +80,10 @@ def test_off_hand_weapons_are_ones_pob_also_accepts(engine, main):
         assert len(accepted) > len(offhand_weapon_types(ctx, main))  # PoB also takes daggers, flails, ...
 
 
-def test_flask_slots_switch_on_only_when_a_boss_fight_sustains_them(engine):
+def test_flask_slots_switch_on_only_when_a_boss_fight_sustains_them(engine, monkeypatch):
+    from builder.search import flasks
+
+    monkeypatch.setattr(flasks, "STOCK", False)  # (MECHC66: this test reads the charges' RATE alone; the starting stock: test_mechc66)
     ctx = context(main_skill="Spark")
     engine.call("newBuild")
     build = Build(engine, ctx, Objective(ctx))

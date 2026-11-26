@@ -1,0 +1,142 @@
+"""MECHC66: flasks and charms start a boss fight full (flasks.STOCK's note; RESEARCH63 R63-5); the Arcane Surge support on
+a skill other than the main one (conditions.ARCANE_SURGE_SUPPORT_STATS' second note; example build 10's Contagion)."""
+from dataclasses import replace
+from types import SimpleNamespace
+
+import pytest
+
+from builder.search import conditions, flasks
+
+CHARM = {"kind": "Charm", "chargesMax": 40, "chargesUsed": 20, "duration": 4}
+LIFE = {"kind": "Flask", "chargesMax": 60, "chargesUsed": 10, "duration": 4, "lifeTotal": 1000}
+
+
+def test_a_full_charm_brings_its_stock_of_uses_into_the_fight():
+    gain = flasks.Charges()
+    assert flasks.uptime(CHARM, gain) == 0.0  # (no charge source: today's "starts empty" reading)
+    full = replace(gain, fight=60.0)
+    assert flasks.stock_uses(CHARM, full) == 2
+    assert flasks.uptime(CHARM, full) == pytest.approx(2 * 4 / 60)
+    # a short fight: the two uses cover it all, no more
+    assert flasks.uptime(CHARM, replace(gain, fight=6.0)) == pytest.approx(1.0)
+    # 30 of 40 a use: one use, not 1.33
+    assert flasks.stock_uses({**CHARM, "chargesUsed": 30}, full) == 1
+    # "50% increased Charm Charges used": 30 a use, one use
+    assert flasks.stock_uses(CHARM, replace(full, charm_used_inc=50)) == 1
+    # generated charges add on top of the stock
+    assert flasks.uptime(CHARM, replace(full, charm=0.1)) == pytest.approx((2 + 0.1 * 60 / 20) * 4 / 60)
+
+
+def test_a_full_life_flask_adds_its_stock_to_its_uses_and_says_so():
+    full = replace(flasks.Charges(), fight=30.0, life_degen=1.0)  # (its own loss keeps Life below full: no dip cap)
+    uses, how = flasks.uses_per_second(LIFE, full, "", "Life")
+    assert uses == pytest.approx(6 / 30) and "6 starting uses over the 30 s fight" in how
+    assert flasks.uses_per_second(LIFE, replace(full, fight=0.0), "", "Life")[0] == 0.0
+
+
+def test_the_stock_switch_and_the_fight_length(monkeypatch):
+    class Fake:
+        commits = 3
+        equipped = {}
+
+        def __init__(self):
+            self.asked = 0
+
+        def call(self, method, **kw):
+            assert method == "noFlaskDps"
+            self.asked += 1
+            return {"FullDPS": 1_000_000.0, "CombinedDPS": 900_000.0}
+
+    build = Fake()
+    from builder.search import bosses
+
+    pool = conditions.boss_pool(bosses.DEFAULT)
+    fight, how = flasks.fight_length(build)
+    assert fight == pytest.approx(min(pool / 1_000_000.0, flasks.FIGHT_CAP)) and "every flask and charm off" in how
+    flasks.fight_length(build)
+    assert build.asked == 1  # (kept per commit)
+    build.commits = 4
+    flasks.fight_length(build)
+    assert build.asked == 2
+    zero = Fake()
+    zero.call = lambda method, **kw: {"FullDPS": 0.0, "CombinedDPS": 0.0}
+    assert flasks.fight_length(zero)[0] == 0.0
+
+
+@pytest.fixture(scope="module")
+def engine():
+    import faulthandler
+
+    from builder.data import GameData
+
+    try:
+        GameData()
+    except FileNotFoundError:
+        pytest.skip("no game-data dump; run `uv run python -m builder.data dump`")
+    from builder.pob.engine import PobEngine
+
+    enabled = faulthandler.is_enabled()
+    faulthandler.disable()
+    yield PobEngine()
+    if enabled:
+        faulthandler.enable()
+
+
+def test_real_pob_no_flask_dps_switches_the_slots_off_for_one_calculation(engine):
+    """bridge.noFlaskDps: one calculation with every flask and charm slot off (The Black Cat's "7% less Lightning Damage
+    taken when Hit" out of it, as test_engine_item_lines reads it; the Spark build's config already holds Onslaught, so an
+    Onslaught charm moves nothing), and the slot is active again afterwards."""
+    from test_engine_models import spark_with  # (tests/ is on sys.path under pytest)
+
+    search = spark_with(engine, [])
+    build = search.build
+    cat = next(u for u in search.ctx.data.uniques if u["name"] == "The Black Cat")
+    charm = chr(10).join(line for line in search.ctx.corrected_raw(cat["name"], cat["raw"]).split(chr(10))
+                         if "Unlucky" not in line)
+    belt = chr(10).join(["Rarity: Rare", "Test Belt", "Plate Belt", "Item Level: 82", "Implicits: 2", "+160 to Armour",
+                         "Has 3 Charm Slot"])  # (the test build has no charm slot of its own: test_engine_item_lines' belt)
+    build.call("equip", slot="Belt", raw=belt, fields=[])
+    bare = build.call("stats", fields=["LightningTakenHitMult"])
+    build.call("equip", slot="Charm 1", raw=charm, active=True, fields=[])
+    on = build.call("stats", fields=["LightningTakenHitMult"])
+    assert on["LightningTakenHitMult"] == pytest.approx(bare["LightningTakenHitMult"] * 0.93, rel=1e-3)
+    off = build.call("noFlaskDps", fields=["LightningTakenHitMult", "CombinedDPS"])
+    print("PROBE", on, off)
+    assert off["LightningTakenHitMult"] == pytest.approx(bare["LightningTakenHitMult"], rel=1e-3)
+    assert off["CombinedDPS"] > 0
+    assert build.call("chargeGain")["active"]["Charm 1"] is True
+    assert build.call("stats", fields=["LightningTakenHitMult"]) == on
+
+
+def test_the_fight_takes_the_builds_own_scored_dps_where_it_is_lower():
+    from builder.search import bosses
+
+    class Fake:
+        commits = 1
+        equipped = {}
+        stats = {"FullDPS": 2_000_000.0}
+        objective = SimpleNamespace(dps=lambda stats: 1_000_000.0)  # (scored at half PoB's Full DPS)
+
+        def call(self, method, **kw):
+            return {"FullDPS": 1_000_000.0}
+
+    fight, how = flasks.fight_length(Fake())
+    assert fight == pytest.approx(min(conditions.boss_pool(bosses.DEFAULT) / 500_000.0, flasks.FIGHT_CAP))
+    assert "x0.500" in how
+
+
+def test_the_stock_row_names_each_items_starting_uses_and_its_generated_charges():
+    class Fake:
+        equipped = {"Charm 1": SimpleNamespace(name="Test Charm", raw="r1"),
+                    "Flask 1": SimpleNamespace(name="Test Flask", raw="r2")}
+
+        def call(self, method, **kw):
+            assert method == "flaskData"
+            return {"results": [LIFE, CHARM]}  # (slot order: the flasks, then the charms)
+
+    gain = replace(flasks.Charges(), fight=20.0, life_flask=0.5)
+    rows = flasks.stock_note(Fake(), gain)
+    assert len(rows) == 1 and rows[0]["value"] == "a 20.0 s fight"
+    assert "Test Flask: 6 uses at the start, + 0.50 charges a second generated (a use every 20 s)" in rows[0]["basis"]
+    assert "Test Charm: 2 uses at the start, + 0.00 charges a second generated (none" in rows[0]["basis"]
+    assert flasks.stock_note(Fake(), replace(gain, fight=0.0)) == []

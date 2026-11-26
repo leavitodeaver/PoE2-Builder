@@ -8168,6 +8168,31 @@ function bridge.chargeGain()
 	}
 end
 
+-- (MECHC66; RESEARCH63 R63-5) The build's DPS with every flask and charm slot's effect off, for the length of a boss fight
+-- the flasks' and charms' starting stock of uses is spread over (flasks.Charges.of: the boss's Life / this DPS, the longer
+-- fight and the lower reading, since the flasks feed the DPS). The items stay equipped (a Concoction keeps its flask);
+-- only the slots' "active" flags are off for this one calculation, then put back.
+function bridge.noFlaskDps(args)
+	local calcFunc = calculator()
+	local saved = { }
+	for _, name in ipairs({ "Flask 1", "Flask 2", "Charm 1", "Charm 2", "Charm 3" }) do
+		local slot = build.itemsTab.slots[name]
+		if slot then
+			saved[name] = slot.active
+			slot.active = false
+		end
+	end
+	local ok, out = pcall(derivedCalc, function() return calcFunc({ }, true) end,
+		(args and args.fields) or { "FullDPS", "CombinedDPS" })
+	for name, was in pairs(saved) do
+		build.itemsTab.slots[name].active = was
+	end
+	if not ok then
+		error(out, 0)
+	end
+	return out
+end
+
 -- The Shock magnitude of your Shocked Ground (MECH45, FIX_QUEUE; the user's expectation, 11 Nov 2026): PoB takes its
 -- "Effect of Shock" box raw (ShockVal, capped at MaximumShock), so the conditions scale the ground's base Shock by the main
 -- skill's Shock-magnitude modifiers (global ones plus the skill's own: KeywordPopups BuffMagnitude, "come from whoever
