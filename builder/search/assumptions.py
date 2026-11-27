@@ -6884,6 +6884,21 @@ class Assumptions:
         rates = build.call("useRates", indices=indices,
                            **({"actives": actives} if any(a != (by_index.get(i) or {}).get("mainActiveSkill", 1)
                                                          for a, i in zip(actives, indices)) else {}))["rates"]
+        # (MECHB71; the manager 27 Nov 01:36, a REGRESSION from f157e9c1 on 2b75b x0.532, an UNDERCOUNT) a TRIGGERED
+        # skill is never the one a press is charged for: it costs the player no cast. GEM46's fallback took the
+        # pressed Despair group's first damaging skill, Doom Blast, which Impending Doom triggers when the curse
+        # expires, so press_model charged 1 / its trigger rate (10.14 s) a "press" and the main skill kept 0%; and the
+        # curse exclusion below no longer saw the curse. Where the fallback skill comes back triggered (useRates'
+        # triggered flag, by data, not by name), the group is rated by its own selected skill again (the trigger's
+        # source: the curse, whose casts curse_model charges; a buff at PoB's own rate, as before f157e9c1).
+        back = {r["index"] for r in rates if r.get("triggered")
+                and actives[indices.index(r["index"])] != ((by_index.get(r["index"]) or {}).get("mainActiveSkill") or 1)}
+        if back:
+            actives = [((by_index.get(i) or {}).get("mainActiveSkill") or 1) if i in back else a
+                       for a, i in zip(actives, indices)]
+            rates = build.call("useRates", indices=indices,
+                               **({"actives": actives} if any(a != (by_index.get(i) or {}).get("mainActiveSkill", 1)
+                                                             for a, i in zip(actives, indices)) else {}))["rates"]
         for r in rates:  # (MECHB47: a Warcry's PoB Speed counts the action speed twice, so press_use_rate's ceiling for
             # it is its castRate, 1 / WarcryCastTime: probe POE2T4710)
             if "Warcry" in skill_types_of(build.ctx, str(r.get("name"))):  # (SEARCH40: skill_types)
