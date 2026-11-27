@@ -3461,6 +3461,30 @@ function bridge.heartOfIce()
 	return { found = false }
 end
 
+-- (MECH116, POBR1) The boss's Fire / Cold / Lightning resistances as PoB's calcResistForType reads them for a damage over
+-- time (CalcOffence 686-699: enemyDB's sums, the curses' and exposures' changes in, the config's max; no penetration),
+-- for models.presence_lowest_ignite: "Enemies in your Presence Resist Elemental Damage based on their Lowest Resistance",
+-- which PoB applies to hits only (probe POE2T6763). With an "EnemyXResistEqualToYours" line: found = false.
+function bridge.enemyResists()
+	local env = build.calcsTab and build.calcsTab.mainEnv
+	if not (env and env.enemyDB and env.modDB) then
+		return { found = false }
+	end
+	local enemy, out = env.enemyDB, { found = true }
+	for _, element in ipairs({ "Fire", "Cold", "Lightning" }) do
+		if env.modDB:Flag(nil, "Enemy" .. element .. "ResistEqualToYours") then
+			return { found = false }
+		end
+		local maxResist = enemy:Flag(nil, "DoNotChangeMaxResFromConfig") and data.misc.EnemyMaxResist
+			or math.min(math.max(env.configInput["enemy" .. element .. "Resist"] or data.misc.EnemyMaxResist,
+				data.misc.EnemyMaxResist), data.misc.MaxResistCap)
+		local resist = enemy:Override(nil, element .. "Resist") or (enemy:Sum("BASE", nil, element .. "Resist", "ElementalResist")
+			* math.max(calcLib.mod(enemy, nil, element .. "Resist", "ElementalResist"), 0))
+		out[element] = jsonNumber(math.max(math.min(resist, maxResist), data.misc.ResistFloor))
+	end
+	return out
+end
+
 function bridge.recalc(args)
 	local start = os.clock()
 	recalc()

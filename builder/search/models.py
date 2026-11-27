@@ -3431,6 +3431,7 @@ class CurseUse:
     # the curse is on)
     hexblast: bool = False
     delay: float = CURSE_DELAY  # (MECH86) its activation delay: PoB's with the build's modifiers, else 1.5 s
+    flat: bool = False  # (MECH116, A41-31) a meta-triggered curse counted always on for want of any trigger rate (LOW)
     # (MECH114) the share of `share` the boss stays in the curse's area (curse_zone_walk; 1 for a curse on the boss).
     # `share` stays the casts' view (Doom Blast's expiries, Hexblast's detonations, triggered rates read share /
     # duration); the curse's effect on the boss reads on_boss
@@ -3498,10 +3499,20 @@ def repulsion_use(use: "CurseUse", stats: dict, gems: dict, aura: bool, rate: fl
                         f"+ the hold)" + head + f": {share:.0%} of the fight"))
 
 
+def curse_rate_gap(meta: str, rate: float) -> bool:
+    """(MECH116, AUDIT41 A41-31; the manager's ruling 27 Nov 03:09: never zero a meta-triggered curse on a modelling gap)
+    True where a curse's 0.0 trigger rate is the energy model's "not counted" for a meta gem whose Energy it doesn't
+    model (not in META_GEMS and not removed from the game, or NOT_MODELED_YET: energy_model's first branch gives every
+    spell of such a group 0.0), not a measured zero; a positive rate (another model's) always stands."""
+    return number(rate) <= 0 and ((meta not in META_GEMS and meta not in DEPRECATED) or meta in NOT_MODELED_YET)
+
+
 def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
-               lines: list[str] = (), rates: dict[str, float] | None = None) -> list[CurseUse]:
+               lines: list[str] = (), rates: dict[str, float] | None = None,
+               deaths: dict[str, tuple[float, str]] | None = None) -> list[CurseUse]:
     """How the build applies each of its curses, and the share of the fight each is on the boss. `rates`: triggered
-    skills' uses per second from the models (energy_model), by name."""
+    skills' uses per second from the models (energy_model), by name. `deaths` (MECH116, A41-31): Cast on Minion Death's
+    triggered skills {name: (casts a second, how its minion deaths are fed)} (build.minion_death_triggers, MECHB71)."""
     uses = []
     radius = number(stats.get("PresenceRadius")) / 10
     forever = any(CURSE_FOREVER.search(text) for text in lines)
@@ -3537,7 +3548,13 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 how = (f"an Aura (Blasphemy) on enemies within {what}, with the boss {metres:g} m away: "
                        f"{'inside' if up else 'outside'} it")
                 uses.append(CurseUse(name, up, how))
-            elif meta is not None and rates is not None and name in rates:
+            elif meta is not None and deaths and name in deaths:  # (MECH116, A41-31: its rate from your minion deaths)
+                rate, fed = number(deaths[name][0]), str(deaths[name][1])
+                up = min(1.0, rate * duration)
+                uses.append(CurseUse(name, up, f"triggered by {meta} {rate:.3f} times/s ({fed}), {lasts} each: "
+                                               f"{up:.0%} of the fight", duration=duration))
+            elif (meta is not None and rates is not None and name in rates
+                  and not curse_rate_gap(meta, rates[name])):
                 rate = number(rates[name])
                 up = min(1.0, rate * duration)
                 uses.append(CurseUse(name, up, f"triggered by {meta} {rate:.3f} times/s (its Energy), "
@@ -3547,7 +3564,7 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 uses.append(CurseUse(name, min(1.0, max(0.0, up)), f"cast by {meta}: {how}", duration=duration))
             elif meta is not None:
                 uses.append(CurseUse(name, 1.0, f"triggered by {meta}: assumed applied when needed (LOW: no model gives "
-                                                "its trigger rate)"))
+                                                "its trigger rate)", flat=True))
             elif forever:
                 uses.append(CurseUse(name, 1.0, "cast by hand once: 'Curses you inflict have infinite Duration' (no "
                                                 "recasts; the first cast at the fight's start isn't counted)"))
@@ -3618,8 +3635,13 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
             lost = min(1.0, took / every)
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
             basis += f"; casting it ({took:.2f} s every {every:.3g} s) takes {lost:.0%} of {main.name}'s time"
-        notes.append({"label": f"{use.name}: share of the fight on the boss", "value": round(use.on_boss, 2),
-                      "basis": basis + " (PoB counts every curse always up)", "confidence": "theory"})
+        note = {"label": f"{use.name}: share of the fight on the boss", "value": round(use.on_boss, 2),
+                "basis": basis + " (PoB counts every curse always up)", "confidence": "theory"}
+        if use.flat:  # (MECH116, A41-31: the flat 100% only where no rate exists, LOW and named in the play note)
+            note = {**note, "confidence": "LOW",
+                    "play": (f"{use.name} is counted on the boss the whole fight: no model gives the rate its meta gem "
+                             "triggers it at (LOW; an assumption, not a reading)")}
+        notes.append(note)
     share, how = curse_share(uses)
     found, unscaled = [], []
     for pattern, text in CURSED_LINES:
@@ -11753,6 +11775,7 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
         "confidence": "MEDIUM", "entry": GAS_ARROW_ENTRY,
         # (MECH115, R68-7: the cloud's Poisons on the boss, for poison_pool_model's shared limit)
         "poison_pool": ("AddedGasArrowCloud", cloud_one, cloud_poison / cloud_one if cloud_one > 0 else 0.0),
+        "poison_limit": number(cloud_set.get("PoisonStacksMax")),  # (MECH116: the build's limit where the Arrow can't Poison)
         "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
         "set_shares": {GAS_ARROW_SETS[0]: 1.0, GAS_ARROW_SETS[2]: share},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Arrow {arrow:,.0f}, Poison Cloud "
@@ -16569,8 +16592,31 @@ def poison_fill(limit: float, pools: list[tuple[float, float]]) -> float:
     return total
 
 
+def build_poison_limit(main_limit: float, notes: list[dict]) -> tuple[float, str]:
+    """(MECH116; GEM50's find, probes POE2T9807 / 9808: an UNDERCOUNT) Your Poison limit for the shared pool, and how it
+    was read. PoB gives a skill's PoisonStacksMax only when that skill can Poison (CalcOffence 5202-5234: a set with no
+    Poison chance skips the block), so a main skill that can't Poison (the Gas Arrow skeleton's Arrow) carries none and
+    the pool fell back to 1 while the build's limit was 3. The limit is the player's ("Targets can be affected by +N of
+    your Poisons", the player's PoisonStacks lines), which every one of your Poisoning skills carries: so with no limit on
+    the main skill, the limit the build's own Poisoning sources carry (the models' notes' "poison_limit": the cloud set's,
+    a dropped Full DPS group's; a minion's own limit never counts, R68-10), the highest where a skill's supports raise
+    its own (MEDIUM). Where the main skill Poisons, its own limit as before. None at all: 1 (PoB's base)."""
+    own = number(main_limit)
+    if own > 0:
+        return own, "PoB's PoisonStacksMax on your main skill"
+    caps = [(number(n.get("poison_limit")), (n.get("poison_pool") or ("",))[0]) for n in notes
+            if n.get("poison_pool") and n["poison_pool"][0] not in POISON_POOL_MINIONS
+            and number(n.get("poison_limit")) > 0]
+    if not caps:
+        return 1.0, "PoB's base limit (no skill of yours that Poisons gives one)"
+    cap, name = max(caps)
+    return cap, (f"your main skill can't Poison, so the limit {poison_pool_label(name)} carries (PoB's PoisonStacksMax "
+                 f"on that skill; the player's Poison limit)")
+
+
 def poison_pool_model(mods: list[dict], notes: list[dict], base: tuple[float, float, str], limit: float,
-                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                      forbidden: set[str] = frozenset(),
+                      limit_how: str = "PoB's PoisonStacksMax") -> tuple[list[dict], list[dict]]:
     """(mods, notes): `mods` with the added Poison sources cut to what the shared Poison limit leaves them (see above).
     `notes`: the models' notes (their "poison_pool": (added mod name, one Poison's DPS, held)); `base`: the headline's
     own Poison (one Poison's DPS, held, how); `limit`: your Poison limit (PoB's PoisonStacksMax)."""
@@ -16622,7 +16668,7 @@ def poison_pool_model(mods: list[dict], notes: list[dict], base: tuple[float, fl
     return out, [{
         "label": "Your Poison limit: only the strongest Poisons on the boss act, whatever their source*",
         "value": f"-{old - net:,.1f} DPS", "confidence": "MEDIUM", "entry": POISON_POOL_ENTRY,
-        "basis": (f"the boss carries at most {number(limit):g} of your Poisons at once (PoB's PoisonStacksMax) and only "
+        "basis": (f"the boss carries at most {number(limit):g} of your Poisons at once ({limit_how}) and only "
                   f"the strongest act (KeywordPopups Debuff; RESEARCH68 R68-7, MEDIUM-HIGH); Poisons from different "
                   f"sources share it. The headline's own: {number(held):.2f} held of {number(one):,.1f} DPS each "
                   f"({how}); added beside it: {names}, {old:,.1f} in all. Filled strongest first, the added sources "
@@ -16632,6 +16678,57 @@ def poison_pool_model(mods: list[dict], notes: list[dict], base: tuple[float, fl
                   + f". Row: every source's Poison added whole (before) +{old:,.1f}"),
         "play": (f"Your Poisons from different skills and items share one limit of {number(limit):g}: the extra sources "
                  f"add {net:,.1f} DPS here, not {old:,.1f}; Poison-limit lines (+N of your Poisons) let them stack.")}]
+
+
+# Enemies in your Presence resist with their lowest resistance (MECH116, POBR1; an UNDERCOUNT). The line "Enemies in your
+# Presence Resist Elemental Damage based on their Lowest Resistance" (stat enemies_in_presence_elemental_damage_resisted_
+# by_lowest_elemental_resistance, stat_descriptions.csd) names Elemental Damage, which an Ignite (Fire damage over time)
+# is. Its carriers (checked: the stat's row index in every one of the 59 tables of game build 26650308, any "Stat" column:
+# the unique mod UniqueEnemiesInPresenceLowestResistance1 and ModType EnemiesInPresenceLowestResistance only; no passive,
+# skill stat set, rune or soul core row; poe2db not checked: UNVERIFIED beyond the game files). PoB maps it to the flag
+# ElementalDamageUsesLowestResistance under Condition:EnemyInPresence (ModParser 4476) and reads the flag in the HIT
+# resistance only (CalcOffence 4321): probe POE2T6763 (b03, the boss's Cold 20 under its Fire): TotalDPS 41,806 -> 48,183,
+# IgniteDPS 592.79 unchanged. So while the boss stands in your Presence (conditions.boss_in_presence: the boss's distance
+# against PresenceRadius, as the bridge gates PoB's own Presence lines), the main skill's Ignite is scaled by
+# (1 - lowest) / (1 - Fire), the boss's resistances as PoB reads them for a damage over time (bridge.enemyResists:
+# curses and exposures in, no penetration). MEDIUM: no game text limits it to hits (RESEARCH could confirm in game). The
+# other line, "Elemental Damage you deal with Hits is Resisted by lowest Elemental Resistance instead" (stat elemental_
+# damage_resisted_by_lowest_elemental_resistance; carrier HandWrapsUniqueElementalPenetrationBelowZero1), says Hits:
+# not applied to Ignite. At the default boss (45 / 45 / 45) nothing moves.
+PRESENCE_LOWEST = re.compile(r"^Enemies in your Presence Resist Elemental Damage based on their Lowest Resistances?$", re.I)
+PRESENCE_LOWEST_ENTRY = "model-mech116-presence-lowest-ignite"
+
+
+def presence_lowest_ignite(texts: list[str], resists: dict, presence: dict, main_name: str | None,
+                           forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for the Presence lowest-resistance line on the main skill's Ignite (see above). `resists`: the
+    bridge's enemyResists; `presence`: conditions.boss_in_presence ({"_boss_in_presence", "_boss_presence_how"})."""
+    if (PRESENCE_LOWEST_ENTRY in forbidden or not main_name or not (resists or {}).get("found")
+            or not any(PRESENCE_LOWEST.match(t.strip()) for t in texts)):
+        return [], []
+    fire = number(resists.get("Fire"))
+    lowest_name, lowest = min(((e, number(resists.get(e))) for e in ("Fire", "Cold", "Lightning")), key=lambda x: x[1])
+    ratio = (1 - lowest / 100) / (1 - fire / 100) if fire < 100 else 1.0
+    if ratio <= 1 + 1e-9:
+        return [], []
+    where = str(presence.get("_boss_presence_how") or "")
+    label = "Enemies in your Presence resist with their lowest resistance: your Ignite*"
+    if not presence.get("_boss_in_presence"):
+        return [], [{"label": label, "value": "x1.000", "confidence": "MEDIUM", "entry": PRESENCE_LOWEST_ENTRY,
+                     "basis": (f"the boss stands outside your Presence ({where}): its Fire resistance {fire:g}% stands; "
+                               f"inside, your Ignite would take x{ratio:.3f} ({lowest_name} {lowest:g}%)"),
+                     "play": (f"With the boss in your Presence your Ignite would meet its {lowest_name} resistance "
+                              f"({lowest:g}%) instead of its Fire ({fire:g}%): x{ratio:.3f}.")}]
+    return [raw_mod("AilmentMagnitude", "MORE", 100 * (ratio - 1), main_name, tag="MECH116Lowest",
+                    keywords=["Ignite"])], [{
+        "label": label, "value": f"x{ratio:.3f}", "confidence": "MEDIUM", "entry": PRESENCE_LOWEST_ENTRY,
+        "basis": (f"the line names Elemental Damage, and an Ignite is Fire damage over time: with the boss in your "
+                  f"Presence ({where}) it resists your Ignite with its {lowest_name} resistance {lowest:g}% instead of "
+                  f"its Fire {fire:g}% (PoB's, curses and exposures in): (1 - {lowest:g}%) / (1 - {fire:g}%) = "
+                  f"x{ratio:.3f} on {main_name}'s Ignite. PoB applies the line to hits only (probe POE2T6763), so this is "
+                  "added (MEDIUM: no game text limits it to hits). Row: hits only (PoB) x1.000"),
+        "play": (f"Keep the boss in your Presence: your Ignite meets its {lowest_name} resistance ({lowest:g}%), "
+                 f"not its Fire ({fire:g}%): x{ratio:.3f}.")}]
 
 
 # Engineered Blaze (MECH90; the catalog's damaging-ailments passive row, an UNDERCOUNT: PoB parses "4% increased Area of

@@ -6570,6 +6570,11 @@ class Assumptions:
             number(stats.get("IgniteDPS"))) if getattr(build, "ground_life_ignite", None) else (0.0, []))
         hand_mods += [models.added_input("IgnitedGroundIgnite", burn)] if burn > 0 else []
         hand_notes += burn_notes
+        if main is not None and any(models.PRESENCE_LOWEST.match(e["text"].strip()) for e in source_lines):
+            low_mods, low_notes = models.presence_lowest_ignite(  # (MECH116, POBR1: PoB applies it to hits only)
+                [e["text"] for e in source_lines], build.call("enemyResists"),
+                conditions_mod.boss_in_presence(build, None), main.name, forbidden)
+            hand_mods, hand_notes = hand_mods + low_mods, hand_notes + low_notes
         block_texts = [e["text"] for e in source_lines if models.BLOCK_POISON.match(e["text"].strip())]
         if block_texts:  # (MECH90: Lycosidae's Poison on Block; PoB leaves the line unparsed, 0)
             own = build.call("stats", fields=["PoisonDPS", "PoisonStacksMax"])
@@ -6759,10 +6764,13 @@ class Assumptions:
                 presses[models.INEVITABLE_AGONY] = (agony_rate, agony_notes[0]["play"])
         # (MECH115, R68-7: Poisons from different sources share your Poison limit, the strongest acting; at a raised
         # limit the Full DPS groups PoB's "max" drops fill the slots left, MECHB71's find)
-        group_mods, group_notes = self.poison_other_groups(stats, forbidden)
+        # (MECH116, GEM50's find: the build's limit, not the main skill's, which a main that can't Poison lacks)
+        limit, _how = models.build_poison_limit(number(stats.get("PoisonStacksMax")), hand_notes)
+        group_mods, group_notes = self.poison_other_groups(stats, forbidden, limit)
         hand_mods, hand_notes = hand_mods + group_mods, hand_notes + group_notes
+        limit, limit_how = models.build_poison_limit(number(stats.get("PoisonStacksMax")), hand_notes)
         hand_mods, pool_notes = models.poison_pool_model(hand_mods, hand_notes, self.poison_base(main, stats),
-                                                         number(stats.get("PoisonStacksMax")) or 1.0, forbidden)
+                                                         limit, forbidden, limit_how)
         hand_notes += pool_notes
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Mirror Breaker": raven,
                                    "Runic Tempering": tempering, "Thorns": thorn, "Riven Armour": riven,
@@ -8305,17 +8313,21 @@ class Assumptions:
         mods = mods + self.grant_mods
         return mods, [bosses.note(boss), boss_pool_note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + grants  # (the boss first)
 
-    def poison_other_groups(self, stats: dict, forbidden: set[str]) -> tuple[list[dict], list[dict]]:
+    def poison_other_groups(self, stats: dict, forbidden: set[str],
+                            limit: float | None = None) -> tuple[list[dict], list[dict]]:
         """(MECH115; MECHB71's raised-limit UNDERCOUNT, models.POISON_GROUP_PREFIX's note) The Full DPS groups whose
         Poison PoB's Full DPS drops (its "Best Poison DPS" keeps one group), as added pools for models.poison_pool_model,
         which cuts them to the slots the headline's own Poisons leave: each group's PoisonDPS (the bridge's useRates: the
         group calculated alone) x its press scale (objective.press_scales, as the Full DPS entry), held = min(its
         PoisonStackPotential x PoisonStacksMax, PoisonStacksMax). Only with a limit above 1 (at limit 1 PoB's max is the
-        strongest-wins reading already) and a Full DPS score."""
+        strongest-wins reading already) and a Full DPS score. `limit`: the build's Poison limit (models.build_poison_
+        limit); where the main skill can't Poison (no PoisonStacksMax of its own, MECH116), the groups are read whatever
+        it is, each at its own limit, since the limit is then theirs."""
         build = self.build
         objective = getattr(build, "objective", None)
-        limit = number(stats.get("PoisonStacksMax")) or 1.0
-        if (models.POISON_POOL_ENTRY in forbidden or limit <= 1 or objective is None
+        main_poisons = number(stats.get("PoisonStacksMax")) > 0
+        limit = number(limit) or number(stats.get("PoisonStacksMax")) or 1.0
+        if (models.POISON_POOL_ENTRY in forbidden or (limit <= 1 and main_poisons) or objective is None
                 or not getattr(objective, "full", False)):
             return [], []
         full = build.call("stats", fields=["SkillDPS", "FullDPS"])
@@ -8349,6 +8361,7 @@ class Assumptions:
             notes.append({"label": f"{name}'s Poison beside PoB's best Poison group*", "value": f"+{one * held:,.1f} DPS",
                           "confidence": "MEDIUM", "entry": models.POISON_POOL_ENTRY,
                           "poison_pool": (f"{models.POISON_GROUP_PREFIX}{key}", one, held),
+                          "poison_limit": cap,  # (MECH116: models.build_poison_limit)
                           "basis": (f"PoB's Full DPS keeps one group's Poison ({best.get('source')}, Best Poison DPS "
                                     f"{number(best.get('dps')):,.1f}) and drops {name}'s {dps:,.1f} (Calcs.lua PoisonDPS "
                                     f"mode \"max\"); at your limit of {limit:g} the strongest Poisons act across sources "

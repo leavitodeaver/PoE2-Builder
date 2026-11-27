@@ -4719,7 +4719,8 @@ def curse_uses(build: Build, stats: dict, texts: list[str], metres: float | None
     stats["_curse_lapse"] = set(getattr(getattr(build, "objective", None), models.CURSE_LAPSE, None) or ())
     if any(n.get("name") == models.REPULSION for g in build.groups() for n in g.get("gems") or []):
         stats["_repulsion_minion_hits"] = repulsion_minion_hits(build, stats)  # (MECH94, R36-2)
-    return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts, getattr(build, "trigger_rates", None))
+    return models.curse_uses(build.groups(), build.ctx.gems, stats, metres, texts, getattr(build, "trigger_rates", None),
+                             getattr(build, "minion_death_triggers", None))  # (MECH116, A41-31)
 
 
 def curse_caps_now(build: Build) -> tuple[dict[str, float], int]:
