@@ -17,11 +17,12 @@ TRAIN151_READ = {
         ("ground_effects_cannot_trigger", "Persistent Ground II"),
         ("ice_nova_number_of_frost_bolts_to_cast_on", "Ice Nova"),
         ("nova_skills_cast_at_target_location", "Astral Projection"),
-        ("lightning_damage_roll_always_min_or_max", "Esh's Prowess"),
         ("remnant_pickup_range_+%", "Magnetic Remnants"), ("base_remnant_duration_ms", "Into the Breach"),
         ("breach_flame_spawn_radius", "Into the Breach"), ("chance_to_retain_40%_of_glory_on_use_%", "Spear of Solaris"),
         ("seismic_cry_slam_skill_additional_aftershocks", "Seismic Cry"),
         ("support_relentless_rage_spending_X_rage_grants_rage_on_next_skill_use", "Relentless Rage")],
+    # (TRAIN 156: GEM51's dedicated Lucky model, 94a90ce7, now reads Esh's Prowess's roll stat ahead of this marker)
+    "model-gem51-esh-prowess-lucky": [("lightning_damage_roll_always_min_or_max", "Esh's Prowess")],
     "model-mech110-herald-of-plague-spread": [
         ("herald_of_agony_poison_spread_on_kill_radius_base_magnitude_to_grant", "Herald of Plague")],
 }
