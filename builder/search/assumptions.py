@@ -12733,11 +12733,35 @@ class Assumptions:
         last = max(getattr(self, "cost_scale", 1.0), 1e-6)
         fight = ((1.0 / (seconds * last), f"{boss}: {fight_how}" + (f", at x{last:.3f} of the full pace" if last < 1
                                                                       else "")) if seconds > 0 else None)
+        # (MECHB72; RESEARCH69 R69-8, A41-42) a gated boss (bosses.GATES; the default worst case has the Arbiter of Ash's
+        # 55% gate) is fought PER PHASE (models.phase_pace): its gates' transitions are its off-field time (its ABSENT
+        # events, where it has them, are the same transitions: not counted twice). What refills a pool while the boss is
+        # immune or away: its regeneration alone (R69-8 (c)).
+        gated = bosses_mod.gates(boss)
+        phases = None
+        if fight is not None and gated:
+            ratio = fight[0]
+            over = [bosses_mod.gate_overshoot(g, ratio) for g in gated]
+            edges = [0.0, *(g.share for g in gated), 1.0]
+            works = [edges[i + 1] - edges[i] for i in range(len(edges) - 1)]
+            rests = [g.seconds for g in gated] + [None]
+            phases = ([(w + (over[i] if i < len(over) else 0.0), r) for i, (w, r) in enumerate(zip(works, rests))],
+                      list(zip(works, rests)),
+                      f"{boss}'s gates: " + "; ".join(
+                          f"{g.what}, {g.confidence}" + (f", transition {g.seconds:g} s" if g.seconds else
+                                                         ", the transition's length unknown: read as 0 s")
+                          + (f"; a burst carries {o:.1%} of the pool past it before the boss stops (the lesser of "
+                             f"{bosses_mod.OVERSHOOT_SECONDS:g} s of damage and {bosses_mod.OVERSHOOT_BAR:.0%} of a bar, "
+                             f"R69-8's one measured kill, LOW-MEDIUM), lost" if o > 0 else "")
+                          for g, o in zip(gated, over)))
         breaks: tuple[float, ...] = ()
-        if named and fight is not None:
+        if named and fight is not None and not gated:
             events = (bosses_mod.ABSENT.get(boss) or ((), None, ""))[0]
             breaks = tuple(t for t, _ in events if t)
-        scale, row = models.mana_cap_row(pools, main.name, fed, bool(main.triggered), starts, fight, breaks)
+        regens = {"Mana": number(stats.get("ManaRegenRecovery")), "Life": number(stats.get("LifeRegenRecovery")),
+                  "EnergyShield": number(stats.get("EnergyShieldRegenRecovery"))}
+        scale, row = models.mana_cap_row(pools, main.name, fed, bool(main.triggered), starts, fight, breaks, phases,
+                                         regens)
         if row is not None and fight is None and any(v > 0 for v in starts.values()):
             row["basis"] += f"; the starting pools not spread ({fight_how}: the steady state)"
         self.cost_scale = scale if main.triggered else 1.0

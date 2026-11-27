@@ -4060,15 +4060,50 @@ def cost_pace(income: float, spend: float, start: float = 0.0, ratio: float = 0.
     return max(income, 0.0) / (spend - k)
 
 
+# (MECHB72; RESEARCH69 R69-8, AUDIT41 A41-42: b04's real-fight x5.43 read the whole pool as one burst) The real fight
+# PER PHASE. A gated boss (bosses.GATES) stops taking damage at each gate and what a burst deals past it is LOST (0.2.0,
+# MEDIUM-HIGH), so the starting pool pays one phase at a time: each phase's work (its share of the whole pool, plus the
+# burst past its gate, bosses.gate_overshoot) is paid at the pace cost_pace gives with the pool left, then the boss is
+# immune for the transition while the pool refills by REGENERATION alone (R69-8 (c): Leech and on-hit recovery need
+# hits, and an immune or absent boss gives none; flask charges from per-minute lines and the events recovery.py counts
+# aren't added there: the lower reading), at most its maximum; the next phase starts from that. The headline DPS is the
+# damage dealt over the time the boss can be hit: the work-weighted harmonic mean of the phases' paces (transitions are
+# not the build's time; the burst past a gate is damage dealt, then lost). `phases` [(work share, transition seconds
+# after it or None)]; `regen` the pool's regeneration a second.
+def phase_pace(income: float, spend: float, start: float, ratio: float,
+               phases: list[tuple[float, float | None]], regen: float = 0.0) -> tuple[float, list[str]]:
+    """(MECHB72, the note above) (the fight's pace, a few words a phase)."""
+    if spend <= 0 or ratio <= 0 or not phases:
+        return cost_pace(income, spend, start, ratio), []
+    pool, work, slow, words = max(start, 0.0), 0.0, 0.0, []
+    for i, (w, rest) in enumerate(phases):
+        if w <= 0:
+            continue
+        s = cost_pace(income, spend, pool, ratio / w)
+        t = w / (ratio * s)
+        work, slow = work + w, slow + w / s
+        left = min(max(start, 0.0), max(0.0, pool - (s * spend - max(income, 0.0)) * t))
+        words.append(f"phase {i + 1}: {w:.0%} of the pool from {pool:,.0f}, x{s:.3f}, {t:,.2f} s, {left:,.0f} left")
+        if rest:
+            pool = min(max(start, 0.0), left + max(regen, 0.0) * rest)
+            words[-1] += f"; {rest:g} s immune: +{pool - left:,.0f} regenerated"
+        else:
+            pool = left
+    return (work / slow if slow > 0 else 1.0), words
+
+
 def mana_cap_row(pools: dict[str, tuple[float, str, float]], main: str, feeders: list[dict],
                  triggered: bool, starts: dict[str, float] | None = None,
                  fight: tuple[float, str] | None = None,
-                 breaks: tuple[float, ...] = ()) -> tuple[float, dict | None]:
+                 breaks: tuple[float, ...] = (), phases: tuple | None = None,
+                 regens: dict[str, float] | None = None) -> tuple[float, dict | None]:
     """(MECHB64, the note above) (the scale on the main skill's DPS, the note) for `pools` {pool: (income a second,
     how, the main skill's cost a second)}: (1.0, None) when every pool pays its spend. (MECHB69) `starts` {pool: its
     maximum} and `fight` (the build's full-pace DPS / the boss's pool, how): the starting pools spread over the fight.
     (MECHB70) `breaks`: the boss's off-field phases in seconds (bosses.absent's events), each refilling a pool by its
-    income over it, at most its maximum."""
+    income over it, at most its maximum. (MECHB72) `phases` ([(work share, transition s)], [(the same without the burst
+    past the gates)], how): the per-phase fight (phase_pace); `regens` {pool: regeneration a second}: what refills a pool
+    while the boss is immune or away (None: the whole income, as before)."""
     worst, found = 1.0, None
     ratio, fight_how = fight if fight else (0.0, "")
     for pool, (income, income_how, main_cost) in pools.items():
@@ -4082,24 +4117,40 @@ def mana_cap_row(pools: dict[str, tuple[float, str, float]], main: str, feeders:
                 spend += each * share
                 parts.append(f"{f['name']} {each * share:,.1f}/s ({each:,.1f}/s used {share:.0%} of the time)")
         start = number((starts or {}).get(pool))
-        refill = sum(min(max(income, 0.0) * t, start) for t in breaks) if ratio > 0 else 0.0
-        pace = cost_pace(income, spend, start + refill, ratio)
+        back = max(income if regens is None else number(regens.get(pool)), 0.0)
+        refill = sum(min(back * t, start) for t in breaks) if ratio > 0 else 0.0
+        if phases and ratio > 0:
+            pace, _ = phase_pace(income, spend, start, ratio, phases[0], back)
+        else:
+            pace = cost_pace(income, spend, start + refill, ratio)
         if spend > 0 and pace < worst:
-            worst, found = pace, (pool, income, income_how, spend, parts, start, refill)
+            worst, found = pace, (pool, income, income_how, spend, parts, start, refill, back)
         elif spend > 0 and income < spend and pace >= 1.0 and found is None and worst >= 1.0:
-            found = (pool, income, income_how, spend, parts, start, refill)  # (paid only by its starting pool: a note, x1)
+            found = (pool, income, income_how, spend, parts, start, refill, back)  # (paid only by its starting pool: x1)
     if found is None:
         return 1.0, None
-    pool, income, income_how, spend, parts, start, refill = found
+    pool, income, income_how, spend, parts, start, refill, back = found
     steady = min(1.0, max(income, 0.0) / spend)
     start_words = ""
-    if start > 0 and ratio > 0:
+    if start > 0 and ratio > 0 and phases:
+        _, steps = phase_pace(income, spend, start, ratio, phases[0], back)
+        whole = cost_pace(income, spend, start, ratio)
+        clean, _ = phase_pace(income, spend, start, ratio, phases[1], back)
+        still, _ = phase_pace(income, spend, start, ratio, [(w, None) for w, _ in phases[0]], back)
+        start_words = (f"; its starting {start:,.0f} {pool} spent phase by phase ({fight_how}; {phases[2]}: "
+                       f"{'; '.join(steps)}; the pool refills by its regeneration {back:,.1f} a second while the boss "
+                       f"is immune, Leech and on-hit stopped: RESEARCH69 R69-8, MEDIUM-LOW); rows: no burst past the "
+                       f"gates x{clean:.3f}; no refill in the transitions x{still:.3f}; the whole pool as one burst "
+                       f"(no gates, before R69-8) x{whole:.3f}; steady state only (the pool kept full, no starting pool): "
+                       f"x{steady:.3f}")
+    elif start > 0 and ratio > 0:
         seconds = 1 / (ratio * worst)
         start_words = (f"; its starting {start:,.0f} {pool} spent over the fight too ({fight_how}: about {seconds:,.1f} s "
                        f"of damage at this pace, {(start + refill) / seconds:,.1f} a second; the pace s solves s x spend "
                        f"= income + start / fight, the fight shortening as s rises: MEDIUM-LOW)"
                        + (f", and {refill:,.0f} more refilled while the boss is off the field ({', '.join(f'{t:g} s' for t in breaks)}: "
-                          f"bosses.absent, at most the pool's maximum each)" if refill > 0 else "")
+                          f"bosses.absent, at most the pool's maximum each"
+                          + (", by regeneration alone: R69-8" if regens is not None else "") + ")" if refill > 0 else "")
                        + f"; row, steady state only (the pool kept full, no starting pool): x{steady:.3f}")
     elif start > 0:
         start_words = f"; its starting {start:,.0f} {pool} not spread (no fight length: the build's DPS 0)"

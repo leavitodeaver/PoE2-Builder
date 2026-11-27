@@ -1207,3 +1207,75 @@ def hit_radius(stats: dict | None = None, reading: str = "headline") -> tuple[fl
         return r, f"{name}'s {r:g} m (ObjectSize x Model Size, the upper reading: Model Size is cosmetic by GGG's word)"
     r = HIT_RADIUS.get(name, HIT_RADIUS[WORST])
     return r, f"{name}'s {r:g} m hit radius (MonsterVarieties ObjectSize / 10, MEDIUM: the unit read from poedb)"
+
+
+# (MECHB72; RESEARCH69 R69-8, research/boss-phase-gates-r69.md; AUDIT41 A41-42; bosses.py LOANED to MECH-B by the
+# manager, 27 Nov 08:23, for these fields only) PHASE GATES. Patch 0.2.0: "Bosses that need to perform certain actions to
+# progress their fight will now become immune to damage if their life is brought significantly past the point at which
+# that action should be used": a burst can't skip a gate, and what it deals past the gate is LOST, never carried into the
+# next phase (MEDIUM-HIGH). Each entry: the gates in fight order, each a Gate: `share` the part of the fight's WHOLE pool
+# (conditions.boss_pool: every bar, Life + Energy Shield) dealt before the boss stops at that gate; `seconds` the
+# transition after it, the boss immune or off the field (None: length unknown, read as 0, said); `room` the most a burst
+# can carry past the gate before the boss stops (the rest of that bar; 0 where the gate is the bar's end: a death or a
+# revive), and `bar` one Life bar, both as shares of the whole pool. The phase after the last gate is the rest of the
+# pool. Presets not listed: no Life gate found or none established (R69-8 (a): Xesht, the Arbiter of Divinity, the Raven:
+# none found; Zarokh's trials are time-based and the Bodach's scripted phase has no stated threshold: their off-field
+# time stays ABSENT's; Kulemak's staged breaks have no Life shares; the Aberration's last third is damage REDUCTION, not
+# immunity, of unknown size; the Red Queen's phase ends at her death and the Fell Serpent is its own preset): one bar.
+# A preset with gates holds its transitions HERE: its ABSENT events (the King's maze, the Fell Serpent's shield) are the
+# same transitions, so a reader takes one or the other, never both (checked: ABSENT's five entries against GATES': the
+# King's and the Fell Serpent's events are their gates' transitions; Zarokh's, Kulemak's and the Bodach's aren't gates).
+# MECH-C (A41-43, its charge lapse) reads transitions(name): the seconds the boss is immune between phases.
+class Gate(NamedTuple):
+    share: float  # of the whole fight pool, dealt before this gate
+    seconds: float | None  # the transition after it (immune / off the field); None: unknown
+    what: str
+    confidence: str
+    room: float  # the most a burst carries past it (the rest of that bar), a share of the whole pool
+    bar: float  # one Life bar, a share of the whole pool
+
+
+GATES: dict[str, tuple[Gate, ...]] = {
+    "Arbiter of Ash": (Gate(0.45 / 1.45, 9.0,
+                            "55% Life: he walks away, speaks, takes his weapon and heals to FULL (0.4.0 \"will heal to "
+                            "full during the transition\"; timesaver.gg and poe-vault: 55%; R69-8's 0.5 Uber kill read at "
+                            "1 fps: the bar frozen ~9 s, then full)",
+                            "the gate MEDIUM, the heal to full MEDIUM-HIGH, the ~9 s LOW-MEDIUM (one fight)",
+                            0.55 / 1.45, 1 / 1.45),),
+    "The King in the Mists": (Gate(0.75 / 1.75, 38.0,
+                                   "25% Life of the first form: the Wildwood Maze, immune, then the second form at full "
+                                   "Life (maxroll's Ritual guide, RESEARCH25 #147; the maze 31-42 s, ~38 s: ABSENT)",
+                                   "the gate MEDIUM-HIGH, the maze's length MEDIUM-HIGH", 0.25 / 1.75, 1 / 1.75),),
+    "Olroth, Origin of the Fall": (Gate(1.0 / 1.7, None, "0% Life: he revives with ~70% Life (maxroll, updated after 0.5)",
+                                        "MEDIUM; the revive's length UNVERIFIED (read as 0 s)", 0.0, 1 / 1.7),),
+    "Atziri, the Fell Serpent": (Gate(0.96, 10.0,
+                                      "~3-5% Life (~4%): \"My ascension has begun!\", the body leaves the floor under a "
+                                      "shield bar, then the last ~4% (ABSENT, one fight)", "LOW (one fight)", 0.04, 1.0),),
+}
+GATES[WORST] = GATES["Arbiter of Ash"]  # (the worst case has the Arbiter of Ash's Life and its 1.45 bars: life_bars)
+# How far past a gate a burst carries the bar before the boss stops taking damage (R69-8's one measured kill: the bar
+# crossed 55% at ~18.3 s and froze at ~24% at ~20 s: 31 points of a bar in ~1.7 s, at ~18% of a bar a second; the 0.2.0
+# note's "significantly past" is the limit, its size UNVERIFIED). Read as whichever comes first: 1.7 s of the build's
+# damage or 31% of a bar, at most the bar's rest (LOW-MEDIUM). Its damage is lost to the transition; the pool it spent is
+# spent. The burst past the gate is the headline (the lower reading); none past it is a row.
+OVERSHOOT_BAR, OVERSHOOT_SECONDS = 0.31, 1.7
+
+
+def gates(name: str = DEFAULT) -> tuple[Gate, ...]:
+    """(MECHB72, the note above) the preset's phase gates in fight order; () for a preset with none established."""
+    return GATES.get(name, ())
+
+
+def transitions(name: str = DEFAULT) -> tuple[tuple[float | None, str], ...]:
+    """(MECHB72, for MECH-C's charge lapse and the fight readers) ((seconds or None, what), ...) the boss is immune
+    between its phases (its gates' transitions); () for a preset without gates (ABSENT holds other off-field time)."""
+    return tuple((g.seconds, g.what) for g in gates(name))
+
+
+def gate_overshoot(gate: Gate, dps_share: float) -> float:
+    """(MECHB72) the part of the whole fight pool a burst deals past `gate` before the boss stops (lost): the lesser of
+    OVERSHOOT_SECONDS of the build's damage (`dps_share`: the build's DPS / the whole pool), OVERSHOOT_BAR of one bar
+    and the bar's rest (gate.room)."""
+    if dps_share <= 0:
+        return 0.0
+    return max(0.0, min(dps_share * OVERSHOOT_SECONDS, OVERSHOOT_BAR * gate.bar, gate.room))
