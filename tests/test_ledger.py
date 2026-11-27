@@ -394,6 +394,9 @@ TWO_READERS = {
         "PoB's own Area flag from baseFlags for the listed skills; the bridge's model for sets PoB lacks it on",
     ("bear_slam_spend_X_rage_for_stronger_slam", "model-gem17-furious-slam-rage", "model-gem1-jagged-ground"):
         "two models: the Enraged slam's Rage gate (GEM17) and the Jagged Ground it leaves (GEM1)",
+    ("lightning_damage_roll_always_min_or_max", "model-gem51-esh-prowess-lucky", "model-read-cov60-train151-readers"):
+        "two readers: the bridge's Shock chance over the two rolls (MECH110 / MECH111, bridge.lua 726-756) and GEM51's "
+        "hit-damage mean under Lucky Lightning (models.esh_lucky_model)",
 }
 
 

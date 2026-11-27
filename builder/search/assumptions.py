@@ -5635,6 +5635,11 @@ class Assumptions:
             # (GEM51: models.catalysing_discharge_model; the bridge gives it damage, so every copy gets a rate)
             c_mods, c_notes, catalysing_groups = self.catalysing_discharge(found, main, stats, forbidden)
             hand_mods, hand_notes = hand_mods + c_mods, hand_notes + c_notes
+        if main is not None and any(g.get("index") == main.group and any(
+                x.get("name") == models.ESH_PROWESS and x.get("enabled", True) for x in g.get("gems") or [])
+                for g in build.groups()):  # (GEM51: Esh's Prowess's Lucky Lightning rolls, models.esh_lucky_model)
+            e_mods, e_notes = models.esh_lucky_model(main, build.call("stats", fields=models.ESH_FIELDS), forbidden)
+            hand_mods, hand_notes = hand_mods + e_mods, hand_notes + e_notes
         if main is not None and main.name == models.ICESTORM:  # (MECHB52: R42-3, an UNVERIFIED row only)
             ice_stats = build.call("stats", fields=["Speed", "Duration"])
             hand_notes = hand_notes + models.icestorm_overlap_note(main, number(ice_stats.get("Speed")),

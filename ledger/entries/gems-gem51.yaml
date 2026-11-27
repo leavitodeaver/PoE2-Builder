@@ -24,3 +24,23 @@
             "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (TriggeredCatalysingDischargePlayer)"]
   test_in_game: "Whether the three elements share one Cooldown, and whether one boosted use Triggers once per ground it meets."
   status: proposed
+
+- id: model-gem51-esh-prowess-lucky
+  title: "Esh's Prowess: a Lucky Lightning roll takes its maximum 3 times in 4 (PoB: min + 2/3 of the range for every Lucky roll)"
+  kind: model
+  model: esh_lucky
+  stats: ["lightning_damage_roll_always_min_or_max"]
+  skill: [Esh's Prowess]
+  confidence: theory
+  notes: >-
+    GEM51 (a small UNDERCOUNT, only with Lucky Lightning). KeywordPopups BooleanDamageRoll: min or max, 50% each; Lucky
+    picks the maximum if either roll did, so a Lucky roll's mean is min + 3/4 of the range; PoB's damage pass
+    (CalcOffence 4259-4266) takes min + 2/3 for every Lucky roll. The Lucky chance is read back from PoB's own stored
+    average for the Hit and Crit passes; the gain goes on the main skill as a DPS MORE (hit DPS only: the ailment
+    chances already read the two rolls, MECH110 / MECH111). The stat is carried by SupportEshsProwess only (checked:
+    stat id over Mods, GrantedEffectStatSets, GrantedEffectStatSetsPerLevel, PassiveSkills, 26650308; patch 0.5.0 "New
+    Lineage Support: Esh's Prowess", no later entry).
+  sources: ["data/game-26650308/tables/KeywordPopups.json (BooleanDamageRoll)",
+            "vendor/PathOfBuilding-PoE2/src/Modules/CalcOffence.lua 4259-4266"]
+  test_in_game: "Not needed: the keyword text gives the rule."
+  status: proposed

@@ -31664,3 +31664,58 @@ def catalysing_discharge_model(uses: float, uses_how: str, grounds: dict[str, tu
                      f"Triggers a Discharge of that element (without the ground 0; with this build's: {rate:.2f} a "
                      "second)")}
     return in_group(mods, group, {CATALYSING_DISCHARGE}), [note]
+
+
+# (GEM51; the manager 27 Nov 10:42; a small UNDERCOUNT, only with Lucky Lightning) Esh's Prowess (SupportEshsProwess, a
+# Lineage support, patch 0.5.0): "causing them to only roll the minimum or maximum value for Lightning damage"
+# (GemEffects EshsProwessSupport; stat lightning_damage_roll_always_min_or_max, carried by this support's set only:
+# checked by stat id over Mods, GrantedEffectStatSets, GrantedEffectStatSetsPerLevel and PassiveSkills, 26650308).
+# KeywordPopups BooleanDamageRoll: "always roll either the minimum value or the maximum value, with a 50% chance for each
+# ... If the damage rolls are Lucky, ... picking the maximum if either roll had that result". So a plain roll's mean is
+# PoB's (min + max) / 2, but a Lucky one's is min + 3/4 of the range, where PoB's damage pass (CalcOffence 4259-4266)
+# takes every Lucky roll as min + 2/3 of the range: the hit is short by range x q / 12 (q the Lucky chance of that pass).
+# q is read back from PoB's own stored average (avg = (min + max) / 2 + q x range / 6) for the Hit and Crit passes, the
+# gain carried to the hit after mitigation in proportion (LightningHitAverage / LightningCritAverage, PoB's per-type
+# post-mitigation averages: resistances and damage taken scale a type's hit linearly), weighted by the crit chance, and
+# given as a DPS MORE on the main skill (the hit's DPS only: the ailment chances already read the two rolls, MECH110 /
+# MECH111 in engine/bridge.lua's ailmentChancePerHit). No Lucky Lightning: x1.000. An attack's per-hand outputs: the
+# main hand's where PoB keeps no top-level range (LOW for dual wielding).
+ESH_PROWESS = "Esh's Prowess"
+ESH_ENTRY = "model-gem51-esh-prowess-lucky"
+ESH_FIELDS = [f"{p}Lightning{k}" for p in ("", "MainHand.") for k in
+              ("StoredHitMin", "StoredHitMax", "StoredHitAvg", "StoredCritMin", "StoredCritMax", "StoredCritAvg",
+               "HitAverage", "CritAverage")] + ["CritChance", "AverageHit"]
+
+
+def esh_lucky_model(main: Skill | None, out: dict, forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for a main skill supported by Esh's Prowess (see above); `out` PoB's ESH_FIELDS."""
+    if main is None or ESH_ENTRY in forbidden:
+        return [], []
+    prefix = "" if number(out.get("LightningStoredHitMax")) > 0 or number(out.get("LightningStoredCritMax")) > 0 else "MainHand."
+    crit = max(0.0, min(1.0, number(out.get("CritChance")) / 100))
+    gain, parts = 0.0, []
+    for name, stored, post, weight in (("Hit", "StoredHit", "HitAverage", 1.0 - crit),
+                                       ("Crit", "StoredCrit", "CritAverage", crit)):
+        lo, hi = number(out.get(f"{prefix}Lightning{stored}Min")), number(out.get(f"{prefix}Lightning{stored}Max"))
+        avg, after = number(out.get(f"{prefix}Lightning{stored}Avg")), number(out.get(f"{prefix}Lightning{post}"))
+        spread = hi - lo
+        if spread <= 0 or avg <= 0 or weight <= 0:
+            continue
+        lucky = max(0.0, min(1.0, (avg - (lo + hi) / 2) * 6 / spread))
+        if lucky <= 1e-6:
+            continue
+        add = spread * lucky / 12
+        gain += weight * after * add / avg
+        parts.append(f"{name}: Lucky {lucky:.0%}, {lo:,.0f}-{hi:,.0f} Lightning, +{add / avg:.1%} on its Lightning")
+    hit = number(out.get("AverageHit"))
+    if gain <= 0 or hit <= 0:
+        return [], []
+    factor = 1 + gain / hit
+    return [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name)], [{
+        "label": f"{ESH_PROWESS}: Lucky Lightning rolls the maximum 3 times in 4*", "value": f"x{factor:.4f}",
+        "confidence": "HIGH", "entry": ESH_ENTRY,
+        "basis": ("Lightning rolls only its minimum or maximum, 50% each; Lucky picks the maximum if either roll did "
+                  "(KeywordPopups BooleanDamageRoll), so a Lucky roll's mean is min + 3/4 of the range, where PoB takes "
+                  f"min + 2/3 for every Lucky roll (an UNDERCOUNT): {'; '.join(parts)}; the average hit "
+                  f"{hit:,.0f} -> {hit * factor:,.0f}. The Lucky chance read back from PoB's own stored average"),
+        "play": ""}]

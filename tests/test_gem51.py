@@ -50,3 +50,29 @@ def test_cooldown_caps_at_one_a_second_and_forbidden_is_zero():
     mods, notes = models.catalysing_discharge_model(10.0, "x", {"Fire": (1.0, "a")},
                                                     forbidden={models.CATALYSING_ENTRY})
     assert rate_of(mods) == 0.0 and notes == []
+
+
+ESH = models.Skill(name="Spark", group=1, spell=True)
+
+
+def esh_out(lo, hi, lucky, crit=0.0, other=0.0):
+    avg = (lo + hi) / 2 + lucky * (hi - lo) / 6
+    return {"LightningStoredHitMin": lo, "LightningStoredHitMax": hi, "LightningStoredHitAvg": avg,
+            "LightningHitAverage": avg, "CritChance": crit, "AverageHit": avg + other}
+
+
+def test_esh_prowess_lucky_lightning_rolls_the_maximum_three_times_in_four():
+    mods, notes = models.esh_lucky_model(ESH, esh_out(10, 110, 1.0))
+    factor = 1 + mods[0]["value"] / 100
+    # min + 3/4 of the range (85) against PoB's min + 2/3 (76.67)
+    assert factor == pytest.approx(85 / (10 + 200 / 3), rel=1e-4)
+    assert mods[0]["name"] == "DPS" and mods[0]["skill"] == "Spark" and notes[0]["entry"] == models.ESH_ENTRY
+    # half Lucky, and other damage types in the hit dilute it
+    half = models.esh_lucky_model(ESH, esh_out(10, 110, 0.5, other=50.0))[0][0]["value"]
+    assert half == pytest.approx(100 * (100 * 0.5 / 12) / (60 + 100 / 12 + 50), rel=1e-3)
+
+
+def test_esh_prowess_without_lucky_moves_nothing():
+    assert models.esh_lucky_model(ESH, esh_out(10, 110, 0.0)) == ([], [])
+    assert models.esh_lucky_model(None, esh_out(10, 110, 1.0)) == ([], [])
+    assert models.esh_lucky_model(ESH, esh_out(10, 110, 1.0), {models.ESH_ENTRY}) == ([], [])
