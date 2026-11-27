@@ -6189,6 +6189,8 @@ function bridge.setRates(args)
 					"ChainMax", "ForkCountMax", "SplitCount", "AreaOfEffectRadius", "AreaOfEffectRadiusSecondary",
 					-- (MECH109, R60-12: a set's Poison stacks and the Poison limit, models.cloud_poison_scale)
 					"PoisonStackPotential", "PoisonStacksMax",
+					-- (GEM49, AUDIT41 A41-14: a cloud set's Poison duration, models.cloud_poison_step)
+					"PoisonDuration",
 					-- (MECHB56, RESEARCH48 R48-1: an Ice Crystal set's Life with the build's modifiers, CalcOffence 1724-1726:
 					-- Midnight Zenith's Crystal set, models.midnight_zenith_model)
 					"IceCrystalLife" }) do

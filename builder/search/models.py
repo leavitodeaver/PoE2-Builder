@@ -8293,9 +8293,14 @@ def frost_bomb_exposure_model(skills: list[Skill], stats: dict, main: Skill | No
 # Exposure reaches the boss as enemy <Element>Resist BASE -magnitude, CalcPerform 3426). So on b07's Comet (100% inverted
 # by Rakiata's Flow) the 45% preset boss pays x1.45 without Frost Bomb, x1.35 with PoB's 20% (halved on a Unique: -10),
 # x1.27 with the model's 36% (POE2T9769 / 9770, scratch/gem48/probe_b07exp.log). That order (Exposure before the
-# inversion) is PoB's code alone: the game files hold no "inverted" definition (checked: KeywordPopups 26650308 has none;
-# poe2db's Rakiata's Flow page gives only the gem text; poe2wiki was unreadable; the patch notes have no "invert" entry
-# on resistances): UNVERIFIED, a RESEARCH question. A player whose Exposure costs damage casts the orb away from the
+# inversion) is PoB's and the game's (checked: RESEARCH67 R67-2, research/rakiata-exposure-order-r67.md: KeywordPopups
+# Exposure lowers the enemy's Total resistance, "after all other modifiers", and the hit treats that value as inverted;
+# no test or dev statement either way (poe2db, patch notes; poe2wiki blocked): MEDIUM; the game files hold no "inverted"
+# definition). Penetration comes after the inversion and can't take a resistance below 0%, so it does nothing against a
+# positive resistance that is inverted (checked: RESEARCH68 R68-8: KeywordPopups Penetration "down to a minimum of 0%",
+# forum 3860272's measured x1.19 with 59% Fire Penetration fits invert-first and rules out Penetration-first: MEDIUM);
+# PoB floors it the same way (calcPenResist), so no row (b07 carries no Penetration; b02 / b15 / b06, the Rakiata
+# builds with Penetration, read PoB's same order). A player whose Exposure costs damage casts the orb away from the
 # boss (at their own feet: its Remnant still made; its Detonation's Chill on the boss lost, which no condition reads
 # from Frost Bomb today), so when Frost Bomb's own hits aren't
 # scored (not the main skill, not in Full DPS) Assumptions.frost_bomb_spot scores both spots, Exposure on the boss and
@@ -8318,7 +8323,7 @@ def frost_bomb_spot_note(at_boss: float, away: float, chosen: str) -> dict:
             "basis": (f"Scored both ways: its Exposure on the boss {at_boss:,.0f} DPS, the orb cast away from the boss (no "
                       f"Exposure from it) {away:,.0f} DPS. " + (
                           "Your main hit treats the boss's Elemental Resistances as inverted, so lowering them costs "
-                          "damage (PoB inverts the resistance after Exposure: UNVERIFIED in the game's own text)"
+                          "damage (the resistance is inverted after Exposure lowers it: MEDIUM, RESEARCH67 R67-2)"
                           if away_better else "Its Exposure on the boss pays")),
             "play": (("Cast Frost Bomb at your own feet, away from the boss: its Exposure would lower the boss's "
                       "resistance, which your inverted hits turn into damage. ") if away_better else
@@ -8868,6 +8873,8 @@ def overgrown_model(skills: list[Skill], main: Skill | None, groups: dict,
 # Thunderstorm); otherwise at the share of the fight a storm covers the boss, min(1, its uses a second x its Duration:
 # the bridge's useRates, or PoB's Speed / Duration when it's the main skill), where the boss stands in the storm (the
 # play: cast it on the boss; MEDIUM). No use rate read (not the main skill and no group row): PoB's always-on stays.
+# (GEM49) A Thunderstorm the search keeps up (SEARCH41's Search.upkeep_round: objective.upkeep_rates, the group row's
+# "_upkeep") is read at that rate, the casts the main skill pays for, not PoB's nonstop rate (a chosen press rate first).
 DRENCH_SKILL = "Thunderstorm"
 DRENCH_LEVEL_STAT = "thunderstorm_wet_debuff_cannot_apply_to_targets_above_level"
 DRENCH_ENTRY = "model-gem15-thunderstorm-drenched"
@@ -8891,10 +8898,14 @@ def drenched_model(skills: list[Skill], stats: dict, main: Skill | None, groups:
         rate, duration, how = number(stats.get("Speed")), number(stats.get("Duration")), "Thunderstorm (main) at PoB's Speed"
     elif storm.group in groups:
         row = groups[storm.group]
-        press = row.get("_press")
-        rate = number(row.get("speed")) * number(press if press is not None else 1.0)
+        press, upkeep = row.get("_press"), row.get("_upkeep")
         duration = number(row.get("duration"))
-        how = "Thunderstorm" + (f" pressed {number(press):.0%}" if press is not None else " at PoB's rate")
+        if press is None and upkeep is not None:  # (GEM49: SEARCH41's upkeep, its casts charged to the main skill)
+            rate = number(upkeep)
+            how = "Thunderstorm kept up (its casts charged against the main skill's time: SEARCH41's upkeep)"
+        else:
+            rate = number(row.get("speed")) * number(press if press is not None else 1.0)
+            how = "Thunderstorm" + (f" pressed {number(press):.0%}" if press is not None else " at PoB's rate")
     else:
         return [], []  # (no use rate read for it: PoB's always-on stays, never zeroed)
     up = min(1.0, max(rate, 0.0) * max(duration, 0.0))
@@ -10468,10 +10479,13 @@ DETONATORS_TOO = {"Earthshatter"}
 # length (stay_share's "fixed"). Stormblast Bolts too: "fires charged bolts that land around the target location ...
 # lodging in the ground for a duration. Detonator Skills will cause these bolts to explode" (ActiveSkills
 # stormblast_bolts, 26650308), the same case (its 10 s life the cap). NOT Rapid Assault: "leaves a spearhead stuck in
-# the target" (ActiveSkills rapid_assault): it moves with the boss, so nothing is lost. Not yet read (named): Storm
-# Lance's lodged spear (its bolts zap "nearby enemies", a reach not read here), Gas Grenade's cloud (with Gas Arrow's,
-# the cloud sites), Forge Hammer's spiral (MECH-B's MECHB48 model).
-DETONATED_STAY = {"Earthshatter", "Stormblast Bolts", "Storm Lance"}
+# the target" (ActiveSkills rapid_assault): it moves with the boss, so nothing is lost. Gas Grenade's cloud is read at
+# the cloud sites (with Gas Arrow's). (GEM49; MECHB70's note, the manager 26 Nov 20:05) the MAIN Forge Hammer too: its
+# Fissures spiral out from the hammer lodged where it landed when a Warcry is used near it (DETONATED_SETS' "Forge
+# Hammer", MECHB48's reading), so the boss must still be there when the Warcry comes: R = PoB's Fissures set radius (one
+# Fissure's own, the spiral's spread not read: the lower reading), as MECHB70's side Forge Hammer (Assumptions.
+# side_forge_hammer) does.
+DETONATED_STAY = {"Earthshatter", "Stormblast Bolts", "Storm Lance", "Forge Hammer"}
 DETONATED_STAY_RADIUS = 1.5  # (metres: MECHD9's survey estimate for Earthshatter's spikes, used only without PoB's radius)
 # (GEM48; RESEARCH66 R66-5, research/storm-lance-reach-r66.md) Storm Lance's lodged spear "Fires bolts at enemies within a
 # {0} metre radius" (storm_lance_statset_1, from active_skill_base_secondary_area_of_effect_radius 30: 3.0 m, HIGH),
@@ -11278,8 +11292,19 @@ def gas_cloud_poisons(alive: float) -> float:
 # that steps back in is re-Poisoned at once, R67-1 point 2: not counted, the lower reading). (Using the average time
 # inside instead, 1 + floor(inside x life / step), hid the bosses that leave before the second Poison: probe
 # POE2T9781.) Interval vs Poison duration is open (the clip had
-# 2.0 s; a build with a Poison-duration modifier: the "one per cloud" row, R67's point 4); the Poison duration isn't read.
+# 2.0 s; a build with a Poison-duration modifier: the "one per cloud" row, R67's point 4). (GEM49, AUDIT41 A41-14) The
+# clip's 2.0 s Poison can't tell "re-Poisons every 2.02 s" from "re-Poisons when the last Poison ends": with a raised
+# Poison limit and a longer Poison duration the fixed step overlaps one cloud's own Poisons (up to duration / 2.02 at
+# once), the HIGHER reading. So the headline step is max(2.02, the Poison Cloud set's PoisonDuration) (cloud_poison_step;
+# the same 2.02 at the base 2.0 s), the fixed 2.02 s step a labelled row (UNVERIFIED; R67-1 section 5's second clip
+# settles it). Vine Arrow's plant cover (cloud_cover) keeps one Poison a step: a labelled LOWER reading (no overcount).
 GAS_POISON_STEP = 2.02  # (seconds: R67-1's measured interval, 2.00-2.03)
+
+
+def cloud_poison_step(poison_seconds: float = 0.0) -> float:
+    """Seconds between a cloud's Poisons on the boss (A41-14, see above): GAS_POISON_STEP, or the build's Poison duration
+    (PoB's PoisonDuration of the Poison Cloud set) where longer."""
+    return max(GAS_POISON_STEP, number(poison_seconds))
 
 
 def cloud_applications(life: float, ends: float = 0.0, up: float = 0.0, leave: float = 0.0,

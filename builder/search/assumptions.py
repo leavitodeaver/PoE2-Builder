@@ -3584,7 +3584,8 @@ def accelerated_growth(build: Build, found: list[models.Skill], texts: list[str]
     if not parts:
         return 0.0, []
     storms = sorted({s.group for s in found if s.name in models.OVERGROW_SKILLS and s.group is not None})
-    groups = {r["index"]: {**r, "_press": press.get(r["name"])}
+    upkeep = getattr(build.objective, "upkeep_rates", None) or {}  # (GEM49: SEARCH41's, for overgrown_share)
+    groups = {r["index"]: {**r, "_press": press.get(r["name"]), "_upkeep": upkeep.get(r["name"])}
               for r in build.call("useRates", indices=storms)["rates"]} if storms else {}
     share, share_parts, conf = models.overgrown_share(found, groups, texts)
     # (GEM26: Nature's Archon, MECHC44's natures_archon_uptime, fed the build's Overgrows a second outside it: its
@@ -4324,7 +4325,8 @@ class Assumptions:
         combo = combo_facts(build, found)  # (GEM42: the Invoker's Combo lines, models.COMBO_FACTS)
         side = models.gem_stat_side_groups(found, main, bool(combo.get("any_attack")))
         press = getattr(build.objective, "press_scales", None) or {}
-        side_groups = {r["index"]: {**r, "_press": press.get(r["name"])}
+        upkeep = getattr(build.objective, "upkeep_rates", None) or {}  # (GEM49: SEARCH41's kept-up side skills' uses)
+        side_groups = {r["index"]: {**r, "_press": press.get(r["name"]), "_upkeep": upkeep.get(r["name"])}
                        for r in build.call("useRates", indices=side)["rates"]} if side else None
         stat_stats = {**stats, "_archon_x": {k: inputs.total(k) for k in models.ARCHON_TIMING},  # (GEM28: overgrown_model)
                       "_main_share": main_time_share(build, main), models.COMBO_FACTS: combo}
@@ -11656,7 +11658,16 @@ class Assumptions:
         ignites = -math.log(1.0 - up) / duration if 0 < up < 1 else 0.0
         ends = ignites + det_rate
         alive = 0.0 if up >= 1 else (1.0 - up) * ((1.0 - math.exp(-ends * life)) / ends if ends > 0 else life)
-        poisons = models.cloud_applications(life, ends, up)  # (GEM48, R67-1: the landing one, then every 2.02 s)
+        # (GEM49, AUDIT41 A41-14) the re-application step: every 2.02 s, or when the last Poison ends where the build's
+        # Poison duration is longer (models.cloud_poison_step: the higher of the two readings R67-1's clip can't tell
+        # apart is the fixed step; the headline the lower)
+        spot = self.skill_spot(main_index, skill)
+        cloud_set = next((x for x in ((build.call("setRates", index=spot[0], active=spot[1])["sets"] if spot else [])
+                                      or []) if x.get("label") == "Poison Cloud"), {})
+        poison_seconds = number(cloud_set.get("PoisonDuration"))
+        step = models.cloud_poison_step(poison_seconds)
+        fixed_n = models.cloud_applications(life, ends, up)  # (the fixed 2.02 s step's count, the row)
+        poisons = models.cloud_applications(life, ends, up, step=step)  # (GEM48, R67-1: the landing one, then every step)
         # (GEM47; MECHD9's survey and the manager's reader rule, 26 Nov: models.CLOUD_STAY's note) the boss walks out of
         # the cloud left where it stood: its Poisons come only while the boss is inside, and a cloud explodes on it only
         # if it is still inside when set off
@@ -11665,7 +11676,12 @@ class Assumptions:
         if stay is not None:
             in_alive, in_life, in_det, stay_how, leave = stay
             share = det_only * in_det + max(share - det_only, 0.0) * in_life
-            poisons = models.cloud_applications(life, ends, up, leave)
+            poisons = models.cloud_applications(life, ends, up, leave, step=step)
+            fixed_n = models.cloud_applications(life, ends, up, leave)
+        step_row = (f"; re-Poisoned every {step:.2f} s (when its last Poison, {poison_seconds:.2f} s, ends: the lower "
+                    f"reading, AUDIT41 A41-14), so {poisons:.2f} Poisons a cloud; every {models.GAS_POISON_STEP:g} s "
+                    f"whatever the Poison duration: {fixed_n:.2f} (UNVERIFIED: R67-1's clip had the base 2.0 s, its "
+                    f"section 5's second clip settles it; not counted)" if step > models.GAS_POISON_STEP + 1e-9 else "")
         others_n = len([o for o in others.get("Ignite") or () if o])
         source = ("the explosions' own Ignites" if own and scored == "Explosion" else
                   f"the {scored}'s own Ignites" if own else "no own Ignite read")
@@ -11677,7 +11693,9 @@ class Assumptions:
                          f"clouds would explode: the boss Ignited {up:.1%} of the fight, Detonators"
                          + (" and Fire DoT" if burning else "") + f" {detonated:.0%})"
                          + (f"; the boss inside the cloud {stay[1]:.0%} of its life ({stay[3]}; standing still: "
-                            f"{models.cloud_applications(life):.2f} Poisons a cloud)" if stay is not None else "")),                 models.cloud_applications(life, leave=stay[4] if stay is not None else 0.0)
+                            f"{models.cloud_applications(life, step=step):.2f} Poisons a cloud)" if stay is not None
+                            else "") + step_row), (
+                models.cloud_applications(life, leave=stay[4] if stay is not None else 0.0, step=step))
         return share, (f"the boss Ignited {up:.1%} of the fight ({others_n} other Ignite source(s); {source}; "
                        f"{duration:.1f} s each), so at some moment of a cloud's {life:.1f} s {within:.1%}; "
                        f"Detonators" + (" and Fire DoT" if burning else "") + f" set off {detonated:.0%} ({det_how}"
@@ -11687,7 +11705,7 @@ class Assumptions:
                        + (f"; the boss walks out of it (GEM47, LOW: {stay[3]}): inside {stay[0]:.0%} of a cloud's "
                           f"{alive:.1f} s, so {poisons:.2f} Poisons a cloud; set off by a Detonator {stay[2]:.0%} / by an "
                           f"Ignite {stay[1]:.0%} still inside: {share:.1%} explode (standing still: {still[0]:.1%}, "
-                          f"{still[1]:.2f} Poisons)" if stay is not None else "")), poisons
+                          f"{still[1]:.2f} Poisons)" if stay is not None else "") + step_row), poisons
 
     def fire_dot_uptime(self, main_index: int) -> tuple[float, float, str]:
         """(GEM36, R48-5: "Enemies taking Fire damage over time are Burning", MEDIUM; GGG's Flame Wall + Gas Cloud
