@@ -280,6 +280,7 @@ class Search:
         # (Build.gem_deltas, POE2_SEARCH_GEM_RESCORE, off by default)
         self.build.model_gem = model_valued_supports(self.ctx, self.conditions)
         self.build.gem_settle = self.settle
+        self.build.judge_settle = self.resolve  # (JUDGE: the tree's keep / revert on the settled score)
         self.gems.resolve = self.resolve
         self.gems.settle = self.settle
         self.gems.assumptions = self.assumptions

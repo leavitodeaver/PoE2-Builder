@@ -152,3 +152,111 @@ def test_late_sweep_reruns_the_sweep_only_steps_in_order_until_its_deadline(monk
     assert [c[0] for c in calls] == [f"{p} (late)" for p in inner.SWEEP_ONLY[:3]]
     src = __import__("inspect").getsource(inner.finalize_task)
     assert src.find('trace.append(["polish"') < src.find("search.late_sweep(") < src.find("spend_ascendancy")
+
+
+def test_judge_flags_a_case_that_moves_a_model_input():
+    """(JUDGE, Phase 1 piece 1.1) on / off of any input; a rate / chance / cost input past JUDGE_TOL; a damage-size input
+    (it scales with every damage support) only when it turns on or off."""
+    from builder.search.state import JUDGE_TOL, judge_inputs_moved
+
+    base = {"Speed": 1.0, "IgniteDPS": 100.0, "ManaPerSecondCost": 10.0, "BleedDPS": 0.0, "HitChance": 100}
+    fields = list(base)
+    assert judge_inputs_moved(base, dict(base), fields) == []
+    assert judge_inputs_moved(base, {**base, "Speed": 1.0 + JUDGE_TOL / 2}, fields) == []
+    assert judge_inputs_moved(base, {**base, "Speed": 1.1}, fields) == ["Speed"]
+    assert judge_inputs_moved(base, {**base, "IgniteDPS": 180.0}, fields) == []  # (a damage size: not on its own)
+    assert judge_inputs_moved(base, {**base, "IgniteDPS": 0.0}, fields) == ["IgniteDPS"]  # (turned off: Elemental Focus)
+    assert judge_inputs_moved(base, {**base, "BleedDPS": 5.0}, fields) == ["BleedDPS"]  # (turned on: Bleed II)
+    assert judge_inputs_moved(base, {**base, "ManaPerSecondCost": 12.0}, fields) == ["ManaPerSecondCost"]
+
+
+def test_judge_is_off_by_default_and_only_then_widens_the_gem_what_if():
+    from builder.search import state
+
+    assert state.judge_enabled() is False
+    assert "FullDPS" not in state.judge_fields() and "Speed" in state.judge_fields()
+    seen = []
+    build = object.__new__(state.Build)
+    build._gem_trial = False
+    build.objective = SimpleNamespace(fields=["CombinedDPS"], full=False)
+    build.call = lambda method, **kw: seen.append(kw["fields"]) or {"results": []}
+    build._scored = lambda results, fill, extras: []
+    build._deltas("gemDeltas", [{"group": 1}])
+    build._deltas("nodeDeltas", [{"node": 1}])
+    assert seen == [["CombinedDPS"], ["CombinedDPS"]]
+
+
+def test_judge_tries_the_top_by_what_if_and_every_flagged_case_on_our_score(monkeypatch):
+    """Six support cases: the JUDGE_TOP best by what-if and the one flagged lower down get a real trial; the rest keep their
+    what-if. The judge's row counts them."""
+    from builder.search import state
+
+    monkeypatch.setattr(state, "JUDGE_TOP", 2)
+    monkeypatch.setenv(state.JUDGE_SWITCH, "1")
+    group = {"index": 1, "gems": [{"name": "Spark", "support": False, "enabled": True, "level": 20, "quality": 0}]}
+    names = ["S1", "S2", "S3", "S4", "S5", "S6"]
+    cases = [{"group": 1, "slot": 2, "gem": n} for n in names]
+    base = {"Speed": 1.0}
+    scored = [(10.0 - i, {"Speed": 1.0}) for i in range(6)]
+    scored[4] = (6.0, {"Speed": 2.0})  # (S5 moves a model input)
+    tried = []
+    build = object.__new__(state.Build)
+    build.ctx = SimpleNamespace(gems={n: {"support": True} for n in names})
+    build.groups = lambda: [group]
+    build.started, build.judge_seconds, build.stopped, build.stop_at, build.phase = 0.0, 0.0, False, None, "supports"
+    build.judge_log, build.gem_rescore_log, build.gem_rescored, build.gem_rescore_restores = [], [], 0, 0
+    build.score = 0.0
+    build.objective = SimpleNamespace(fields=[], prepare=lambda s: s, score=lambda s: 100.0)
+    build.added_stats = lambda: {}
+    build.snapshot = lambda: {}
+    build.refresh = lambda: 0.0
+    build.gem_settle = lambda: None
+
+    def call(method, **kw):
+        if method == "stats":
+            return dict(base)
+        if method == "setGroup" and len(kw["gems"]) > 1:
+            tried.append(kw["gems"][1]["name"])
+        return {}
+    build.call = call
+    monkeypatch.setattr(state.clock, "now", lambda: 1000.0)
+    out = build._rescore_model_gems(cases, list(scored), judge=True)
+    assert tried == ["S1", "S2", "S5"]
+    assert [round(s, 1) for s, _ in out] == [100.0, 100.0, 8.0, 7.0, 100.0, 5.0]
+    row = build.judge_log[-1]
+    assert (row["cases"], row["flagged"], row["picks"], row["tried"], row["cut"]) == (6, 1, 3, 3, 0)
+    assert row["moved"] == {"Speed": 1}
+
+
+def test_judge_keeps_a_tree_commit_only_for_a_real_gain_on_the_settled_score(monkeypatch):
+    """(JUDGE, the tree's keep / revert) a node whose what-if gained but our settled models value at 0 is reverted (2b75e's
+    Marked for Sickness); a revert's removal is settled again; other phases and the switch off: Build.worse as before."""
+    from builder.search import state
+
+    build = object.__new__(state.Build)
+    build.reverts, build.phase, build._gem_trial = {}, "tree", False
+    build.judge_keeps = {"judged": 0, "reverted": 0, "seconds": 0.0}
+    settled = {"score": 5.0}
+    build.score = 5.2  # (the unsettled score after the commit: the frozen models)
+
+    def settle():
+        build.score = settled["score"]
+    build.judge_settle = settle
+    assert build.worse(5.0) is False  # (switch off: 5.2 isn't worse)
+    monkeypatch.setenv(state.JUDGE_SWITCH, "1")
+    assert build.worse(5.0) is True and build.score == 5.0  # (settled: no real gain -> reverted)
+    settled["score"], build.score = 5.3, 5.2
+    assert build.worse(5.0) is False and build.score == 5.3
+    assert build.judge_keeps["judged"] == 2 and build.judge_keeps["reverted"] == 1 and build.reverts == {"tree": 1}
+    build.phase, build.score = "jewels", 5.2
+    assert build.worse(5.0) is False  # (not a judged phase)
+    build.phase = "tree"
+    calls = []
+    build.call = lambda method, **kw: calls.append(method) or {}
+    build._committed = lambda result: 4.0
+    build.objective = SimpleNamespace(fields=[])
+    settled["score"] = 4.5
+    assert build.allocate(remove=[1]) == 4.5 and build.score == 4.5  # (the revert's removal settled)
+    settled["score"] = 9.0
+    build.allocate(add=[2])
+    assert build.score == 4.5  # (an add isn't settled here: worse() judges it)

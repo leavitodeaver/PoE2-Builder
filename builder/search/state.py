@@ -55,6 +55,60 @@ HOOKED_SWITCH = "POE2_SEARCH_HOOKED_RESCORE"  # "0" off; ON by default (it does 
 HOOKED_GEMS = 3  # LOW, a search-effort setting: hooked support cases per call that get a real trial
 
 
+# (SEARCH42; the adaptive search's Phase 1 piece 1.1, THE USER's approval 27 Nov ~02:55: OUR models judge, never the
+# quick check alone) The support screen's what-if holds our models' inputs frozen (_scored adds the build's CURRENT model
+# output to every case): SPEED5 / SPEED7's Phase 0 (research/adaptive-search-data.md 0.6) read its ranking against our full
+# score at -0.56 on 2b75e seed 2 (its top 12 take Spell Echo out: all lose x0.67-0.88 on ours), -0.53 on Ice Shot
+# (example 16), 0.61 on Spark (example 14), and all 699 cases <= 0 on 2b75b where ours gives Bleed II x1.082. With
+# POE2_SEARCH_JUDGE=1 a gem what-if also returns our models' inputs (models.MODEL_FIELDS), and a support case whose change
+# MOVES one (judge_inputs_moved: a rate, chance, cost, duration, count or Life input past JUDGE_TOL; a damage-size input
+# only when it turns on or off) gets a real trial on our full score (the group set, our models settled, scored, put back:
+# _rescore_model_gems), with the JUDGE_TOP best by what-if. The cases the time guard cuts are counted (judge_log), never
+# judged by the screen alone in silence. OFF until its gate set (3 seeds a build, 2b75b-e + examples 14 / 16)
+JUDGE_SWITCH = "POE2_SEARCH_JUDGE"
+JUDGE_TOP = 4  # LOW, a search-effort setting: the best what-if cases tried whatever the inputs say
+JUDGE_TOL = 0.02  # LOW: a model input's relative move that flags a case (a rate / chance / cost input)
+JUDGE_SECONDS = 60.0  # LOW, a search-effort setting: the trials' time per call
+JUDGE_SHARE = 0.3  # LOW, the same: the trials' share of a task's time so far
+JUDGE_SIZE_WORDS = ("DPS", "HitAverage", "Damage", "AverageHit")
+# (JUDGE, the tree's keep / revert: SPEED5's 0.6, a node our models value at 0 stays allocated: 2b75e's Marked for
+# Sickness, 2b75b's Dependable Ward) In these phases Build.worse first settles our models (judge_settle: Search.resolve)
+# and keeps a commit only for a REAL gain on the settled score; a revert's removal (Build.allocate) is settled again, so
+# the next node is judged against a settled score too. The tree step's code (tree.py, SEARCH-B's) is unchanged
+JUDGE_KEEP_PHASES = ("tree", "tree rebuild")  # (inputs that scale with any damage support: on / off)
+
+
+def judge_enabled() -> bool:
+    """The switch, read at call time (a gate arm sets it per run)."""
+    return os.environ.get(JUDGE_SWITCH, "0") == "1"
+
+
+def judge_fields() -> list[str]:
+    """Our models' inputs a judged what-if returns (models.MODEL_FIELDS, less FullDPS: the fight's length only)."""
+    from builder.search.models import MODEL_FIELDS
+
+    return [f for f in MODEL_FIELDS if f != "FullDPS"]
+
+
+def judge_inputs_moved(base: dict, stats: dict, fields: list[str]) -> list[str]:
+    """The model inputs a what-if's stats move from the build's: turned on or off, or (not a damage-size input) moved
+    past JUDGE_TOL of the larger. Non-numbers are compared as they are."""
+    moved = []
+    for field in fields:
+        a, b = base.get(field), stats.get(field)
+        if a == b:
+            continue
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (a or 0, b or 0)):
+            moved.append(field)
+            continue
+        a, b = float(a or 0), float(b or 0)
+        if (a == 0) != (b == 0):
+            moved.append(field)
+        elif not any(w in field for w in JUDGE_SIZE_WORDS) and abs(b - a) > JUDGE_TOL * max(abs(a), abs(b)):
+            moved.append(field)
+    return moved
+
+
 def hooked_rescore_enabled() -> bool:
     return os.environ.get(HOOKED_SWITCH, "1") == "1"
 
@@ -202,6 +256,10 @@ class Build:
         self.gem_rescore_restores = 0
         self.gem_rescore_log: list[dict] = []
         self.gem_rescore_seconds = 0.0  # the trials' time so far (GEM_RESCORE_SHARE)
+        self.judge_seconds = 0.0  # (JUDGE) the judge's trials' time so far (JUDGE_SHARE)
+        self.judge_log: list[dict] = []  # (JUDGE) one row a support screen: cases, flagged, tried, cut, seconds
+        self.judge_settle: Callable[[], Any] | None = None  # (JUDGE) the search's settle (Search.resolve)
+        self.judge_keeps = {"judged": 0, "reverted": 0, "seconds": 0.0}  # (JUDGE) the tree's keep / revert
         self._gem_trial = False
         self.stopped = False  # the hard stop has fired (tick): no rescore trials in the wrap-up after it
         self._model_texts: tuple[int, list[str]] = (-1, [])
@@ -209,8 +267,29 @@ class Build:
         # finish its own trials first, so a 600 s gate run took about 966 s (MECH15's runs, 8 Nov)
         self.stop_at: float | None = None
 
+    def judging_keeps(self) -> bool:
+        """(JUDGE) Whether this phase's keep / revert is judged on the settled score (JUDGE_KEEP_PHASES)."""
+        return (judge_enabled() and self.phase in JUDGE_KEEP_PHASES and self.judge_settle is not None
+                and not getattr(self, "_gem_trial", False))
+
+    def _judge_settle(self) -> None:
+        started = clock.now()
+        try:
+            self.judge_settle()
+        finally:
+            self.judge_keeps["seconds"] += clock.now() - started
+
     def worse(self, before: float) -> bool:
-        """After a commit a what-if said would gain: True (and counted) if it lost instead."""
+        """After a commit a what-if said would gain: True (and counted) if it lost instead. (JUDGE, in its phases: our
+        models settled first, and True unless the settled score really gained.)"""
+        if self.judging_keeps():
+            self._judge_settle()
+            self.judge_keeps["judged"] += 1
+            if self.score <= before + EPSILON:
+                self.judge_keeps["reverted"] += 1
+                self.reverts[self.phase] = self.reverts.get(self.phase, 0) + 1
+                return True
+            return False
         if self.score < before - EPSILON:
             self.reverts[self.phase] = self.reverts.get(self.phase, 0) + 1
             return True
@@ -331,7 +410,10 @@ class Build:
         extras = [case.get("extra") for case in cases]
         cases = [{k: v for k, v in case.items() if k != "extra"} for case in cases]
         for start in range(0, len(cases), DELTA_CHUNK):
-            result = self.call(method, cases=cases[start:start + DELTA_CHUNK], fields=self.objective.fields,
+            fields = self.objective.fields
+            if method == "gemDeltas" and judge_enabled() and not self._gem_trial:  # (JUDGE: our models' inputs too)
+                fields = sorted(set(fields) | set(judge_fields()))
+            result = self.call(method, cases=cases[start:start + DELTA_CHUNK], fields=fields,
                                fullDPS=self.objective.full, **kwargs)
             scored += self._scored(result["results"], fill_from_base, extras[start:start + DELTA_CHUNK])
         return scored
@@ -342,7 +424,9 @@ class Build:
     def gem_deltas(self, cases: list[dict], skip_ehp: bool = True) -> list[tuple[float, dict]]:
         scored = self._deltas("gemDeltas", cases, fill_from_base=skip_ehp, skipEHP=skip_ehp)
         if cases and self.model_gem is not None and self.gem_settle is not None and not self._gem_trial:
-            if gem_rescore_enabled():
+            if judge_enabled():
+                scored = self._rescore_model_gems(cases, scored, judge=True)
+            elif gem_rescore_enabled():
                 scored = self._rescore_model_gems(cases, scored)
             elif hooked_rescore_enabled():
                 scored = self._rescore_model_gems(cases, scored, hooked=True)
@@ -411,7 +495,7 @@ class Build:
         return gems
 
     def _rescore_model_gems(self, cases: list[dict], scored: list[tuple[float, dict]],
-                            hooked: bool = False) -> list[tuple[float, dict]]:
+                            hooked: bool = False, judge: bool = False) -> list[tuple[float, dict]]:
         """The RESCORE_GEMS best support cases by what-if, and the model-valued ones (at most MODEL_GEMS more, the best by
         what-if first), get a real trial: the group set with the change, the conditions and models settled (gem_settle),
         scored, and the group put back as it was. `remove` cases too (weakest_slot read a model-valued support as free to
@@ -429,14 +513,35 @@ class Build:
         # ran 35-100 s past each task's end, 182,059 vs 235,907 off) none once the hard stop has fired (its wrap-up runs
         # with no stop), and all of a task's trials within GEM_RESCORE_SHARE of its time so far
         started = clock.now()
-        left = GEM_RESCORE_SHARE * (started - self.started) - self.gem_rescore_seconds
-        if self.stopped or left <= 0:
-            return scored
-        limit = min(GEM_RESCORE_SECONDS, left)
         by_whatif = sorted(support, key=lambda i: -scored[i][0])
-        picks = by_whatif[:RESCORE_GEMS] if not hooked else list(support)
-        model = [] if hooked else [i for i in by_whatif if i not in picks and self.model_gem(support[i])][:MODEL_GEMS]
-        picks += model
+        judged: dict = {}
+        if judge:  # (JUDGE: the JUDGE_TOP best by what-if, then every case moving a model input, best what-if first)
+            fields = judge_fields()
+            base = self.call("stats", fields=fields)
+            moves = {i: judge_inputs_moved(base, scored[i][1], fields) for i in by_whatif}
+            flagged = {i: f for i, f in moves.items() if f}
+            picks = by_whatif[:JUDGE_TOP] + [i for i in by_whatif[JUDGE_TOP:] if i in flagged]
+            model = [i for i in picks if i in flagged]
+            moved: dict[str, int] = {}
+            for found in flagged.values():
+                for field in found:
+                    moved[field] = moved.get(field, 0) + 1
+            judged = {"phase": self.phase, "cases": len(support), "flagged": len(flagged), "picks": len(picks),
+                      "tried": 0, "seconds": 0.0, "moved": dict(sorted(moved.items(), key=lambda kv: -kv[1])[:8])}
+            left = JUDGE_SHARE * (started - self.started) - self.judge_seconds
+            limit = min(JUDGE_SECONDS, left)
+            if self.stopped or left <= 0:
+                judged["cut"] = len(picks)
+                self.judge_log.append(judged)
+                return scored
+        else:
+            left = GEM_RESCORE_SHARE * (started - self.started) - self.gem_rescore_seconds
+            if self.stopped or left <= 0:
+                return scored
+            limit = min(GEM_RESCORE_SECONDS, left)
+            picks = by_whatif[:RESCORE_GEMS] if not hooked else list(support)
+            model = [] if hooked else [i for i in by_whatif if i not in picks and self.model_gem(support[i])][:MODEL_GEMS]
+            picks += model
         before = self.score
         snap = self.snapshot()
         self._gem_trial = True
@@ -457,6 +562,8 @@ class Build:
                                                     **self.added_stats()})
                     scored[i] = (self.objective.score(stats), stats)
                     self.gem_rescored += 1
+                    if judge:
+                        judged["tried"] += 1
                     row["real"] = round(scored[i][0] - before, 4)
                 except OutOfTime:
                     raise
@@ -473,7 +580,14 @@ class Build:
             if abs(self.score - before) > EPSILON:
                 self.gem_rescore_restores += 1
                 self.restore(snap)
-            self.gem_rescore_seconds += clock.now() - started
+            if judge:
+                self.judge_seconds += clock.now() - started
+                judged["seconds"] = round(clock.now() - started, 2)
+                judged["cut"] = judged["picks"] - judged["tried"]
+                self.judge_log.append(judged)
+                del self.judge_log[:-500]
+            else:
+                self.gem_rescore_seconds += clock.now() - started
         return scored
 
     def item_deltas(self, cases: list[dict]) -> list[tuple[float, dict]]:
@@ -584,8 +698,12 @@ class Build:
     # Commits -----------------------------------------------------------------------------------
 
     def allocate(self, add: list[int] = (), remove: list[int] = (), attribute: int = 1) -> float:
-        return self._committed(self.call("allocate", add=list(add), remove=list(remove), attribute=attribute,
-                                         fields=self.objective.fields))
+        score = self._committed(self.call("allocate", add=list(add), remove=list(remove), attribute=attribute,
+                                          fields=self.objective.fields))
+        if remove and not add and self.judging_keeps():  # (JUDGE: a revert's removal settled, the next judged on it)
+            self._judge_settle()
+            score = self.score
+        return score
 
     def set_attributes(self, choices: dict[int, int]) -> float:
         return self._committed(self.call("setAttributes", choices={str(k): v for k, v in choices.items()},
