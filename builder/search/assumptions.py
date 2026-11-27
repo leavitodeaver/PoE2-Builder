@@ -5630,6 +5630,11 @@ class Assumptions:
                          or (0.0, "")}
             t_mods, t_notes = models.tornado_ground_model(main, t_level, t_grounds, forbidden)
             hand_mods, hand_notes = hand_mods + t_mods, hand_notes + t_notes
+        catalysing_groups: set[int] = set()
+        if any(s.name == models.CATALYSING_DISCHARGE and s.group is not None for s in found):
+            # (GEM51: models.catalysing_discharge_model; the bridge gives it damage, so every copy gets a rate)
+            c_mods, c_notes, catalysing_groups = self.catalysing_discharge(found, main, stats, forbidden)
+            hand_mods, hand_notes = hand_mods + c_mods, hand_notes + c_notes
         if main is not None and main.name == models.ICESTORM:  # (MECHB52: R42-3, an UNVERIFIED row only)
             ice_stats = build.call("stats", fields=["Speed", "Duration"])
             hand_notes = hand_notes + models.icestorm_overlap_note(main, number(ice_stats.get("Speed")),
@@ -6932,7 +6937,7 @@ class Assumptions:
         return mods, notes, {**{g: None for g in energy_groups | mirage_groups | vessel_groups | toad_groups | doom_groups
                                                     | annihilation_groups | tawhoa_groups | chayula_groups
                                                     | verisium_groups | stampede_groups | shockwave_groups
-                                                    | arctic_groups},
+                                                    | arctic_groups | catalysing_groups},
                              **expression_groups, **storm_groups}
 
     def shifted_share(self, main: str | None) -> tuple[float, str]:
@@ -12371,6 +12376,33 @@ class Assumptions:
                                                  set(build.ctx.request.forbid_ledger_entries))
         live = any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in mods)
         return mods, notes, ({armour.group} if live else set())
+
+    def catalysing_discharge(self, found: list[models.Skill], main: models.Skill | None, stats: dict,
+                             forbidden: set[str]) -> tuple[list[dict], list[dict], set[int]]:
+        """(GEM51, models.catalysing_discharge_model) each group holding Catalysing Elements: its supported skill's uses
+        a second (supported_uses: the main skill at PoB's Speed x its share of the fight, a side group at its press rate)
+        and MECH-A's own-ground shares; (mods, notes, the groups whose Discharge has a rate, for Full DPS). Every copy of
+        the Discharge gets a rate, 0 where nothing boosts it (the bridge gives it damage)."""
+        build = self.build
+        grounds = {"Cold": getattr(build, "chilled_ground_up", None) or (0.0, ""),
+                   "Fire": getattr(build, "ignited_ground_up", None) or (0.0, ""),
+                   "Lightning": getattr(build, "shocked_ground_up", None) or (0.0, "")}
+        rows, _ = self.supported_uses(models.CATALYSING_ELEMENTS, main, stats)
+        uses = {index: (rate, how) for index, rate, how in rows}
+        mods, notes, live = [], [], set()
+        copies = [s for s in found if s.name == models.CATALYSING_DISCHARGE and s.group is not None]
+        for skill in copies:
+            rate, how = uses.get(skill.group, (0.0, "the supported skill isn't used"))
+            cooldown = (number(skill.cooldown) or models.CATALYSING_COOLDOWN) / max(number(skill.cooldown_recovery), 1e-9)
+            # (POE2T9813: a group-tagged SkillData (models.in_group) never reached PoB's Full DPS pass: the Discharge's
+            # hit dropped out of Full DPS (146.08 against 209.74 name-wide). So the mods go name-wide for one copy; only
+            # two or more copies, each with its own rate, are tagged by group)
+            group = skill.group if len(copies) > 1 else None
+            c_mods, c_notes = models.catalysing_discharge_model(rate, how, grounds, cooldown, group, forbidden)
+            mods, notes = mods + c_mods, notes + c_notes
+            if any(m.get("key") == "triggerRate" and number(m.get("value")) > 0 for m in c_mods):
+                live.add(skill.group)
+        return mods, notes, live
 
     def kalguur_rune(self, boost_mods: list[dict], main: str | None, skills: list[dict]) -> tuple[list[dict], list[dict]]:
         """(MECHB53, models.kalguur_rune_model) Fist of Kalguur's Aftershocks from the boosted share of the main Slam's

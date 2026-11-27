@@ -3203,6 +3203,51 @@ local function installConcoctionsNotUnarmed()
 end
 
 local function installDerived()
+	-- (GEM51, the manager 27 Nov 10:42; an UNDERCOUNT) Catalysing Discharge, the skill Catalysing Elements grants
+	-- (TriggeredCatalysingDischargePlayer), has in PoB one stat set and NO damage, so it scored 0. The game gives it three
+	-- damage sets (GrantedEffectStatSets 1285-1287 TriggeredCatalysingDischarge{Fire,Lightning,Cold}Player, game
+	-- 26650308): spell_minimum / maximum_base_{fire,lightning,cold}_damage, the resolved values per gem level below
+	-- (GrantedEffectStatSetsPerLevel BaseResolvedValues; gem 20: Fire 209-313, Lightning 26-496, Cold 186-279), spell
+	-- crit 6 / 9 / 11%. All three go on PoB's one set here; models.catalysing_discharge_model weights each element by its
+	-- share of the Discharges (a MORE on that element's damage for this skill: one hit of the mix = the expected hit), sets
+	-- the crit chance to the same weighted mean (SkillData CritChance), and always gives the rate (0 with no own ground),
+	-- so PoB never counts it at its own speed. Kept inside this function (LuaJIT's 200-locals rule for the main chunk).
+	do
+		local effect = data and data.skills and data.skills["TriggeredCatalysingDischargePlayer"]
+		local set = effect and effect.statSets and effect.statSets[1]
+		if set and not set.ledgerCatalysingDamage then
+			set.ledgerCatalysingDamage = true
+			local values = {
+			{ 7, 10, 1, 16, 6, 9 }, { 9, 13, 1, 21, 8, 12 }, { 12, 18, 2, 29, 11, 16 }, { 16, 23, 2, 37, 14, 21 },
+			{ 20, 30, 2, 47, 18, 26 }, { 24, 37, 3, 58, 22, 33 }, { 30, 45, 4, 71, 27, 40 }, { 36, 53, 4, 85, 32, 48 },
+			{ 42, 63, 5, 101, 38, 57 }, { 50, 75, 6, 118, 45, 67 }, { 58, 88, 7, 139, 52, 78 }, { 68, 102, 9, 162, 61, 91 },
+			{ 79, 118, 10, 188, 70, 106 }, { 91, 137, 11, 217, 82, 122 }, { 105, 158, 13, 250, 94, 141 }, { 121, 182, 15, 288, 108, 162 },
+			{ 139, 208, 17, 330, 124, 186 }, { 159, 239, 20, 378, 142, 213 }, { 182, 274, 23, 433, 163, 244 }, { 209, 313, 26, 496, 186, 279 },
+			{ 239, 358, 30, 567, 213, 319 }, { 273, 409, 34, 647, 243, 365 }, { 311, 467, 39, 739, 278, 417 }, { 356, 533, 44, 844, 317, 476 },
+			{ 406, 609, 51, 964, 363, 544 }, { 464, 696, 58, 1102, 414, 621 }, { 530, 795, 66, 1259, 473, 710 }, { 606, 909, 76, 1439, 541, 811 },
+			{ 693, 1039, 87, 1645, 619, 928 }, { 793, 1189, 99, 1883, 708, 1062 }, { 908, 1361, 113, 2155, 810, 1215 }, { 1040, 1560, 130, 2470, 928, 1393 },
+			{ 1192, 1789, 149, 2832, 1065, 1597 }, { 1368, 2053, 171, 3250, 1222, 1833 }, { 1572, 2358, 196, 3733, 1403, 2105 }, { 1807, 2711, 226, 4292, 1614, 2420 },
+			{ 2080, 3120, 260, 4940, 1857, 2786 }, { 2397, 3595, 300, 5692, 2140, 3210 }, { 2764, 4146, 346, 6565, 2468, 3702 }, { 3192, 4788, 399, 7581, 2850, 4275 },
+			}
+			local first = #set.stats
+			for _, stat in ipairs({ "spell_minimum_base_fire_damage", "spell_maximum_base_fire_damage",
+					"spell_minimum_base_lightning_damage", "spell_maximum_base_lightning_damage",
+					"spell_minimum_base_cold_damage", "spell_maximum_base_cold_damage" }) do
+				set.stats[#set.stats + 1] = stat
+			end
+			set.baseFlags = set.baseFlags or { }
+			set.baseFlags.spell = true
+			set.baseFlags.area = true
+			for level, row in pairs(set.levels or { }) do
+				local from = values[level] or values[#values]
+				row.statInterpolation = row.statInterpolation or { }
+				for i = 1, 6 do
+					row[first + i] = from[i]
+					row.statInterpolation[first + i] = 1
+				end
+			end
+		end
+	end
 	installStatSetSlots()
 	installLedgerBonded()
 	installLedgerShare()

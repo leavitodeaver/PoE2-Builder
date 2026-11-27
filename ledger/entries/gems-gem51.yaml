@@ -1,0 +1,26 @@
+# GEM51 (27 Nov 2026): Catalysing Elements' Catalysing Discharge (the manager's 10:42 order; GEM lane).
+
+- id: model-gem51-catalysing-discharge
+  title: "Catalysing Elements' Catalysing Discharge: its three damage sets and its rate from your own Elemental Ground (models.catalysing_discharge_model)"
+  kind: model
+  model: catalysing_discharge
+  stats: ["support_catalysing_elements_triggers_elemental_discharge", "triggered_by_catalysing_elements"]
+  skill: [Catalysing Elements, Catalysing Discharge]
+  confidence: theory
+  notes: >-
+    GEM51 (an UNDERCOUNT: PoB's TriggeredCatalysingDischargePlayer has one stat set with no damage, so it scored 0). The
+    game (26650308): "Triggered when supported skill is boosted by an Elemental Ground Surface to deal damage of the
+    matching Element"; it supports the five InteractsWithElementalGround skills (Eye of Winter, Tornado, Whirling Slash,
+    Twister, Whirlwind Lance; checked: every ActiveSkills row's types). engine/bridge.lua puts the three damage sets
+    (GrantedEffectStatSets 1285-1287, per-level BaseResolvedValues; gem 20 Fire 209-313, Lightning 26-496, Cold
+    186-279; crit 6 / 9 / 11%) on PoB's one set; the model weights each element by its share of the Discharges (a MORE
+    on that element's damage for the skill) and sets the weighted crit. Rate: the supported skill's uses a second, each
+    boosted with the chance the boss stands on your own ground (MECH-A's chilled / ignited / shocked_ground_up; the
+    skill aimed at the boss, LOW; several grounds independent, MEDIUM-LOW), at most one per its 1 s Cooldown shared by
+    the elements (UNVERIFIED, the lower reading; a Cooldown per element a row). No own ground: 0 with a note.
+  sources: ["data/game-26650308/tables/GemEffects.json (CatalysingElementsSupport)",
+            "data/game-26650308/tables/ActiveSkills.json (triggered_catalysing_discharge)",
+            "data/game-26650308/tables/GrantedEffectStatSetsPerLevel.json (sets 1285-1287)",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/sup_int.lua (TriggeredCatalysingDischargePlayer)"]
+  test_in_game: "Whether the three elements share one Cooldown, and whether one boosted use Triggers once per ground it meets."
+  status: proposed

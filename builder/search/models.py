@@ -31590,3 +31590,77 @@ def charge_surge_model(gains: dict[str, float], charges: float, charges_how: str
                   "(lower)"),
         "play": ("Spend charges to feed the Surges and fire your projectile attack at the boss: each use spends one and "
                  f"blasts where it lands. Without a charge spender: +0; with this build's: +{dps:,.0f} DPS.")}]
+
+
+# (GEM51; the manager 27 Nov 10:42; an UNDERCOUNT: PoB gives Catalysing Discharge no damage, so it scored 0 and the
+# search could never pick Catalysing Elements) The game (26650308): GemEffects CatalysingElementsSupport "Supports Skills
+# which are boosted by Elemental Ground Surfaces, Triggering Catalysing Discharge of the corresponding type when they are
+# boosted by an allied Elemental Ground Surface"; ActiveSkills triggered_catalysing_discharge "Triggered when supported
+# skill is boosted by an Elemental Ground Surface to deal damage of the matching Element". It supports the skills of type
+# InteractsWithElementalGround (SupportCatalysingElementsPlayer AllowedActiveSkillTypes [255]): Eye of Winter, Tornado,
+# Whirling Slash, Twister, Whirlwind Lance (checked: every ActiveSkills row's ActiveSkillTypes). KeywordPopups
+# ElementalGround: Shocked, Chilled and Ignited Ground. The Discharge: a 2 m area (radius 20), Cooldown 1 s, 1 stored use
+# (PoB sup_int.lua); its damage: engine/bridge.lua's installDerived (the three sets 1285-1287 on PoB's one set).
+# Rate: a use is boosted when the supported skill meets your own ground; taken at the boss (the skill aimed at the boss,
+# the ground under it), so the chance a use is boosted by element e is MECH-A's share of the fight the boss stands on
+# your own ground of e (build.chilled_ground_up / ignited_ground_up / shocked_ground_up, as MECHB52's Tornado reads them;
+# LOW: the skill meeting the ground on its way, or the ground at your feet for Whirling Slash's whirlwind, not modelled).
+# Several grounds at once: independent (the chance a use meets any is 1 - prod(1 - s_e), MEDIUM-LOW), each element's share
+# of the Discharges s_e / sum(s). The Cooldown shared by the three elements (one skill, one Cooldown in PoB's data:
+# the lower reading, the headline; UNVERIFIED): Discharges a second = cooldown_trigger_rate(uses, chance, cooldown); row:
+# a Cooldown per element. No own ground: 0 (with the note), never a flat rate.
+CATALYSING_ELEMENTS = "Catalysing Elements"
+CATALYSING_DISCHARGE = "Catalysing Discharge"
+CATALYSING_ENTRY = "model-gem51-catalysing-discharge"
+CATALYSING_COOLDOWN = 1.0  # s, TriggeredCatalysingDischargePlayer (PoB levels cooldown = 1)
+# element: (PoB damage name for the weighting MORE, the set's spell crit chance %, the ground's name)
+CATALYSING_ELEMENTS_DATA = {"Fire": ("FireDamage", 6.0, "Ignited Ground"),
+                            "Lightning": ("LightningDamage", 9.0, "Shocked Ground"),
+                            "Cold": ("ColdDamage", 11.0, "Chilled Ground")}
+
+
+def catalysing_discharge_model(uses: float, uses_how: str, grounds: dict[str, tuple[float, str]],
+                               cooldown: float = CATALYSING_COOLDOWN, group: int | None = None,
+                               forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Catalysing Discharge's rate and element mix for one supported group (see above). `uses` the
+    supported skill's uses a second (how `uses_how`); `grounds` {element: (share of the fight the boss is on your own
+    ground of it, how)}; `cooldown` PoB's (with recovery). Always gives a rate (0 where nothing boosts it): with the
+    bridge's damage PoB would otherwise count it at its own speed."""
+    if CATALYSING_ENTRY in forbidden:
+        return in_group(trigger_rate(CATALYSING_DISCHARGE, 0.0) + [raw_mod("Damage", "MORE", -100.0, CATALYSING_DISCHARGE)],
+                        group, {CATALYSING_DISCHARGE}), []
+    cooldown = cooldown if cooldown and cooldown > 0 else CATALYSING_COOLDOWN
+    shares = {e: max(0.0, min(1.0, number((grounds.get(e) or (0.0, ""))[0]))) for e in CATALYSING_ELEMENTS_DATA}
+    total = sum(shares.values())
+    chance = 1.0 - math.prod(1.0 - s for s in shares.values())
+    uses = max(0.0, number(uses))
+    rate = cooldown_trigger_rate(uses, chance, cooldown) if total > 0 else 0.0
+    each_row = sum(cooldown_trigger_rate(uses, s, cooldown) for s in shares.values() if s > 0)
+    parts = [f"{CATALYSING_ELEMENTS_DATA[e][2]} {s:.0%}" + (f" ({(grounds.get(e) or (0, ''))[1]})" if s > 0 else "")
+             for e, s in shares.items()]
+    mods = trigger_rate(CATALYSING_DISCHARGE, rate)
+    if rate > 0:
+        weights = {e: s / total for e, s in shares.items()}
+        for e, (name, _, _) in CATALYSING_ELEMENTS_DATA.items():
+            if weights[e] < 1.0:
+                mods.append(raw_mod(name, "MORE", 100 * (weights[e] - 1.0), CATALYSING_DISCHARGE))
+        crit = sum(weights[e] * CATALYSING_ELEMENTS_DATA[e][1] for e in weights)
+        mods.append({"kind": "SkillData", "skill": CATALYSING_DISCHARGE, "key": "CritChance", "value": _round(crit)})
+        mix = ", ".join(f"{e} {w:.0%}" for e, w in weights.items() if w > 0)
+    else:
+        # (POE2T9812: at rate 0 PoB still took the unweighted hit's Ignite as the build's "Best Ignite": no damage at all)
+        mods.append(raw_mod("Damage", "MORE", -100.0, CATALYSING_DISCHARGE))
+        mix = "none"
+    note = {"label": f"{CATALYSING_DISCHARGE}: Discharges from your own elemental ground*",
+            "value": f"{rate:.3f} a second", "confidence": "LOW", "entry": CATALYSING_ENTRY,
+            "basis": (f"{uses:.2f} supported uses a second ({uses_how}), each boosted when it meets your own Elemental "
+                      f"Ground at the boss (the boss on it: {'; '.join(parts)}; on any {chance:.0%}, the grounds taken "
+                      f"as independent, MEDIUM-LOW), at most one Discharge per {cooldown:.2f} s Cooldown shared by the "
+                      f"three elements (UNVERIFIED: the lower reading): {rate:.3f} a second; element mix {mix} (each "
+                      "element's own base damage from the game files, scaled by the build). PoB gave it no damage (0 "
+                      f"before: an UNDERCOUNT). Row: a Cooldown per element, {each_row:.3f} a second"
+                      + ("" if total > 0 else "; no own Elemental Ground at the boss: 0 (never a flat rate)")),
+            "play": ("Cast the supported skill into your own Ignited, Shocked or Chilled Ground at the boss: each boost "
+                     f"Triggers a Discharge of that element (without the ground 0; with this build's: {rate:.2f} a "
+                     "second)")}
+    return in_group(mods, group, {CATALYSING_DISCHARGE}), [note]
