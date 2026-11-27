@@ -23,7 +23,9 @@ Jewels that change the tree (PLAN.md "Radius jewels") are classified by PoB's pa
   From Nothing's keystone) are tried for real in full rounds: each socket and variant is screened
   by what the newly takeable nodes would give, then the best are socketed, the weakest branches
   make room and the tree regrows; kept only if the build ends better.
-- Jewels PoB miscalculates (timeless jewels: no seed tables) are never proposed.
+- Jewels PoB miscalculates are never proposed. Timeless jewels (PoB-PoE2 has no seed tables; the bridge scores their
+  conquered notables at the expected outcome, LOW) stay out of the what-if fill and, behind POE2_SEARCH_TIMELESS,
+  are tried really socketed (timeless_trial).
 - A passive that enlarges Time-Lost radii (Baryanic Leylines, a custom model in the bridge) is
   worth nothing without a Time-Lost jewel, and a Time-Lost jewel is scored without it: full rounds
   try the pair (radius_trial).
@@ -172,6 +174,15 @@ MAGIC_JEWEL = {"Prefix": 1, "Suffix": 1}
 # then a random modifier is also removed"; what "full" means for a crafted jewel is UNVERIFIED). A side holds at most 4
 # (AUDIT38's proposed limit, #219). Needs POE2_SEARCH_DESECRATED_JEWEL=1 too (the Cranium trial itself); OFF until gated
 CRANIUM_CRAFTED = os.environ.get("POE2_SEARCH_CRANIUM_CRAFTED", "0") == "1"
+
+# (TIMELESS1; the manager's 27 Nov 14:10 order, JEWEL idle) Timeless jewels: the bridge scores a conquered notable at its
+# EXPECTED outcome over the jewel's exact weighted notable list (LOW: which notable a seed gives a node is unproven for
+# PoE2, research timeless-jewels-t1.md), so a Heroic Tragedy / Undying Hate can be judged. A socket what-if (itemDeltas)
+# never redoes PoB's conquest (PassiveSpec:BuildAllDependsAndPaths runs on a real socketing), so they stay out of fill()
+# and are tried by timeless_trial, each really socketed. Behind POE2_SEARCH_TIMELESS, OFF until a 3-seed gate pair.
+TIMELESS_JEWEL = os.environ.get("POE2_SEARCH_TIMELESS", "0") == "1"
+TIMELESS_NAMES = ("Heroic Tragedy", "Undying Hate")
+SEED_RANGE = re.compile(r"\((\d+)-(\d+)\)( songworthy deeds| souls)")
 CRANIUM_SIDE_MAX = 4
 ADORNED_RANGE = re.compile(r"\((\d+)-(\d+)\)% increased Effect of Jewel Socket Passive Skills")
 # (JEWEL1) Items with jewel sockets ("Sockets: J ..."): PoB's slots "<item slot> Jewel Socket <n>" (ItemsTab.lua 217-262,
@@ -348,6 +359,9 @@ class Jewels:
         kept = []
         for option, traits in zip(options, self.traits(options)):
             if reason := miscalculated(traits):
+                if TIMELESS_JEWEL and option.name in TIMELESS_NAMES:
+                    reason = ("a socket what-if can't conquer: tried really socketed by the timeless trial (expected "
+                              "outcome, LOW)")
                 self.left_out[option.name] = reason
             else:
                 kept.append(option)
@@ -897,7 +911,8 @@ class Jewels:
         """The larger Time-Lost radius and the radius damage transforms, for the result's assumptions (asterisked), and
         (JEWEL3) Cadigan's Epiphany's and Melancholy's Exposure's notes (cadigan_notes, exposure_notes) and the "not
         finished" notes (unfinished_notes)."""
-        notes = self.transform_notes() + self.cadigan_notes() + self.exposure_notes() + self.unfinished_notes()
+        notes = (self.transform_notes() + self.cadigan_notes() + self.exposure_notes() + self.unfinished_notes()
+                 + self.timeless_notes())
         model = self.build.call("radiusModel")
         if model["increase"] <= 0:
             return notes
@@ -1023,7 +1038,101 @@ class Jewels:
             improved = self.zarokh_trial(deadline) or improved
         if full and clock.now() < deadline:
             improved = self.granting_trial(deadline) or improved
+        if full and clock.now() < deadline and TIMELESS_JEWEL:
+            improved = self.timeless_trial(deadline) or improved
         return improved
+
+    # Timeless jewels (TIMELESS1) ---------------------------------------------------------------------------------
+
+    def timeless_version(self, option: ItemOption, choice: int) -> ItemOption | None:
+        """The jewel with one conqueror (its variant: the keystone it gives) and a concrete seed. The seed is the game's
+        lowest (timeless.json, from the Mods row): the expected outcome doesn't depend on it, so any seed is the same buy.
+        Priced per conqueror (rolled_price: this version's trade price, else the feed's any-version floor, marked)."""
+        from builder.search import timeless
+
+        variants = variants_of(option.raw)
+        if variants is None or choice not in variants.usable:
+            return None
+        version = 6 if option.name == "Heroic Tragedy" else 7
+        low = timeless.jewel(version)["seed"][0]
+        raw = SEED_RANGE.sub(lambda m: f"{low}{m.group(3)}", compact(option.raw, (choice,)))
+        chosen = dataclasses.replace(option, raw=raw, variants=variants.label((choice,)))
+        priced = self.rolled_price(chosen, variants)
+        note = (f"any seed: conquered notables are scored at their expected outcome (seed effects unproven, LOW); the "
+                f"conqueror ({variants.label((choice,))[0]}) sets the keystone")
+        return dataclasses.replace(priced, price_note="; ".join(n for n in (priced.price_note, note) if n))
+
+    def timeless_trial(self, deadline: float) -> bool:
+        """(TIMELESS1, POE2_SEARCH_TIMELESS=1; OFF until gated) Each timeless jewel really socketed in each allocated
+        jewel socket (both are "Limited to: 1 Historic": a build holding one tries only that socket), with its first
+        conqueror; the other conquerors only where the radius holds an allocated keystone (the conqueror changes nothing
+        else). Kept when the build ends better (build.worse after the gear settles), else put back as it was."""
+        build = self.build
+        options = [o for o in self.ctx.item_options.get("Jewel", []) if o.unique and o.name in TIMELESS_NAMES]
+        if not options:
+            return False
+        held = {s for s, o in build.equipped.items() if o is not None and o.name in TIMELESS_NAMES}
+        improved = False
+        for socket in self.sockets():
+            slot = self.slot(socket)
+            if held and slot not in held:
+                continue
+            for option in options:
+                variants = variants_of(option.raw)
+                if variants is None:
+                    continue
+                for index, choice in enumerate(variants.usable):
+                    if clock.now() > deadline:
+                        return improved
+                    candidate = self.timeless_version(option, choice)
+                    if candidate is None or (candidate.price or 0.0) > self.gear.left_for(slot) + 1e-9:
+                        continue
+                    current = build.equipped.get(slot)
+                    if current is not None and current.raw == candidate.raw:
+                        continue
+                    snap, before = build.snapshot(), build.score
+                    build.equip(slot, candidate)
+                    self.gear.settle()
+                    keystone = self.keystone_conquered(socket)
+                    if build.worse(before) or build.score <= before + EPSILON:
+                        build.restore(snap)
+                    else:
+                        improved = True
+                        held = {slot}
+                    if index == 0 and not keystone:
+                        break  # no allocated keystone in reach: the other conquerors score the same
+        return improved
+
+    def keystone_conquered(self, socket: int) -> bool:
+        """Whether the jewel in this socket conquers an allocated keystone (its conqueror then matters)."""
+        for jewel in self.build.call("radiusJewels")["jewels"]:
+            if jewel["socket"] == socket and jewel.get("conquers"):
+                return any((self.ctx.nodes.get(i) or {}).get("type") == "Keystone" for i in jewel.get("affected") or [])
+        return False
+
+    def timeless_notes(self) -> list[dict]:
+        """(TIMELESS1) For a socketed timeless jewel whose conquered notables are scored at their expected outcome: the
+        LOW label, and the best / worst rows (bridge.timelessRange: each such notable tried as every possible one) on
+        the build's main damage field."""
+        notes = []
+        for jewel in self.build.call("radiusJewels")["jewels"]:
+            scored = jewel.get("timeless") or {}
+            expected = [n for n in scored.get("notables") or [] if n["mode"] == "expected"]
+            if not expected:
+                continue
+            stats = self.build.call("stats", fields=["FullDPS", "CombinedDPS"])
+            field = "FullDPS" if (stats.get("FullDPS") or 0) > 0 else "CombinedDPS"
+            rows = self.build.call("timelessRange", field=field)
+            each = "; ".join(f"{r['best']['name']} / {r['worst']['name']}" for r in rows["nodes"])
+            notes.append({
+                "label": f"{jewel['name']} (Jewel {jewel['socket']}): {len(expected)} conquered notable(s) at their "
+                         f"expected outcome ({field})",
+                "value": rows["expected"],
+                "basis": (f"{scored.get('label')}. Rows: every such notable at its best {rows['allBest']:,.1f}, at its "
+                          f"worst {rows['allWorst']:,.1f} (best / worst per notable: {each}). PoB-PoE2 has no seed "
+                          "data and would keep the original notables' stats; the game always replaces them"),
+                "confidence": "LOW"})
+        return notes
 
     def cadigan_gloves(self, option: ItemOption | None) -> ItemOption | None:
         """(JEWEL2) These gloves with Cadigan's Epiphany: their augment sockets and runes gone, one jewel socket in their

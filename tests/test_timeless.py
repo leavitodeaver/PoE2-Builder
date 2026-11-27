@@ -97,6 +97,11 @@ def test_conquered_notables_take_the_expected_outcome_not_their_original_stats(e
     assert allocated[0]["name"] == "Expected conquered notable"
     lines = next(n["lines"] for n in engine.call("conqueredNodes")["nodes"] if n["id"] == 20677)
     assert "seed effects unproven" in lines[0] and lines[1].startswith("Possible: Scorched Earth 4.7%")
+    # Vorana's Fury's "Gain 1 Rage on Melee Hit" is a flag in PoB (unscalable): kept as a chance line for the Rage reader
+    assert "2.353% chance to Gain 1 Rage on Melee Hit" in lines
+    from builder.search.conditions import RAGE_SOURCE
+
+    assert float(RAGE_SOURCE.search(lines[-1]).group(1)) == pytest.approx(100 * 500 / 21250, abs=1e-3)
     on = engine.call("stats", fields=FIELDS)
     off = engine.call("setTimeless", on=False)
     original = engine.call("stats", fields=FIELDS)
@@ -128,3 +133,31 @@ def test_the_result_names_how_each_conquered_notable_is_scored(engine):
     scored = jewel["timeless"]
     assert scored["on"] and "seed effects unproven" in scored["label"]
     assert len(scored["notables"]) == 8 and {n["mode"] for n in scored["notables"]} == {"expected"}
+
+
+def test_a_timeless_candidate_has_one_conqueror_and_a_concrete_seed():
+    from builder.data import GameData
+    from builder.search.jewels import SEED_RANGE
+    from builder.search.radius import compact, variants_of
+
+    raw = next(u["raw"] for u in GameData().uniques if u["name"] == "Undying Hate")
+    variants = variants_of(raw)
+    assert variants.label(variants.usable) == ("Amanamu", "Kulemak", "Kurgal", "Tecrod", "Ulaman")
+    text = SEED_RANGE.sub(lambda m: f"79{m.group(3)}", compact(raw, (3,)))
+    assert "Glorifying the defilement of 79 souls in tribute to Kurgal" in text and "Amanamu" not in text
+
+
+def test_a_really_socketed_timeless_jewel_conquers_and_is_scored_expected(engine):
+    from builder.data import GameData
+    from builder.search.jewels import SEED_RANGE
+    from builder.search.radius import compact
+
+    load(engine, "2b75b")  # no timeless jewel
+    sockets = [n["id"] for n in engine.call("allocatedNodes")["nodes"] if n["type"] == "Socket"]
+    raw = next(u["raw"] for u in GameData().uniques if u["name"] == "Heroic Tragedy")
+    text = SEED_RANGE.sub(lambda m: f"100{m.group(3)}", compact(raw, (1,)))
+    engine.call("equip", slot=f"Jewel {sockets[0]}", raw=text)
+    jewel = next(j for j in engine.call("radiusJewels")["jewels"] if j["name"] == "Heroic Tragedy")
+    assert jewel["conquers"] and jewel["timeless"]["on"]
+    replaced = engine.call("setTimeless")["nodes"]
+    assert replaced and {n["mode"] for n in replaced} == {"expected"}  # the conquest ran on a real socketing

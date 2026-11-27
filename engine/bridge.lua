@@ -3704,7 +3704,7 @@ do
 			return nil
 		end
 		local modList = new("ModList")
-		local names, skipped = { }, { }
+		local names, skipped, chanceLines, flagged = { }, { }, { }, false
 		for _, entry in ipairs(odds) do
 			local legion = legionNode(spec, entry.id)
 			if legion then
@@ -3715,8 +3715,21 @@ do
 						modList:AddMod(copy)
 					else
 						skipped[#skipped + 1] = legion.dn .. ": " .. tostring(mod.name)
+						flagged = true
 					end
 				end
+				-- A mod that can't be scaled (a flag: Vorana's Fury's Condition:CanGainRage, PoB's whole reading of
+				-- "Gain 1 Rage on Melee Hit") keeps its Rage gain as a chance line our Rage reader counts
+				-- (conditions._rage_gain's RAGE_SOURCE: "N% chance to gain M Rage on ...", MECH-C's)
+				if flagged then
+					for _, line in ipairs(legion.sd or { }) do
+						if line:match("^Gain %d+ Rage") then
+							chanceLines[#chanceLines + 1] = string.format("%.4g%% chance to %s", entry.chance * 100, line)
+							skipped[#skipped] = skipped[#skipped] .. " (its Rage gain given as a chance line)"
+						end
+					end
+				end
+				flagged = false
 			else
 				skipped[#skipped + 1] = entry.id .. " (no PoB legion node)"
 			end
@@ -3724,7 +3737,8 @@ do
 		local node = {
 			dn = "Expected conquered notable",
 			sd = { "Timeless: " .. #odds .. " possible notables; seed effects unproven: the average over the "
-				.. "possible replacement notables (TIMELESS1-2, LOW)", "Possible: " .. table.concat(names, ", ") },
+				.. "possible replacement notables (TIMELESS1-2, LOW)", "Possible: " .. table.concat(names, ", "),
+				unpack(chanceLines) },
 			mods = { }, modKey = "timeless_expected_" .. kind, modList = modList, reminderText = { },
 			skipped = skipped,
 		}

@@ -117,6 +117,8 @@ def unlocks(traits: dict) -> bool:
 def miscalculated(traits: dict) -> str | None:
     """Why PoB's numbers for this jewel can't be trusted, or None."""
     if traits.get("conquers") and not traits.get("seedData"):
-        return ("PoB-PoE2 has no timeless seed tables: conquered notables keep their own stats, so a "
-                "timeless jewel's value isn't calculated")
+        # (TIMELESS1) the bridge now scores the conquered notables at their expected outcome (LOW) on a REAL socketing
+        # (engine/bridge.lua, after PassiveSpec:BuildAllDependsAndPaths); a socket what-if never redoes the conquest
+        return ("PoB-PoE2 has no timeless seed tables and a socket what-if doesn't redo the conquest: a timeless jewel "
+                "is judged only really socketed (jewels.timeless_trial, POE2_SEARCH_TIMELESS)")
     return None
