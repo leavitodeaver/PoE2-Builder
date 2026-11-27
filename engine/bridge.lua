@@ -5558,6 +5558,18 @@ function bridge.useRates(args)
 						chances[ailment .. "Duration"] = jsonNumber(lasts)
 					end
 				end
+				-- (MECHB69, RESEARCH64 R64-8: Freeze and Electrocute on the Bell count as Cold / Lightning) each one's
+				-- average buildup a hit, % of the given threshold: PoB's BuildupAvg is against its poise threshold
+				-- (CalcOffence 5570: the poise table x its modifiers, the MORE above among them), so x that / the threshold
+				local given = tonumber(args.ailmentThreshold) or 0
+				for _, ailment in ipairs({ "Freeze", "Electrocute" }) do
+					local built = output[ailment .. "BuildupAvg"]
+					if type(built) == "number" and built > 0 and given > 0 and env.enemyLevel then
+						local poise = (data.monsterPoiseThresholdTable[env.enemyLevel] or 0) * calcLib.mod(env.enemyDB, nil,
+							"PoiseThreshold", ailment .. "Threshold", "EnemyAilmentThreshold")
+						chances[ailment .. "Buildup"] = jsonNumber(built * math.floor(poise) / given)
+					end
+				end
 				entry.ailmentChances = setmetatable(chances, { __jsontype = "object" })
 			end
 			-- (MECH64, conditions.cull_window_scale's other skill) where this skill Culls, its Culling multiplier, hit
@@ -5818,6 +5830,19 @@ function bridge.minionSkillHit(args)
 		instance.skillMinionSkillStatSetIndexLookup = lookup
 	end
 	build.mainSocketGroup, group.mainActiveSkill, instance.skillMinionSkill = args.index, position, found
+	-- (MECHB69, RESEARCH64 R64-6) args.attack: score the minion skill's spell-flagged stat sets as an Attack. PoB's data
+	-- still flags Explosive Demise's set spell = true (Data/Skills/minion.lua DestructiveLinkSkeletonBombadierMinion),
+	-- though 0.3.0 made it "an Attack instead of Spell, dealing 300% Attack Damage" (its skillTypes say Attack, its
+	-- baseMultiplier is 3), so PoB gives its hit no base damage. The flags are put back after the calculation.
+	local flagged = { }
+	if args.attack and data.skills[args.skill] then
+		for _, set in ipairs(data.skills[args.skill].statSets or { }) do
+			if set.baseFlags and set.baseFlags.spell then
+				flagged[#flagged + 1] = set
+				set.baseFlags.spell, set.baseFlags.attack = nil, true
+			end
+		end
+	end
 	local result = { reason = "PoB calculated no minion" }  -- (never an empty table: it would reach Python as a list)
 	local ok, env = pcall(calcs.initEnv, build, "CALCULATOR")
 	-- (env.minion exists only once perform has run: useRates reads it the same way)
@@ -5846,6 +5871,14 @@ function bridge.minionSkillHit(args)
 		result.name = env.minion.mainSkill and env.minion.mainSkill.activeEffect.grantedEffect.name or nil
 		local set = env.minion.mainSkill and env.minion.mainSkill.activeEffect.statSet
 		result.statSet = set and set.index or nil  -- (MECH83: the stat set PoB used)
+		-- (MECHB69) the minion's weapon base (its Physical min / max before any modifier), for a hit's scale
+		local weapon = env.minion.weaponData1
+		if weapon and type(weapon.PhysicalMin) == "number" and type(weapon.PhysicalMax) == "number" then
+			result.weaponMin, result.weaponMax = jsonNumber(weapon.PhysicalMin), jsonNumber(weapon.PhysicalMax)
+		end
+	end
+	for _, set in ipairs(flagged) do
+		set.baseFlags.spell, set.baseFlags.attack = true, nil
 	end
 	-- the minion's own counted skill's TotalDPS (what it loses while it performs the other skill)
 	instance.skillMinionSkill, instance.skillMinionSkillStatSetIndexLookup = oldSkill, oldLookup

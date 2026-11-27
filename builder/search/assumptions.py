@@ -2022,14 +2022,9 @@ def sniper_gas_arrow(build: Build, main: models.Skill | None, explode) -> tuple[
             impact, cloud, blast = sets
             if impact.get("reason") and cloud.get("reason"):
                 return 0.0, [], []
-            row = next((x for x in build.call("activeSkills", supportStats=[models.GROUND_NO_TRIGGER,
-                                                                             models.GROUND_DURATION])["skills"]
-                        if x.get("group") == group["index"] and models.SNIPER in str(x.get("name"))), {})
-            support = row.get("supportStats") or {}
-            no_trigger = number(support.get(models.GROUND_NO_TRIGGER)) > 0
-            inc = number(support.get(models.GROUND_DURATION))
-            life = ((number(cloud.get("Duration")) or models.SNIPER_CLOUD_SECONDS)
-                    + models.SNIPER_CLOUD_SECONDS * inc / 100)
+            # (MECHB70: MECH113's one Persistent Ground reader, the manager 12:27; no number moves)
+            life, no_trigger, inc = persistent_ground(build, group["index"], models.SNIPER, models.SNIPER_CLOUD_SECONDS,
+                                                      number(cloud.get("Duration")) or None, contains=True)
             share, how = explode(life)
             sniper_main = main is not None and models.SNIPER in main.name
             minion_main = main is not None and bool(main.summon)
@@ -2059,16 +2054,12 @@ def decompose(build: Build, explode) -> list[dict]:
             sets = rates.get("sets") or []
             cloud = next((x for x in sets if x.get("label") == "Poison Cloud"), {})
             blast = next((x for x in sets if x.get("label") == "Explosion"), {})
-            row = next((x for x in build.call("activeSkills", supportStats=[models.GROUND_NO_TRIGGER,
-                                                                             models.GROUND_DURATION])["skills"]
-                        if x.get("group") == group["index"] and x.get("name") == models.DECOMPOSE), {})
-            support = row.get("supportStats") or {}
-            inc = number(support.get(models.GROUND_DURATION))
-            life = ((number(cloud.get("Duration")) or models.DECOMPOSE_CLOUD_SECONDS)
-                    + models.DECOMPOSE_CLOUD_SECONDS * inc / 100)
+            # (MECHB70: MECH113's one Persistent Ground reader, the manager 12:27; no number moves)
+            life, no_trigger, inc = persistent_ground(build, group["index"], models.DECOMPOSE,
+                                                      models.DECOMPOSE_CLOUD_SECONDS,
+                                                      number(cloud.get("Duration")) or None)
             share, how = explode(life)
-            return models.decompose_model(cloud, blast, entry, share, how,
-                                          number(support.get(models.GROUND_NO_TRIGGER)) > 0, inc,
+            return models.decompose_model(cloud, blast, entry, share, how, no_trigger, inc,
                                           rates.get("chosen") or "Poison Cloud")
     return []
 
@@ -2456,9 +2447,11 @@ def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
             return None
         return {"melee": row.get("minionMelee"), "range": number(row["minionRange"]), "radius": radius,
                 "minion": row.get("minionName")}
+    limits = {e["name"]: number((e.get("summon") or {}).get("limit")) for e in build.call("activeSkills")["skills"]
+              if isinstance(e.get("summon"), dict)}  # (MECHB69, A39-2: each minion near the boss applies Flammability)
     minions = [(name, number((rates.get((i, a)) or {}).get("minionLife")),
                 models.HOUND_LIFE_SHARE if name == models.INFERNAL_HOUND else models.LEGION_LIFE_SHARE,
-                place(rates.get((i, a)) or {}, radius))
+                place(rates.get((i, a)) or {}, radius), max(limits.get(name, 1.0), 1.0))
                for i, a, name, radius in zip(indices, actives, names, radii)]
     resist = number(build.call("getConfig")["input"].get("enemyFireResist"))
     # (MECHB65, R61-2: the 50% Flammability gate, conditions.no_hit_ignite (MECH-A's) with the build's own Fire hits, its
@@ -2467,9 +2460,21 @@ def infernal_legion(build: Build, stats: dict) -> tuple[float, list[dict]]:
                   "_ailment_others": dict(getattr(build, "ailment_others", None) or {}),
                   "_flammability_mod": build.call("flammabilityMagnitude") or {}}
 
-    def gate(damage: float) -> tuple[float, str]:
-        return conditions_mod.no_hit_ignite(gate_stats, damage, conditions_mod.FLAMMABILITY_SECONDS)
+    def gate(every: list[tuple[float, float]]) -> tuple[float, str]:
+        # (MECHB69, A39-2) conditions.no_hit_ignite's sum with one source per minion near the boss (each applying every
+        # NO_HIT_TICK, as that function's own source), read through MECH-A's helpers, unchanged
+        if len(every) == 1 and every[0][1] <= 1:
+            return conditions_mod.no_hit_ignite(gate_stats, every[0][0], conditions_mod.FLAMMABILITY_SECONDS)
+        sources = conditions_mod.flammability_sources(gate_stats) + [
+            (f"{n:g} minion(s) as though dealing {d:,.0f}", n / conditions_mod.NO_HIT_TICK,
+             conditions_mod.as_though_flammability(d, gate_stats)) for d, n in every if d > 0 and n > 0]
+        reach = conditions_mod.flammability_reach(sources)
+        level = sum(r * m for _, r, m in sources) * conditions_mod.FLAMMABILITY_SECONDS
+        said = ", ".join(f"{n} {r:.2f}/s x {m:.2f}%" for n, r, m in sources)
+        return reach, (f"the boss at {level:.0f}% Flammability on average ({said}; 8 s stacks; each minion's applications "
+                       f"every {conditions_mod.NO_HIT_TICK:g} s, LOW): at 50% or more {reach:.0%} of the time")
     added, note = models.infernal_legion_model(minions, resist, number(stats.get("IgniteDPS")), gate)
+    build.legion_gate = note.get("gate")  # (MECHB69: for MECH-A's Ignited share, models.infernal_legion_ignited's gate)
     return added, [note]
 
 def fiery_death(build: Build) -> tuple[float, list[dict]]:
@@ -4018,6 +4023,29 @@ class Assumptions:
             return None
         return group["skills"][min(group["mainActiveSkill"], len(group["skills"])) - 1]["name"]
 
+    def mirror_returns(self, found: list, main, back_mods: list[dict], mirror_more: float, mods: list[dict],
+                       notes: list[dict]) -> tuple[list[dict], list[dict]]:
+        """(MECHB69) models.mirror_return_model with the scored boss's hit radius, the fight distance (PoB's
+        enemyDistance, else the main skill's natural distance, as GEM's mirror model) and PoB's Presence radius."""
+        from builder.search import bosses as bosses_mod
+        from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE
+
+        build = self.build
+        mirror = next((s for s in found if s.name == models.MIRROR_OF_REFRACTION), None)
+        if mirror is None:
+            return mods, notes
+        seen = {**build.call("stats", fields=["PresenceRadius"]),
+                "_boss": getattr(getattr(build.ctx, "request", None), "boss", None) or bosses_mod.DEFAULT}
+        units = number(build.call("getConfig")["input"].get("enemyDistance"))
+        metres, where = ((units / 10, "the fight distance this build is calculated at") if units > 0 else
+                         (MELEE_DISTANCE if main.melee else RANGED_DISTANCE, "the main skill's natural distance"))
+        more = sum(m["scale"] for m in back_mods if m.get("line") == "1% more Damage")
+        add_mods, add_notes = models.mirror_return_model(
+            main, more, mirror_more, number(mirror.level_stats.get(models.MIRROR_COPIES_STAT)),
+            bosses_mod.hit_radius(seen), bosses_mod.hit_radius(seen, "upper")[0], metres, where,
+            number(seen.get("PresenceRadius")) / 10)
+        return mods + add_mods, notes + add_notes
+
     def models(self, skills: list[dict]) -> tuple[list[dict], list[dict], dict[int, int | None]]:
         """The custom models' lines, notes and extra damage groups ({index: stat set to calculate,
         or None to leave it}) for the current build."""
@@ -4257,6 +4285,7 @@ class Assumptions:
         hit_cut(build, [m for m in stat_mods if "hit_cut" in m or models.HIT_CUT_PER_USE in m] + rep_mods,
                 main.name if main else None)  # (GEM33:
         # Salvo, the Nova circle, Ratha, Trickster's Shard, Ember Fusillade, Rake, the repeat interval: hits a second)
+        mirror_more = 0.0  # (MECHB69: GEM's mirror DPS more, for models.mirror_return_model)
         if any(s.name == models.MIRROR_OF_REFRACTION for s in found):  # (GEM31: its copies from spare projectiles)
             from builder.search import boss_hits, bosses as bosses_mod
 
@@ -4273,6 +4302,7 @@ class Assumptions:
                 found, main, {**stats, **build.call("stats", fields=["ProjectileCount", "Speed"])},
                 build.call("getConfig")["input"], forbidden, loop=mir_loop, moves=mir_moves, dodges=mir_dodges)
             stat_mods, stat_notes = stat_mods + mir_mods, stat_notes + mir_notes  # (GEM35: the loop, R47-2)
+            mirror_more = sum(m["value"] for m in mir_mods if m.get("name") == "DPS")  # (MECHB69: the copies' returns)
         # (MECHC43) a main skill that spends the Combo other Strikes build (Culmination / Vruun's Inevitability,
         # skill_maximum_number_of_combo_stacks): its Combo on use from the build's own Strikes and the press model's
         # shares (models.vruun_combo_share's math), for PoB's Combo count (conditions.Conditions._combo_on_use, a round
@@ -5365,8 +5395,11 @@ class Assumptions:
                     "a Spectral Projectile over the attack's own projectile, spectral_volley_model's reading", forbidden)
                 hand_mods, hand_notes = hand_mods + st_mods, hand_notes + st_notes
         if main is not None and main.name == models.ICE_SHARDS:  # (MECHB51: R41-13, rows only; MECHB67: R61-11)
-            hand_notes = hand_notes + models.ice_shards_note(main, number(build.call("stats", fields=["Speed"]).get(
-                "Speed")) or 0.0, bosses.moving_ceiling({"_boss": boss}))
+            shard_rate = number(build.call("stats", fields=["Speed"]).get("Speed")) or 0.0
+            hand_notes = hand_notes + models.ice_shards_note(main, shard_rate, bosses.moving_ceiling({"_boss": boss}))
+            shard_mods = models.ice_shards_limit_mods(main, shard_rate)  # (MECHB69, R64-8: the 16-shard limit)
+            hand_mods = hand_mods + shard_mods
+            hit_cut(build, shard_mods, main.name)
         hand_notes = hand_notes + models.behead_note(main, supports.get(main.group, []) if main else [])  # (R42-18)
         hand_notes = hand_notes + models.knockback_note(main, number(build.call("stats", fields=[
             "KnockbackChanceOnHit"]).get("KnockbackChanceOnHit")))  # (MECHB51: R42-26, a LOW row)
@@ -5665,6 +5698,8 @@ class Assumptions:
                 set(gem.get("weaponTypes") or []),
                 mirror=any(s_.name == models.MIRROR_OF_REFRACTION for s_ in found))  # (MECHB65: R60-9's LOW row)
             hand_mods, hand_notes = hand_mods + back_mods, hand_notes + back_notes
+            if mirror_more > 0 and back_mods:  # (MECHB69, R64-3 / R64-10: the copies' returns from the geometry)
+                hand_mods, hand_notes = self.mirror_returns(found, main, back_mods, mirror_more, hand_mods, hand_notes)
             if any(models.CADIRO_ARROWS.search(t.strip()) for t in texts):  # (MECHB22: Cadiro's Gambit's Diamond Arrows)
                 cadiro_mods, cadiro_notes = models.cadiro_model(
                     texts, {**stats, **build.call("stats", fields=models.CADIRO_FIELDS)}, main,
@@ -5956,7 +5991,8 @@ class Assumptions:
                 [e["text"] for e in source_lines], bosses.hit_radius(stats)[0], det_split, forbidden,
                 previous=self.mods, rage_paid=getattr(build, "rage_paid", None),  # (MECHB50: Molten Crash's Rage, MECHC48)
                 cap=self.fissure_limit(main.name, [e["text"] for e in source_lines]),  # (GEM41: the build's Limit)
-                overgrown=self.fissure_overgrown(found, main, [e["text"] for e in source_lines]))  # (MECHB65)
+                overgrown=self.fissure_overgrown(found, main, [e["text"] for e in source_lines],  # (MECHB65)
+                                                 stat_stats))  # (MECHB69, A39-3: Nature's Archon too)
             hand_mods, hand_notes = hand_mods + fis_mods, hand_notes + fis_notes
             hit_cut(build, fis_mods, main.name)  # (MECHB57: the Fissures' hits a use, models.HIT_CUT_PER_USE)
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
@@ -7514,7 +7550,9 @@ class Assumptions:
                     got = rated.get("ailmentChances") or {}
                     shock_set = sets.get("Shockwave") or {}
                     ailments = {"threshold": threshold,
-                                "chance": {a: number(got.get(a)) for a in models.BELL_AILMENT_TYPES.values()},
+                                "chance": {**{a: number(got.get(a)) for a in models.BELL_AILMENT_TYPES.values()},
+                                           **{f"{a}Buildup": number(got.get(f"{a}Buildup"))  # (MECHB69, R64-8)
+                                              for a in models.BELL_BUILDUP_TYPES.values()}},
                                 "lasts": {a: number(got.get(a + "Duration")) for a in models.BELL_AILMENT_TYPES.values()},
                                 "extra": {t: max(0.0, number((shock_set.get("gainAs") or {}).get(t)) - wave)
                                           for t in models.BELL_AILMENT_TYPES}}
@@ -12332,7 +12370,9 @@ class Assumptions:
         hit_recovery_rates). A minion main skill isn't capped (its DPS is its minions', not its casts')."""
         from builder.search import objective
 
+        self.cost_scale = 1.0 if main is None or not main.triggered else getattr(self, "cost_scale", 1.0)
         if main is None or main.summon is not None or main.minion is not None:
+            self.cost_scale = 1.0
             return [], []
         stats = getattr(self.build, "stats", None) or {}
         back = objective.hit_recovery_rates(stats) if stats else {}
@@ -12368,7 +12408,37 @@ class Assumptions:
             pools["EnergyShield"] = (sum(got.values()), ", ".join(f"{k} {v:,.1f}" for k, v in got.items()) or "none",
                                      es_cost)
         fed = [f for group in (feeders or {}).values() for f in group if number(f.get("used")) > 0]
-        scale, row = models.mana_cap_row(pools, main.name, fed, bool(main.triggered))
+        # (MECHB69; MECHC66 via the manager 02:30: the starting pools spread over the fight, models.cost_pace) The fight:
+        # the boss's pool over the build's Full DPS at the full pace (the last committed stats hold the last cap: / it)
+        from builder.search import bosses as bosses_mod
+
+        starts = {"Mana": number(stats.get("Mana")), "Life": number(stats.get("Life")),
+                  "EnergyShield": number(stats.get("EnergyShield"))}
+        # (MECHB70, the manager's check of MECHB69's item 4) the fight's length is MECH-C's flasks.fight_length: the boss's
+        # pool (all its Life bars) over the build's Full DPS with every flask and charm OFF (bridge noFlaskDps: the longer
+        # fight, the lower reading), the build's scored share of PoB's Full DPS taken off. The pace's full-pace ratio: the
+        # fight's DPS / the last cap. A build with no fight read (no DPS, or a test double with no PoB) is the steady
+        # state, said. Where the request names the boss, its off-field phases (bosses.absent's events) refill each pool
+        # by its income over them, at most its maximum (the pool spent to the bottom before each: the upper side,
+        # MEDIUM-LOW).
+        request = getattr(getattr(self.build, "ctx", None), "request", None)
+        named = getattr(request, "boss", None)
+        boss = bosses_mod.of({"_boss": named}).name
+        try:
+            seconds, fight_how = flasks_mod.fight_length(self.build, named)
+        except Exception as exc:  # (no PoB behind the build: the steady state)
+            seconds, fight_how = 0.0, f"no fight length read ({type(exc).__name__})"
+        last = max(getattr(self, "cost_scale", 1.0), 1e-6)
+        fight = ((1.0 / (seconds * last), f"{boss}: {fight_how}" + (f", at x{last:.3f} of the full pace" if last < 1
+                                                                      else "")) if seconds > 0 else None)
+        breaks: tuple[float, ...] = ()
+        if named and fight is not None:
+            events = (bosses_mod.ABSENT.get(boss) or ((), None, ""))[0]
+            breaks = tuple(t for t, _ in events if t)
+        scale, row = models.mana_cap_row(pools, main.name, fed, bool(main.triggered), starts, fight, breaks)
+        if row is not None and fight is None and any(v > 0 for v in starts.values()):
+            row["basis"] += f"; the starting pools not spread ({fight_how}: the steady state)"
+        self.cost_scale = scale if main.triggered else 1.0
         if row is None:
             return [], []
         if not main.triggered:  # (R60-4 settles triggered spells; a hand-used main's shortfall stays the sustain floor's)
@@ -12788,9 +12858,13 @@ class Assumptions:
                                           spell=bool(main.spell))
         return {"nova": True, "at_target": why}
 
-    def fissure_overgrown(self, found: list, main, texts: list[str]) -> tuple[float, str] | None:
+    def fissure_overgrown(self, found: list, main, texts: list[str], stats: dict | None = None) -> tuple[float, str] | None:
         """(MECHB65) The share of a vine Fissure skill's plants Overgrown (models.overgrown_share: the build's
-        Thunderstorm at its pressed rate, the "chance to Overgrow" lines), for Entangle's 3 more vines; None otherwise."""
+        Thunderstorm at its pressed rate, the "chance to Overgrow" lines), for Entangle's 3 more vines; None otherwise.
+        (MECHB69; AUDIT39 A39-3, an UNDERCOUNT) With Nature's Archon too ("Plants have a 100% chance to immediately
+        Overgrow" while it's up), as overgrown_model counts it (GEM28 / MECHC44's rule): its uptime fed the main skill's
+        plants a second (`stats`: PoB's Speed, "_main_share", "_archon_x", "_buff_expiry") x the other sources' share,
+        combined 1 - (1 - uptime) x (1 - share)."""
         if main is None or main.name not in models.FISSURE_VINES:
             return None
         build = self.build
@@ -12799,6 +12873,16 @@ class Assumptions:
         groups = {r["index"]: {**r, "_press": press.get(r["name"])}
                   for r in build.call("useRates", indices=storms)["rates"]} if storms else {}
         share, parts, conf = models.overgrown_share(found, groups, texts)
+        stats = stats or {}
+        main_share = number(stats.get("_main_share")) if stats.get("_main_share") is not None else 1.0
+        plants = number(stats.get("Speed")) * main_share * models.PLANTS_A_USE.get(main.name, (1.0, ""))[0]
+        expiry = stats.get("_buff_expiry") or (1.0, "")
+        archon, archon_how = models.natures_archon_uptime(list(texts), plants * share, stats.get("_archon_x") or {},
+                                                          False, number(expiry[0]) or 1.0)
+        if archon > 0:
+            share = 1 - (1 - archon) * (1 - share)
+            parts = parts + [archon_how + f" ({plants:.3g} plants a second; Dominion's no-recovery not read: the lower "
+                             "reading)"]
         return share, ("; ".join(parts) or "none") + f" ({conf})"
 
     def fissure_limit(self, name: str, texts: list[str]) -> float | None:
@@ -14142,22 +14226,42 @@ class Assumptions:
                 if chosen is not None else [])
         spot = next(((g["index"], n) for g in build.groups() if g.get("enabled") is not False
                      for n, s in enumerate(g["skills"], 1) if s["name"] == models.ARSONIST), None)
-        hit = 0.0
-        if spot is not None and rate > 0:
-            got = build.call("minionSkillHit", index=spot[0], active=spot[1], skill=models.EXPLOSIVE_DEMISE_ID)
+        hit, scale, base = 0.0, 0.0, 0.0
+        if spot is not None and rate > 0:  # (MECHB69, R64-6: scored as the Attack 0.3.0 made it; PoB flags it a Spell)
+            got = build.call("minionSkillHit", index=spot[0], active=spot[1], skill=models.EXPLOSIVE_DEMISE_ID,
+                             attack=True)
             got = got if isinstance(got, dict) else {}  # (an empty Lua table reaches Python as a list)
             hit = number(got.get("AverageDamage")) or number(got.get("AverageHit"))
+            base = (number(got.get("weaponMin")) + number(got.get("weaponMax"))) / 2 * models.EXPLOSIVE_DEMISE_MULTIPLIER
+            scale = hit / base if base > 0 else 0.0
         lives = getattr(build, "minion_lives", None) or {}
-        others = [(number(lives.get(s.name)), number(s.summon.get("limit"))) for s in found
+        # (MECHB70; R65-1, A40-51) the Arsonist gem's level (the Life threshold) and quality (+0.2% a point)
+        gem = next((g for grp in build.groups() if spot is not None and grp["index"] == spot[0]
+                    for g in grp.get("gems") or [] if "Arsonist" in g["name"]), {})
+        level, quality = int(number(gem.get("level")) or 20), number(gem.get("quality"))
+        pct = models.EXPLOSIVE_DEMISE_LIFE_PCT + models.EXPLOSIVE_DEMISE_LIFE_PER_QUALITY * quality
+        threshold = models.demise_threshold(level)
+        others = [(s.name, number(lives.get(s.name))) for s in found
                   if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))
                   and s.name != models.ARSONIST and number(lives.get(s.name)) > 0]
-        count = sum(n for _, n in others)
-        life = sum(l * n for l, n in others) / count if count > 0 else 0.0
-        life_how = ("the mean of your other Reviving minions', PoB's" if count > 0 else
-                    "no other minion's Life read: its Life part not counted, an UNDERCOUNT")
+        eligible = [(n, l) for n, l in others if l <= threshold]
+        bigger = [(n, l) for n, l in others if l > threshold]
+        name, life = max(eligible, key=lambda x: x[1], default=("", 0.0))
+        life_how = ((f"your {name}, the eligible minion with the most Life (max Life at or below the {threshold:,} "
+                     f"threshold at gem level {level}: you aim the Command at it, R65-1)") if name else
+                    (f"no minion's maximum Life at or below the {threshold:,} threshold at gem level {level}: "
+                     "its Life part 0 (CLAUDE.md: no source)" if others else
+                     "no other minion's Life read: its Life part not counted, an UNDERCOUNT"))
+        if bigger:
+            top = max(bigger, key=lambda x: x[1])
+            life_how += (f"; row, {top[0]} ({top[1]:,.0f} Life) once damaged below the threshold by your own sources "
+                         f"(not modelled): {pct:g}% of {top[1]:,.0f}")
+        if quality:
+            life_how += f"; {pct:g}% with the gem's {quality:g}% quality (A40-51)"
         resist = number(build.call("getConfig")["input"].get("enemyFireResist")) if rate > 0 else 0.0
         added, demise_mods, notes = models.explosive_demise_model(rate, most, hit, life, life_how, resist, main,
-                                                                  state["trials"])
+                                                                  state["trials"], scale, no_damage=hit <= 0 < base,
+                                                                  pct=pct)
         if added > 0:  # (a Command press: the button cap counts it, as the Skeletal Sniper's)
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):

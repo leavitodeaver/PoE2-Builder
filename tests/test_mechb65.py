@@ -211,16 +211,18 @@ def test_a_nova_landing_at_the_target_keeps_the_targeted_cascade_rule():
     assert models.nova_lands_at_target(burst, {}, named, set()) and not models.nova_lands_at_target(cage, {}, named, set())
 
 
-def test_bone_cages_spike_rings_cross_the_boss_by_geometry():
+def test_bone_cages_spike_rings_cross_the_boss_by_geometry(monkeypatch):
     """RESEARCH61 R61-3 (HIGH on the shape): Bone Cage's spikes stand on its radius; with Astral Projection the main ring
     circles a small boss and misses it, the Cascade's two side rings cross it (x2 against PoB's one); with no Cascade
     0; around you the main ring (you standing its radius away) plus the side rings' share; rows: around you for a
     triggered cast, 0 if a spike must be walked into."""
     stats = {"AreaOfEffectRadius": 13.0, "AreaOfEffectRadiusSecondary": 7.2}
+    # (MECHB70) a standing boss: the main ring's move chance (A39-1, test_mechb69) pinned to 0
+    monkeypatch.setattr(models.bosses, "relocations", lambda *a, **k: (0.0, 0.0, "a standing boss"))
     cage = models.Skill("Bone Cage", group=2, spell=True, triggered=True, support_stats={models.CASCADES_PER_SIDE: 1})
     mods, notes = models.spell_cascade_model(cage, stats, 0.3, "a 0.3 m boss", nova=True, at_target="AP")
     assert mods[0]["value"] == pytest.approx(100.0) and notes[0]["value"] == "x2.00"
-    assert "R61-3" in notes[0]["basis"] and "x1.34" in notes[0]["basis"] and "walked into" in notes[0]["basis"]
+    assert "R61-3" in notes[0]["basis"] and "x1.34" in notes[0]["basis"] and "a standing boss" in notes[0]["basis"]
     alone = models.Skill("Bone Cage", group=2, spell=True)
     mods, notes = models.spell_cascade_model(alone, stats, 0.3, "a 0.3 m boss", nova=True, at_target="AP")
     assert mods[0]["value"] == pytest.approx(-100.0)
@@ -238,7 +240,7 @@ def test_infernal_legion_ignites_only_while_the_boss_holds_half_flammability():
     full, _ = models.infernal_legion_model([brute], 30.0, 0.0)
     seen = []
     half, note = models.infernal_legion_model([brute], 30.0, 0.0, lambda d: (seen.append(d) or 0.25, "test gate"))
-    assert seen == [500.0] and half == pytest.approx(full * 0.25)
+    assert seen[0] == [(500.0, 1.0)] and half == pytest.approx(full * 0.25)  # (MECHB69: a list of (damage, minions))
     assert "50% Flammability" in note["basis"] and "R61-2" in note["basis"] and f"+{full:,.1f}" in note["basis"]
     assert models.infernal_legion_model([brute], 30.0, 0.0, lambda d: (0.0, "none"))[0] == 0.0
 
@@ -252,4 +254,4 @@ def test_mirror_copies_returning_show_a_low_half_row():
     plain, notes = models.return_model([], {"PierceCount": 1}, frost, types, gems, set())
     mirrored, mnotes = models.return_model([], {"PierceCount": 1}, frost, types, gems, set(), mirror=True)
     assert plain == mirrored and "R60-9" not in notes[0]["basis"]
-    assert "R60-9" in mnotes[0]["basis"] and "+50.0% on the copies" in mnotes[0]["basis"]
+    assert "R60-9" in mnotes[0]["basis"] and "R64-3" in mnotes[0]["basis"]  # (MECHB69: the half retired)

@@ -1135,10 +1135,29 @@ EXPLOSIVE_DEMISE_COOLDOWN = 3.0  # s (PoB minion.lua:815 levels; game files)
 EXPLOSIVE_DEMISE_CAST = 1.0  # s (PoB minion.lua DestructiveLinkSkeletonBombadierMinion castTime 1; COMMANDS below)
 EXPLOSIVE_DEMISE_ID = "DestructiveLinkSkeletonBombadierMinion"
 # "Deals additional Fire damage equal to {0}% of Minion's maximum Life" (arsonist_destructive_link_%_of_life_as_fire_damage,
-# 8 in its stat set; + 0.2 a quality, read as the gem's quality: not read, an UNDERCOUNT of up to 4 at 20%). PoB maps no
-# stat for it (checked: PoB src grep "destructive_link": only the skill data and the stat descriptions), so its own hit
-# holds only the Attack part ("heavy Attack damage": baseMultiplier 3).
+# 8 in its stat set; + 0.2 a quality point: PoB minion.lua DestructiveLinkSkeletonBombadierMinion qualityStats, the game's
+# quality table 45 (AUDIT40 A40-51): 12 at 20% quality, read from the Skeletal Arsonist gem's quality since MECHB70). PoB
+# maps no stat for it (checked: PoB src grep "destructive_link": only the skill data and the stat descriptions), so its
+# own hit holds only the Attack part ("heavy Attack damage": baseMultiplier 3).
+# (MECHB70; RESEARCH65 R65-1) The player aims the Command: the game detonates an eligible ally within 3 m of the aim
+# (command_minion_target_ally_search_radius 30, untargeted, damageable), eligible at current Life at or below the
+# threshold (command_minion_target_ally_below_x_life by the gem's level, EXPLOSIVE_DEMISE_THRESHOLD: 1,096 at 20). The
+# player picks the minion (CLAUDE.md: a source picked on purpose), so the headline detonates the build's eligible minion
+# with the highest maximum Life (max Life at or below the threshold; a bigger one only when the build damages it below,
+# not modelled: a row; none eligible: 0, said). The 8% is added Fire damage of the Arsonist's attack, scaled by its
+# modifiers ("unscalable" absent, R65-1 MEDIUM): the headline scales it like the Attack hit's base (PoB's hit over its
+# weapon base x 300%: the Arsonist's modifiers, crits and the boss's Fire resistance), unscaled the row.
 EXPLOSIVE_DEMISE_LIFE_PCT = 8.0
+EXPLOSIVE_DEMISE_LIFE_PER_QUALITY = 0.2
+EXPLOSIVE_DEMISE_THRESHOLD = (30, 52, 77, 105, 134, 168, 203, 243, 286, 333, 383, 439, 500, 564, 636, 714, 799, 889, 989,
+                              1096, 1213, 1338, 1474, 1620, 1780, 1951, 2137, 2338, 2554, 2788, 3040, 3313, 3606, 3923,
+                              4263, 4631, 5028, 5456, 5915, 6412)  # (PoB minion.lua, gem levels 1-40)
+
+
+def demise_threshold(level: int) -> int:
+    """(MECHB70, R65-1) The current Life at or below which Explosive Demise may detonate a minion, at the gem's level."""
+    return EXPLOSIVE_DEMISE_THRESHOLD[min(max(int(level or 20), 1), len(EXPLOSIVE_DEMISE_THRESHOLD)) - 1]
+EXPLOSIVE_DEMISE_MULTIPLIER = 3.0  # (MECHB69, R64-6: "300% Attack Damage", PoB minion.lua baseMultiplier 3 at every level)
 # (MECHB68) The Commands' chosen presses a second: an OVERRIDE on the summon skill (the bridge's summon.pressRate), so
 # every reader of activeSkills (Conditions' Death Storm and kill readers, gems' Cast on Minion Death ranking) presses them
 # as the score does. Only Explosive Demise is chosen today (Assumptions.choose_demise); none: on cooldown.
@@ -1358,10 +1377,25 @@ def minion_deaths(skills: list[Skill], main: Skill | None, stats: dict,
 # Arsonist's damage modifiers (UNVERIFIED whether they scale it: the lower reading). Charged (the safe side, as
 # eternal_hunt_model): the Command's 1 s cast from the Arsonist's own attacks, and from a player main skill's time
 # (whether a Command stops your skill is UNVERIFIED); a press under the button cap (ITEM_PRESSES).
+# (MECHB69; RESEARCH64 R64-6, research/backlog-bell-giantsblood-demise-remnants-r64.md, MEDIUM-HIGH, an UNDERCOUNT) The
+# Attack part: PoB scored it 0 because its data still flags the stat set spell = true (minion.lua
+# DestructiveLinkSkeletonBombadierMinion baseFlags), with no spell base damage, though patch 0.3.0 made it "an Attack
+# instead of Spell, dealing 300% Attack Damage" (its skillTypes already say Attack; baseMultiplier 3). The bridge's
+# minionSkillHit(attack = true) now scores that set as an Attack (the Arsonist's weapon base x 300%, its modifiers,
+# converted to Fire, through the boss's resistance), flags put back after. The 8% of Life part: unscaled as the
+# headline (as before); a row with it scaled like the hit's base (x the hit / the weapon base x 300%: the Arsonist's
+# damage modifiers, crits and the boss's resistance; UNVERIFIED, R64-6 leans scaled). When PoB's Attack hit is 0 WITH a
+# weapon base (probe POE2T9088, example build 6: its Arsonists carry Brutus' Brain, "minions_deal_no_damage", PoB's
+# Damage MORE -100), the Arsonist deals no damage, so the Life part (its damage too) is 0 as well (MEDIUM: the support's
+# "unable to deal Damage"); the Life part as if dealt is a row.
 def explosive_demise_model(rate: float, most: float, hit: float, life: float, life_how: str, fire_resist: float,
-                           main: Skill | None, trials: dict[float, float]) -> tuple[float, list[dict], list[dict]]:
+                           main: Skill | None, trials: dict[float, float],
+                           scale: float = 0.0, no_damage: bool = False,
+                           pct: float = EXPLOSIVE_DEMISE_LIFE_PCT) -> tuple[float, list[dict], list[dict]]:
     """(added DPS, mods, notes) for Explosive Demise pressed `rate` times a second (of `most`): its explosion, the
-    Command's cast charged, and the trials' rows (`trials`: {presses a second: the build's DPS})."""
+    Command's cast charged, and the trials' rows (`trials`: {presses a second: the build's DPS}). `scale`: the Attack
+    hit over its weapon base x 300% (0: unknown): the Life part scaled like it (R65-1, the headline), unscaled a row.
+    `pct`: the Life part's % with the gem's quality (A40-51)."""
     label = "Explosive Demise: how often you detonate your own minions*"
     rows = ""
     if trials:
@@ -1372,17 +1406,32 @@ def explosive_demise_model(rate: float, most: float, hit: float, life: float, li
         note = {"label": label, "value": "not pressed", "confidence": "MEDIUM",
                 "basis": (f"the build's DPS is highest without detonating its own minions (at most once every "
                           f"{1 / most:.2f} s: its {EXPLOSIVE_DEMISE_COOLDOWN:g} s cooldown over Cooldown Recovery, its "
-                          f"{EXPLOSIVE_DEMISE_CAST:g} s cast a floor){rows}. Its explosion: {hit:,.0f} (PoB's Attack part) "
-                          f"+ {EXPLOSIVE_DEMISE_LIFE_PCT:g}% of a {life:,.0f}-Life minion as Fire ({life_how})"),
+                          f"{EXPLOSIVE_DEMISE_CAST:g} s cast a floor){rows}. Its explosion: {hit:,.0f} (its Attack part, "
+                          f"300% Attack Damage scored as an Attack: R64-6) "
+                          f"+ {pct:g}% of a {life:,.0f}-Life minion as Fire ({life_how})"),
                 "play": ("Don't press Explosive Demise: each detonation costs more minion damage than it gives"
                          + (f" (without it {trials[0.0]:,.0f} DPS; with it every {1 / max(trials):.2f} s, the most "
                             f"tried: {trials[max(trials)]:,.0f} DPS)" if 0.0 in trials and max(trials) > 0 else ""))}
         return 0.0, [], [note]
-    life_part = EXPLOSIVE_DEMISE_LIFE_PCT / 100 * life * (1 - fire_resist / 100)
+    unscaled = pct / 100 * life * (1 - fire_resist / 100)
+    life_part = pct / 100 * life * scale if scale > 0 else unscaled
+    as_if = life_part
+    if no_damage:  # (MECHB69: the Arsonist deals no damage, Brutus' Brain on example build 6)
+        life_part = 0.0
     each = hit + life_part
     added = rate * each
-    zero = (" (PoB gives 0 for its Attack part here: not counted, an UNDERCOUNT; why PoB reads 0 is UNVERIFIED)"
-            if hit <= 0 else "")
+    zero = ("; your Skeletal Arsonists deal no damage (PoB's Attack hit 0 with a weapon base: a no-damage support such "
+            f"as Brutus' Brain), so its Life part is 0 too (MEDIUM); row, the Life part as if dealt: +{rate * as_if:,.1f} "
+            "DPS" if no_damage else
+            " (PoB gives 0 for its Attack part here even scored as an Attack: not counted, an UNDERCOUNT)"
+            if hit <= 0 else "; scored as an Attack, 300% Attack Damage (0.3.0; PoB's data still flags it a Spell, "
+            "which gave 0: R64-6)")
+    scaled_row = ""
+    if scale > 0 and life > 0 and not no_damage:
+        scaled_row = (f"; the Life part scaled like the hit's base (x{scale:.2f}: the Arsonist's modifiers, crits and the "
+                      f"boss's resistance; R65-1: added Fire of its attack, no 'unscalable', MEDIUM); row, unscaled "
+                      f"through the boss's {fire_resist:g}% Fire resistance: {unscaled:,.0f} a press, "
+                      f"+{rate * (hit + unscaled):,.1f} DPS")
     share = min(1.0, rate * EXPLOSIVE_DEMISE_CAST)
     mods = [line("Minions deal 1% more Damage", -100.0 * share, skill=ARSONIST)]
     minion_main = main is not None and bool(main.summon)
@@ -1393,10 +1442,13 @@ def explosive_demise_model(rate: float, most: float, hit: float, life: float, li
             "basis": (f"pressed {rate:.3f} times a second ("
                       + (f"chosen by the build's DPS, below the most, once every {1 / most:.2f} s" if chosen else
                          f"on its cooldown, once every {1 / most:.2f} s: the build's DPS is highest there")
-                      + f"){rows}. Each explosion: {hit:,.0f} (PoB's Attack part{zero}) + {EXPLOSIVE_DEMISE_LIFE_PCT:g}% of a "
-                        f"{life:,.0f}-Life minion ({life_how}) through the boss's {fire_resist:g}% Fire resistance "
-                        f"({life_part:,.0f}; the Arsonist's damage modifiers not applied, UNVERIFIED) = {each:,.0f}: "
-                        f"+{added:,.1f} DPS. Charged: its {EXPLOSIVE_DEMISE_CAST:g} s cast, {share:.0%} of the Arsonists' "
+                      + f"){rows}. Each explosion: {hit:,.0f} (PoB's Attack part{zero}) + {pct:g}% of a "
+                        f"{life:,.0f}-Life minion ({life_how}) "
+                        + (f"scaled x{scale:.2f} like the hit ({life_part:,.0f})" if scale > 0 and not no_damage else
+                           f"through the boss's {fire_resist:g}% Fire resistance ({life_part:,.0f}; the Arsonist's damage "
+                           "modifiers not applied: its hit's scale unknown)")
+                        + f" = {each:,.0f}: "
+                        f"+{added:,.1f} DPS{scaled_row}. Charged: its {EXPLOSIVE_DEMISE_CAST:g} s cast, {share:.0%} of the Arsonists' "
                         "attacks" + (f" and of {main.name}'s time (whether a Command stops your skill is UNVERIFIED)"
                                      if main is not None and not minion_main else "")),
             "play": (f"Press Explosive Demise every {1 / rate:.2f} s"
@@ -3955,11 +4007,39 @@ COST_FEED_FIELDS = {"Mana": "manaPerSecond", "Life": "lifePerSecond", "EnergyShi
 ES_COST_FIELD = "ESPerSecondCost"  # (MECHB66: PoB's per-second Energy Shield cost, CalcOffence 6217)
 
 
+# (MECHB69; MECHC66's find, the manager 26 Nov 02:30: an UNDERCOUNT for high-DPS cost-capped builds) The pool the build
+# STARTS the fight with pays costs too: on a short fight (example build 4's is ~1.4 s from the boss's pool over its DPS)
+# the starting Mana covers much of the spend. Counted: each pool's maximum (PoB's Mana, Life, EnergyShield), spent over
+# the fight, whose length is the boss's pool (conditions.boss_pool, all its bars) over the build's DPS at the pace the
+# cap allows (never a flat length: CLAUDE.md). The fight shortens as the pace rises, so the pace s solves
+# s x spend = income + start x D x s / P (D the build's DPS at the full pace, P the boss's pool): s = income / (spend -
+# start x D / P), 1 when that is past the spend (the whole fight paid). MEDIUM-LOW: the build's whole DPS taken to move
+# with the capped skill's pace (its other damage doesn't, so the real fight is a little shorter: the lower reading);
+# the DPS PoB's Full DPS with the flasks in (MECHC66's flask stock reads it without them, bridge noFlaskDps, not yet on
+# main: switch when it lands); the pool spent to the bottom (row: none of it, the old steady-state cap). Life and
+# Energy Shield costs spend those pools too (the same rule; a row says how far the pool runs down).
+def cost_pace(income: float, spend: float, start: float = 0.0, ratio: float = 0.0) -> float:
+    """(MECHB69, the note above) the pace a pool pays: income + its `start` spread over the fight (`ratio` = the build's
+    full-pace DPS / the boss's pool: fights a second at the full pace) against `spend`."""
+    if spend <= 0:
+        return 1.0
+    k = max(start, 0.0) * max(ratio, 0.0)
+    if spend - k <= max(income, 0.0):
+        return 1.0
+    return max(income, 0.0) / (spend - k)
+
+
 def mana_cap_row(pools: dict[str, tuple[float, str, float]], main: str, feeders: list[dict],
-                 triggered: bool) -> tuple[float, dict | None]:
+                 triggered: bool, starts: dict[str, float] | None = None,
+                 fight: tuple[float, str] | None = None,
+                 breaks: tuple[float, ...] = ()) -> tuple[float, dict | None]:
     """(MECHB64, the note above) (the scale on the main skill's DPS, the note) for `pools` {pool: (income a second,
-    how, the main skill's cost a second)}: (1.0, None) when every pool pays its spend."""
+    how, the main skill's cost a second)}: (1.0, None) when every pool pays its spend. (MECHB69) `starts` {pool: its
+    maximum} and `fight` (the build's full-pace DPS / the boss's pool, how): the starting pools spread over the fight.
+    (MECHB70) `breaks`: the boss's off-field phases in seconds (bosses.absent's events), each refilling a pool by its
+    income over it, at most its maximum."""
     worst, found = 1.0, None
+    ratio, fight_how = fight if fight else (0.0, "")
     for pool, (income, income_how, main_cost) in pools.items():
         parts = [f"{main} {main_cost:,.1f}/s"] if main_cost > 0 else []
         spend = max(main_cost, 0.0)
@@ -3970,25 +4050,46 @@ def mana_cap_row(pools: dict[str, tuple[float, str, float]], main: str, feeders:
                 share = min(1.0, used / speed)
                 spend += each * share
                 parts.append(f"{f['name']} {each * share:,.1f}/s ({each:,.1f}/s used {share:.0%} of the time)")
-        if spend > 0 and income < spend and max(income, 0.0) / spend < worst:
-            worst, found = max(income, 0.0) / spend, (pool, income, income_how, spend, parts)
+        start = number((starts or {}).get(pool))
+        refill = sum(min(max(income, 0.0) * t, start) for t in breaks) if ratio > 0 else 0.0
+        pace = cost_pace(income, spend, start + refill, ratio)
+        if spend > 0 and pace < worst:
+            worst, found = pace, (pool, income, income_how, spend, parts, start, refill)
+        elif spend > 0 and income < spend and pace >= 1.0 and found is None and worst >= 1.0:
+            found = (pool, income, income_how, spend, parts, start, refill)  # (paid only by its starting pool: a note, x1)
     if found is None:
         return 1.0, None
-    pool, income, income_how, spend, parts = found
+    pool, income, income_how, spend, parts, start, refill = found
+    steady = min(1.0, max(income, 0.0) / spend)
+    start_words = ""
+    if start > 0 and ratio > 0:
+        seconds = 1 / (ratio * worst)
+        start_words = (f"; its starting {start:,.0f} {pool} spent over the fight too ({fight_how}: about {seconds:,.1f} s "
+                       f"of damage at this pace, {(start + refill) / seconds:,.1f} a second; the pace s solves s x spend "
+                       f"= income + start / fight, the fight shortening as s rises: MEDIUM-LOW)"
+                       + (f", and {refill:,.0f} more refilled while the boss is off the field ({', '.join(f'{t:g} s' for t in breaks)}: "
+                          f"bosses.absent, at most the pool's maximum each)" if refill > 0 else "")
+                       + f"; row, steady state only (the pool kept full, no starting pool): x{steady:.3f}")
+    elif start > 0:
+        start_words = f"; its starting {start:,.0f} {pool} not spread (no fight length: the build's DPS 0)"
     return worst, {
         "label": MANA_CAP_LABEL if pool == "Mana" else f"{pool} paid a second: the use rate the build can sustain*",
-        "value": f"x{worst:.3f} (row, unpaid costs: x1)",
+        "value": f"x{worst:.3f} (rows: steady state, no starting pool x{steady:.3f}; unpaid costs x1)",
         "basis": (f"the build spends {spend:,.1f} {pool} a second ({'; '.join(parts)}) against {income:,.1f} a second of "
-                  f"{pool} income ({income_how}): it can keep up {worst:.1%} of that pace, so "
+                  f"{pool} income ({income_how}){start_words}: it can keep up {worst:.1%} of that pace, so "
                   + ("its feeders and the triggers they make" if triggered and len(parts) > 1 else "its uses")
                   + f" run at x{worst:.3f}, and {main}'s DPS with them"
                   + (" (meta-triggered spells pay their own costs: RESEARCH60 R60-4, HIGH; a trigger the build can't "
                      "pay for taken as not cast, UNVERIFIED)" if triggered else "")
-                  + ". Not counted: the build's other skills' costs, its pool spent once over the fight"),
+                  + ". Not counted: the build's other skills' costs"),
         "confidence": "MEDIUM (the rates and costs PoB's; the income the sustain share's own)",
-        "play": (f"This build spends {pool} faster than it recovers it ({spend:,.0f} against {income:,.0f} a second): add "
-                 f"{pool} recovery (regeneration, leech, on hit, a flask) or cheaper skills; as built it keeps up "
-                 f"about x{worst:.2f} its pace.")}
+        "play": ((f"This build spends {pool} faster than it recovers it ({spend:,.0f} against {income:,.0f} a second): add "
+                  f"{pool} recovery (regeneration, leech, on hit, a flask) or cheaper skills; as built it keeps up "
+                  f"about x{worst:.2f} its pace.") if worst < 1 else
+                 (f"This build spends {pool} faster than it recovers it ({spend:,.0f} against {income:,.0f} a second), "
+                  f"but its starting {start:,.0f} {pool} lasts the fight against this boss."))
+                + ((f" Without its starting {pool} (a longer fight, or entering it low): x{steady:.2f} its pace; with "
+                    f"it: x{worst:.2f}.") if start > 0 and ratio > 0 and steady < worst else "")}
 
 
 def energy_feed(kind: str, feeders: list[dict], stats: dict) -> tuple[float, float, str]:
@@ -6843,10 +6944,15 @@ BELL_EXTRA_HITS = re.compile(r"^Tempest Bells are destroyed after an additional 
 # <type>" added (bridge setRates gainAs: SkillPhysicalDamageGainAs, so the build's modifiers, crits and the boss's
 # resistances are PoB's) less the plain one. The k-th shockwave of a Bell has a type when one of the k - 1 earlier Hits
 # on it inflicted it within that ailment's duration (the NEXT hit after it lands: R63-3's headline); the applying Hit's
-# own shockwave counting too is a row (UNVERIFIED). Freeze / Electrocute (buildup) aren't read: a type only they'd add is
-# left out (the lower reading).
+# own shockwave counting too is a row (UNVERIFIED). (MECHB69; RESEARCH64 R64-8, MEDIUM-HIGH: "each Type matching an
+# Elemental Ailment on the Bell", each type once) Freeze and Electrocute count as Cold / Lightning too: their buildup a
+# Hit against the Bell's threshold (PoB's FreezeBuildupAvg / ElectrocuteBuildupAvg, the bridge's useRates rescaled to
+# that threshold) reaches 100% after h = ceil(100 / buildup) Hits, and the type is on every shockwave after the next
+# Hit (k > h: R63-3's next-hit rule) for the rest of the Bell (the Freeze / Electrocute taken to outlast the Bell, and the
+# buildup not decaying between Hits: MEDIUM-LOW); a type both give is present when either is (independent).
 BELL_AILMENT_STAT, BELL_THRESHOLD_STAT = "tempest_bell_physical_damage_%_as_elemental_per_ailment", "bell_ailment_threshold"
 BELL_AILMENT_TYPES = {"Fire": "Ignite", "Cold": "Chill", "Lightning": "Shock"}
+BELL_BUILDUP_TYPES = {"Cold": "Freeze", "Lightning": "Electrocute"}  # (MECHB69, R64-8)
 
 
 def bell_ailment_bonus(ailments: dict | None, n: float, gap: float) -> tuple[float, float, str]:
@@ -6862,17 +6968,30 @@ def bell_ailment_bonus(ailments: dict | None, n: float, gap: float) -> tuple[flo
     for kind, ailment in BELL_AILMENT_TYPES.items():
         extra = max(float((ailments.get("extra") or {}).get(kind) or 0.0), 0.0)
         c = min(max(float((ailments.get("chance") or {}).get(ailment) or 0.0), 0.0), 100.0) / 100
-        if extra <= 0 or c <= 0:
+        built_up = BELL_BUILDUP_TYPES.get(kind)  # (MECHB69, R64-8: Freeze / Electrocute, a buildup a Hit)
+        buildup = max(float((ailments.get("chance") or {}).get(f"{built_up}Buildup") or 0.0), 0.0) if built_up else 0.0
+        if extra <= 0 or (c <= 0 and buildup <= 0):
             continue
         lasts = float((ailments.get("lasts") or {}).get(ailment) or 0.0)
         window = (lasts / gap) if gap > 0 and lasts > 0 else float(count)
+        hits_needed = math.ceil(100.0 / buildup - 1e-9) if buildup > 0 else 0
 
         def share(own: int) -> float:
-            return sum(1 - (1 - c) ** min(k - 1 + own, window) for k in range(1, count + 1)) / count
+            total = 0.0
+            for k in range(1, count + 1):
+                missing = (1 - c) ** min(k - 1 + own, window) if c > 0 else 1.0
+                if hits_needed and k - 1 + own >= hits_needed:
+                    missing = 0.0
+                total += 1 - missing
+            return total / count
         head, row = head + share(0) * extra, row + share(1) * extra
-        parts.append(f"{kind} ({ailment} {c:.0%} a Hit, {lasts:.2f} s): +{extra:.1f} on {share(0):.0%} of them")
+        words_c = f"{ailment} {c:.0%} a Hit, {lasts:.2f} s" if c > 0 else f"no {ailment}"
+        words_b = (f"; {built_up} {buildup:.1f}% a Hit, on the Bell after {hits_needed} Hit(s) (R64-8)"
+                   if hits_needed else "")
+        parts.append(f"{kind} ({words_c}{words_b}): +{extra:.1f} on {share(0):.0%} of them")
     words = (f"the Ailments your Strikes put on the Bell (its threshold {float(ailments.get('threshold') or 0):,.0f}; "
-             "R63-3): " + ("; ".join(parts) if parts else "none of Ignite / Chill / Shock from the builder"))
+             "R63-3): " + ("; ".join(parts) if parts else
+                           "none of Ignite / Chill / Shock / Freeze / Electrocute from the builder"))
     return head, row, words
 
 
@@ -8932,7 +9051,9 @@ def falling_thunder_model(main: Skill | None, scored: str | None, sets: list[dic
 # has no Melee flag, so no Melee-only scaling reaches it (KeywordPopups Melee: "Any Projectiles these attacks create do
 # not count as Melee damage"). Staggering Palm's, Shred's and Ancestral Cry's projectile skills aren't typed Melee: not
 # reached (MEDIUM-LOW), one row. A melee skill with no projectile gains none (MEDIUM-LOW, UNVERIFIED): nothing defines what
-# such a projectile would deal.
+# such a projectile would deal. (MECHB69; AUDIT39 A39-57, the other reading as a labelled row, CLAUDE.md) if the line
+# makes such a skill fire N projectiles dealing its own hit, they fire together, so one reaches a lone boss (the group
+# rule): x2 on that skill's hits (LOW, UNVERIFIED; no source either way: a RESEARCH question).
 MELEE_PROJECTILES = re.compile(r"^Melee Attacks fire (an|\d+) additional Projectiles?$", re.I)
 MELEE_PROJECTILE_PARTS = ("Staggering Palm", "Shred", "Ancestral Cry")
 FALLING_THUNDER_PER_CHARGE = 3
@@ -8953,7 +9074,10 @@ def melee_projectiles_note(main: Skill | None, texts: list[str], sets: list[dict
     if main.name != FALLING_THUNDER:
         return [{"label": label, "value": "x1.000", "confidence": "LOW",
                  "basis": f"{main.name} has no projectile of its own to add to: none gained (MEDIUM-LOW, UNVERIFIED, "
-                          f"R56-1: nothing defines what such a projectile would deal).{other}"}]
+                          f"R56-1: nothing defines what such a projectile would deal). Row, the other reading (AUDIT39 "
+                          f"A39-57; LOW, UNVERIFIED): the attack fires {extra} projectile(s) dealing its own hit, fired "
+                          f"together so one reaches a lone boss (KeywordPopups 74's group rule): x2.000 on its hits."
+                          f"{other}"}]
     if charges <= 0:
         return [{"label": label, "value": "x1.000", "confidence": "MEDIUM",
                  "basis": f"Falling Thunder fires projectiles only by consuming a Power Charge, and this build's uses "
@@ -14341,8 +14465,8 @@ SNIPER_GAS_ARROW = "GasShotSkeletonSniperMinion"
 SNIPER_COMMAND_CAST = 1.25  # s (CommandSkeletalSniperPlayer CastTime 1250)
 SNIPER_COOLDOWN = 6.0  # s (GrantedEffectsPerLevel Cooldown 6000; patch 0.3.0)
 SNIPER_CLOUD_SECONDS = 8.0  # s (GasShotCloudSkeletonSniperMinion base_skill_effect_duration 8000)
-GROUND_NO_TRIGGER = "ground_effects_cannot_trigger"  # (Persistent Ground II / III; the stat MECH110's reader reads)
-GROUND_DURATION = "ground_effect_duration_+%"  # (Persistent Ground I-III: 50)
+GROUND_NO_TRIGGER = PERSISTENT_GROUND_STAT  # (MECHB70: aliases of MECH113's two names, read by assumptions.persistent_ground)
+GROUND_DURATION = GROUND_DURATION_STAT
 
 
 def sniper_cloud_poison(cloud: dict, alive: float, every: float) -> tuple[float, float, float]:
@@ -14633,14 +14757,21 @@ HOUND_LIFE_SHARE = 0.20  # infernal_familiar_minion_burns_for_%_max_life 20
 # Fire hits and other groups' Ignites (build.ailment_others) and the burn's own applications as though dealing its base
 # (Life x share), over the 8 s stacks. The ungated reading is the row. One Ignite on a lone boss, the strongest
 # (R61-2, MEDIUM-HIGH), as before.
+# (MECHB69; AUDIT39 A39-2, an UNDERCOUNT) Only the STRONGEST minion's Flammability fed the gate, but every supported
+# minion near the boss burns it and applies its own Flammability (KeywordPopups: the TOTAL on the target reaches 50%).
+# So the gate gets one source per minion near the boss: each near row's "as though dealing" damage x its minions (the
+# skill's minion limit, PoB's activeSkills summon limit; all of them near the boss, as the strongest is: MEDIUM).
+# The strongest minion alone (the old reading) is a row. The minions' own Fire Hits aren't in the gate (they Hit, so
+# they add their own Flammability: not read, an UNDERCOUNT named; the main skill's and the other groups' are).
 def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: float,
                           gate=None) -> tuple[float, dict]:
     """(added DPS, note). `minions`: (minion skill, its minion's Life[, its share of Life as base Fire[, its place:
     {"melee", "range", "radius", "minion"} from PoB, MECHB65]]) for each Infernal Legion-supported skill (10%) and
     Summon Infernal Hound (20%, MECHB40); `fire_resist`: the boss's Fire resistance %;
-    `own_ignite`: the build's own Ignite DPS on the boss (PoB's IgniteDPS); `gate(damage) -> (share, how)`: the share of
-    the fight a no-Hit Ignite as though dealing `damage` Fire can Ignite the boss (the 50% Flammability gate, above),
-    None for no gate."""
+    `own_ignite`: the build's own Ignite DPS on the boss (PoB's IgniteDPS); `gate([(damage, minions)]) -> (share,
+    how)`: the share of the fight no-Hit Ignites from those sources (each `minions` of them as though dealing `damage`
+    Fire) can Ignite the boss (the 50% Flammability gate, above), None for no gate. A minion tuple's 5th: its count
+    (MECHB69, A39-2; 1 when absent)."""
     rows = [(m[0], m[1], m[2] if len(m) > 2 else LEGION_LIFE_SHARE) for m in minions]
     # (MECHB65) each minion's place (4th: {"melee", "range", "radius"}) from PoB, else the name list
     def where(m: tuple) -> tuple[bool, str]:
@@ -14662,12 +14793,20 @@ def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: 
     name, life, share = max(near, key=lambda m: m[1] * m[2])
     ignite = IGNITE_BASE * share * life * (1 - fire_resist / 100)
     ungated = max(0.0, ignite - own_ignite)
-    reach, reach_how = gate(share * life) if gate is not None else (1.0, "")
+    counts = {m[0]: max(number(m[4]), 1.0) if len(m) > 4 else 1.0 for m in minions}
+    every = [(s_ * l_, counts.get(n_, 1.0)) for n_, l_, s_ in near]  # (MECHB69, A39-2: one source per minion near)
+    reach, reach_how = gate(every) if gate is not None else (1.0, "")
     reach = min(max(number(reach), 0.0), 1.0)
     added = ungated * reach
-    gate_how = (f"; it Ignites only while the boss holds 50% Flammability (an effect that doesn't Hit: KeywordPopups "
-                f"Flammability, RESEARCH61 R61-2, MEDIUM-HIGH): {reach_how}: x{reach:.2f}; row, ungated: "
-                f"+{ungated:,.1f}" if gate is not None else "")
+    gate_how = ""
+    if gate is not None:
+        alone, _ = gate([(share * life, 1.0)])
+        alone = min(max(number(alone), 0.0), 1.0)
+        gate_how = (f"; it Ignites only while the boss holds 50% Flammability (an effect that doesn't Hit: KeywordPopups "
+                    f"Flammability, RESEARCH61 R61-2, MEDIUM-HIGH), each of the {sum(n for _, n in every):g} supported "
+                    f"minions near the boss applying its own (AUDIT39 A39-2; their own Fire Hits not read, an "
+                    f"undercount): {reach_how}: x{reach:.2f}; rows: the strongest minion's alone x{alone:.2f} "
+                    f"(+{ungated * alone:,.1f}); ungated +{ungated:,.1f}")
     reach = next(how for r, (ok, how) in zip(rows, places) if r[0] == name and ok)
     basis = (f"{name}'s minions ({life:,.0f} Life) Ignite the boss for 20% x {share:.0%} of their Life a second through "
              f"its {fire_resist:g}% Fire resistance = {ignite:,.1f} DPS; only the strongest Ignite counts, so "
@@ -14675,7 +14814,8 @@ def infernal_legion_model(minions: list[tuple], fire_resist: float, own_ignite: 
              "taken as its distance (MEDIUM)" + (f"; kept away: {'; '.join(away)}" if away else "") +
              "; the minion's own damage and Ignite modifiers not counted (an undercount)"
              + (f"; PoB reads none of it (0 before)" if hound else "") + gate_how)
-    return added, {"label": label, "value": round(added, 1), "basis": basis, "confidence": "MEDIUM"}
+    return added, {"label": label, "value": round(added, 1), "basis": basis, "confidence": "MEDIUM",
+                   **({"gate": reach} if gate is not None else {})}  # (MECHB69: for infernal_legion_ignited's `gate`)
 
 
 # The boss Ignited by Infernal Legion's minions, for MECH-A's Ignited box (MECHB31; the manager 06:59, MECH76's hook).
@@ -14691,9 +14831,12 @@ LEGION_RADIUS_STAT = "infernal_legion_minion_burning_effect_radius"
 
 
 def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict,
-                            rates: dict[str, float] | None = None) -> tuple[float, str]:
+                            rates: dict[str, float] | None = None, gate: float | None = None) -> tuple[float, str]:
     """(share of the fight the boss is Ignited by Infernal Legion's minions, how). `skills` carry LEGION_STAT in their
-    support_stats (see above); `rates`: a temporary minion skill's summons a second, by name, when a model gives it."""
+    support_stats (see above); `rates`: a temporary minion skill's summons a second, by name, when a model gives it.
+    `gate` (MECHB69): the 50% Flammability gate's share (infernal_legion_model's, published as build.legion_gate; an
+    OVERCOUNT found by MECHB69: the Ignited share stood at 1.0 while the gate holds the minions' Ignite to that share);
+    None: ungated (the caller, MECH-A's Conditions.minion_ignite, passes it once routed)."""
     supported = [s for s in skills if (number(s.support_stats.get(LEGION_STAT)) > 0 or s.name == INFERNAL_HOUND)
                  and s.summon]  # (MECHB40: the Infernal Hound Ignites near it the same way)
     if not supported:
@@ -14712,10 +14855,13 @@ def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict
     if not melee:
         return 0.0, (f"{'; '.join(how for _, _, how in placed)}: kept away from the boss's burning radius (MEDIUM): 0")
     persistent = [s for s in melee if s.summon.get("persistent")]
+    held = min(max(number(gate), 0.0), 1.0) if gate is not None else 1.0
+    gated = (f"; only while the boss holds 50% Flammability (R61-2, the gate's share x{held:.2f})"
+             if gate is not None else "")
     if persistent:
-        return 1.0, (f"{persistent[0].name}'s minions (Infernal Legion, or the Infernal Hound's own burn) stand at "
-                     "the boss and Ignite it near them all "
-                     "fight (MEDIUM: melee minions; the time every one lies dead not taken off)")
+        return held, (f"{persistent[0].name}'s minions (Infernal Legion, or the Infernal Hound's own burn) stand at "
+                      "the boss and Ignite it near them all "
+                      "fight (MEDIUM: melee minions; the time every one lies dead not taken off)" + gated)
     best, why = 0.0, []
     for s in melee:
         rate = number((rates or {}).get(s.name))
@@ -14723,7 +14869,7 @@ def infernal_legion_ignited(skills: list[Skill], main: Skill | None, stats: dict
         best = max(best, up)
         why.append(f"{s.name} {rate:.2f} summons/s x {number(s.summon.get('duration')):g} s" if rate > 0
                    else f"{s.name}: no model gives its summon rate (0, an undercount)")
-    return best, f"temporary minions (Infernal Legion): {'; '.join(why)}: Ignited {best:.0%} of the fight"
+    return best * held, f"temporary minions (Infernal Legion): {'; '.join(why)}: Ignited {best * held:.0%} of the fight{gated}"
 
 
 # Tailwind (MECHB30, PATCH_CHECK MB-3). KeywordPopups Tailwind: "a stacking Buff which grants 1% increased movement
@@ -15468,8 +15614,10 @@ def hollow_focus_alloy_note(skills: list[Skill], texts: list[str], hits: float,
 
 
 # Twister consuming a Whirlwind (MECHB60; COV55's ranked list item 1, example builds 1 / 2; an UNDERCOUNT: PoB's
-# Multiplier:WhirlwindStages, which its twister_damage_+%_final_per_whirling_slash_stage reads, is set only by the Voltaxic
-# Burst config box, so it is 0). twister.csd: "Consumes Whirlwinds to create an additional twister and deal {0}% more
+# Multiplier:WhirlwindStages, which its twister_damage_+%_final_per_whirling_slash_stage reads, is set only by config
+# boxes: the Voltaxic Burst one (ConfigOptions.lua 720) and "# of Whirlwind Stages" (733, shown with Whirlwind Lance /
+# Whirling Slash; MECHB69, AUDIT39 A39-56's correction) (checked: grep WhirlwindStages over PoB's Modules / Data: those
+# two lines and the skill's stat map); bridge.resetConfig clears an imported config, so it is 0). twister.csd: "Consumes Whirlwinds to create an additional twister and deal {0}% more
 # damage per Whirlwind stage" (80); ActiveSkills twister: "If a twister touches a Whirlwind from your other skills, it
 # Consumes the Whirlwind to create additional twisters that deal more damage". The Whirlwinds come from the build's own
 # Whirling Slash / Whirlwind Lance presses (their use rate at the search's press choices; no press, 0: the user's rule),
@@ -21896,11 +22044,10 @@ def return_share(texts: list[str], main: Skill | None, main_types: set[str], gro
 
 
 # (MECHB65; RESEARCH60 R60-9 (b), research/mirror-copies-return-loop-r60.md, GEM44's note) Mirror of Refraction's copies
-# carry the supported skill's Return (MEDIUM) and a copy's return can re-hit the boss (MEDIUM-LOW, one a nova), but
-# whether the way back re-crosses the boss is geometry no source measures (a mirror well to the side, a small boss:
-# LOW). The headline keeps every copy returning (this more on the copies too, GEM's mirror model multiplying it); a LOW
-# row takes about half of the copies' returns: R60-9's 0.5 (a number the game's geometry decides, no data: LOW, named).
-MIRROR_RETURN_ROW = 0.5
+# carry the supported skill's Return (MEDIUM) and a copy's return can re-hit the boss (MEDIUM-LOW, one a nova). Until
+# MECHB69 they were counted only through this return more multiplying GEM's mirror DPS more (a returned copy hit for
+# each outgoing copy hit), with a flat LOW "about half" row (MIRROR_RETURN_ROW 0.5, retired). Now the geometry decides:
+# mirror_return_model below (RESEARCH64 R64-3 / R64-10).
 
 
 def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str], group_gems: list[dict],
@@ -21966,14 +22113,146 @@ def return_model(texts: list[str], stats: dict, main: Skill | None, main_types: 
                           "basis": f"{how}, but its projectiles don't pierce the boss on the way out: {RETURN_RULE}: none"})
             continue
         mods.append(line(text, more, skill=main.name))
-        mirror_row = (f"; Mirror of Refraction's copies return too (R60-9 (a), MEDIUM) and re-hit the boss at most once "
-                      f"a nova ((b), MEDIUM-LOW); row, about {MIRROR_RETURN_ROW:.0%} of the copies' returns re-cross the "
-                      f"boss (LOW, no source measures the geometry): +{more * MIRROR_RETURN_ROW:.1f}% on the copies"
-                      if mirror else "")
+        mirror_row = ("; Mirror of Refraction's copies return too (R60-9 (a), MEDIUM): their returns on the boss come "
+                      "from the novas' geometry (R64-3: the Mirror copies' returns note)" if mirror else "")
         notes.append({"label": label, "value": round(more, 1), "confidence": "MEDIUM",
                       "basis": f"{how}: {share:.3g} of projectiles x {pierce:.0%} pierce the boss on the way out{returned} "
                                f"= {more:.1f}% more damage; {RETURN_RULE}{mirror_row}"})
     return mods, notes
+
+
+# Mirror of Refraction's copies' RETURNS on the boss (MECHB69; RESEARCH64 R64-3, research/mirror-of-refraction-geometry-r64.md,
+# with R64-10's correction, research/pinnacle-boss-hit-radius-r64.md; the manager 26 Nov 02:42 / 03:06: "replace the flat
+# 'half' with a GEOMETRY from the build's own fight distance", reading bosses.hit_radius for the SCORED boss). GEM's
+# mirror_of_refraction_model counts the OUTGOING copies (a DPS more M = S x p: S novas a cast, p the chance one of a nova's
+# copies hits, its k x 2 asin(r / d) / 360); return_model's "1% more Damage" (r, the returned hit) multiplied that M too,
+# so each nova's returns were counted at p (a returned copy only where an outgoing copy had hit). But a copy that missed
+# on the way out still flies back to you and can cross the boss: the returns of a nova cross it at q, their own chance.
+# The game's facts (HIGH, R64-3: game data): 7 copies a shattered mirror in a nova ("copied {0} times"), mirrors appear
+# "in your Presence" (base 4 m; PoB's PresenceRadius read), a mirror can't stand inside the boss (a blocking object).
+# The geometry (mirror_nova_geometry, R64-3's set-up as a fixed grid in place of its random draws: the same numbers to
+# +-0.01 at all six of R64-10's rows): mirrors spread evenly over your Presence disc, outside the boss; the k copies
+# evenly spaced at a random turn; each flies MIRROR_FLIGHT m and returns in a straight line to you (Breachlord's
+# Amalgam's loop). The boss's centre d from you (the fight distance this build is calculated at, PoB's enemyDistance,
+# else the main skill's natural distance: the same d as GEM's model), its radius bosses.hit_radius (MonsterVarieties
+# ObjectSize / 10). At R64-10's melee rows (you at the boss's feet, d = r + 0.5 m): out 0.31-0.54 a nova, at least one
+# return crossing 0.82-0.97, 12-18% of the returning copies crossing; at 2 m (r 0.4) out 0.37, return 0.47, 7%.
+# Counted per nova (the projectile group rule, RETURN_RULE: at most one returned hit for projectiles fired together;
+# R35-15 for the outgoing nova), MEDIUM-LOW: the copies' returns add S x q x r (r: return_model's more, the returned
+# hit's own factor in it), in place of the S x p x r the multiplication gave: a DPS more on the main skill of
+# (1 + r + M + S q r) / ((1 + r)(1 + M)), below x1 where q < p (a ranged play), above where q > p (at the boss's feet).
+# Rows: at the boss's feet (d = r + MIRROR_FEET, the 0.5.5 pinnacle videos' play, R64-3 item 4, MEDIUM); at close
+# range (2 m) when d differs; each returning copy hitting (returns not one group: share x k a nova, UNVERIFIED, R64-3);
+# the boss's upper radius (x model size, bosses.hit_radius "upper"); the retired flat half. LOW parts, named: the flight
+# (8 m, R64-3's set-up), the mirrors' spread (server-side, no client rule), the copies' after-pierce factor taken whole
+# on a return that missed on the way out, the copies' quality (+0.1 a quality: GEM's model doesn't read it either).
+MIRROR_FLIGHT = 8.0  # metres a copy flies before it returns (R64-3's set-up; LOW: no game file gives a range)
+MIRROR_FEET = 0.5  # metres from the boss's edge to your centre when you stand at its feet (R64-10's melee rows)
+MIRROR_PRESENCE = 4.0  # metres: base Presence (character.ot base_presence_radius 40), used when PoB gives none
+MIRROR_RETURN_TAG = "MirrorCopyReturns"
+
+
+@functools.lru_cache(maxsize=512)
+def _mirror_geometry(radius: float, metres: float, presence: float, copies: int, flight: float) -> tuple[float, float, float]:
+    def crosses(ax: float, ay: float, bx: float, by: float) -> bool:  # the segment a -> b meets the boss's circle
+        dx, dy, fx, fy = bx - ax, by - ay, ax - metres, ay
+        a, b, c = dx * dx + dy * dy, 2 * (fx * dx + fy * dy), fx * fx + fy * fy - radius * radius
+        if c <= 0:
+            return True
+        disc = b * b - 4 * a * c
+        if disc < 0 or a <= 0:
+            return False
+        root = math.sqrt(disc)
+        return 0 <= (-b - root) / (2 * a) <= 1 or 0 <= (-b + root) / (2 * a) <= 1
+
+    rings, spokes, turns = 16, 36, 6
+    weight = out = back = share = 0.0
+    for i in range(rings):
+        rr = presence * math.sqrt((i + 0.5) / rings)
+        for j in range(spokes):  # (the boss on the x axis: half the disc, by symmetry)
+            th = math.pi * (j + 0.5) / spokes
+            mx, my = rr * math.cos(th), rr * math.sin(th)
+            if math.hypot(mx - metres, my) < radius:
+                continue  # a mirror can't stand inside the boss
+            for t in range(turns):
+                turn = 2 * math.pi / copies * (t + 0.5) / turns
+                hit, crossed = False, 0
+                for k in range(copies):
+                    a = turn + 2 * math.pi * k / copies
+                    ex, ey = mx + flight * math.cos(a), my + flight * math.sin(a)
+                    hit = hit or crosses(mx, my, ex, ey)
+                    crossed += crosses(ex, ey, 0.0, 0.0)
+                weight += 1
+                out += hit
+                back += crossed > 0
+                share += crossed / copies
+    return (out / weight, back / weight, share / weight) if weight else (0.0, 0.0, 0.0)
+
+
+def mirror_nova_geometry(radius: float, metres: float, presence: float = MIRROR_PRESENCE, copies: float = 7,
+                         flight: float = MIRROR_FLIGHT) -> tuple[float, float, float]:
+    """(the chance one of a nova's outgoing copies hits the boss, the chance one of its returning copies crosses it, the
+    mean share of its returning copies crossing) for a boss of `radius` m whose centre is `metres` from you, mirrors
+    spread over your Presence (`presence` m), `copies` a nova (see above). Inputs rounded to 0.05 m and cached."""
+    def snap(x: float) -> float:
+        return round(max(x, 0.0) * 20) / 20
+
+    return _mirror_geometry(snap(radius), snap(metres), max(snap(presence), 0.5), max(1, round(copies)), flight)
+
+
+def mirror_return_model(main: Skill | None, return_more: float, mirror_more: float, copies: float,
+                        radius: tuple[float, str], upper: float, metres: float, where: str,
+                        presence: float = 0.0) -> tuple[list[dict], list[dict]]:
+    """Mirror of Refraction's copies' returns on the boss (see above). `return_more`: return_model's "1% more Damage"
+    (%); `mirror_more`: GEM's mirror DPS more (%); `copies`: a nova's copies; `radius`: (the scored boss's hit radius,
+    how); `upper`: its upper reading; `metres`: the boss's centre from you (`where`: how it was set); `presence`: your
+    Presence radius in m (0: the base 4 m)."""
+    r, big_m = return_more / 100, mirror_more / 100
+    if main is None or r <= 0 or big_m <= 0 or copies < 1:
+        return [], []
+    rad, rad_how = radius
+    p = min(1.0, nova_unaimed_hits(copies, rad, metres))  # GEM's outgoing chance a nova (its model's own p)
+    if p <= 0:
+        return [], []
+    novas = big_m / p  # S: novas a cast
+    presence = presence if presence > 0 else MIRROR_PRESENCE
+    old = (1 + r) * (1 + big_m)
+
+    def total(back: float) -> float:
+        return (1 + r + big_m + novas * back * r) / old
+
+    out, back, share = mirror_nova_geometry(rad, metres, presence, copies)
+    factor = total(back)
+    feet = rad + MIRROR_FEET
+    f_back = mirror_nova_geometry(rad, feet, presence, copies)[1]
+    rows = [f"at the boss's feet ({feet:.1f} m: the 0.5.5 pinnacle videos' play, R64-3, MEDIUM) a return crosses "
+            f"{f_back:.0%} of novas: x{total(f_back):.3f}"]
+    if abs(metres - 2.0) > 0.05:
+        c_back = mirror_nova_geometry(rad, 2.0, presence, copies)[1]
+        rows.append(f"at 2 m {c_back:.0%}: x{total(c_back):.3f}")
+    n = max(1, round(copies))
+    rows.append(f"each returning copy hitting (returns not one group, UNVERIFIED: {share:.0%} of the {n} cross, "
+                f"{share * n:.2f} a nova) x{total(share * n):.3f}")
+    if upper > rad:
+        u_back = mirror_nova_geometry(upper, max(metres, upper + 0.05), presence, copies)[1]
+        rows.append(f"the boss's upper radius {upper:g} m (x model size) {u_back:.0%}: x{total(u_back):.3f}")
+    rows.append(f"the retired flat half x{total(0.5 * p):.3f}")
+    rows.append(f"the old count (a return only where an outgoing copy hit, {p:.0%}) x1")
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), main.name, tag=MIRROR_RETURN_TAG)] if abs(factor - 1) > 1e-4 else []
+    verdict = ("an UNDERCOUNT fixed" if factor > 1 else "an OVERCOUNT fixed") if mods else "no change"
+    return mods, [{
+        "label": "Mirror of Refraction: the copies' returns on the boss*", "value": f"x{factor:.3f}",
+        "confidence": "LOW",
+        "basis": (f"the copies carry {main.name}'s Return (R60-9 (a), MEDIUM). The geometry (R64-3 / R64-10): mirrors "
+                  f"spread over your {presence:g} m Presence, outside a boss of radius {rad:g} m ({rad_how}) whose centre "
+                  f"is {metres:g} m from you ({where}); {n} copies a nova, each flying {MIRROR_FLIGHT:g} m (LOW) and "
+                  f"returning straight to you: one outgoing copy hits {out:.0%} of novas (GEM's count {p:.0%}), at least "
+                  f"one returning copy crosses the boss in {back:.0%}, {share:.0%} of the returning copies cross. At most "
+                  f"one returned hit a nova (RETURN_RULE, MEDIUM-LOW): {novas:.2f} novas a cast x {back:.0%} x the "
+                  f"return's +{return_more:.0f}%, in place of the {p:.0%} the mirror more x the return more counted: "
+                  f"x{factor:.3f} ({verdict}). Rows: " + "; ".join(rows)),
+        "play": (f"Mirror of Refraction with returning {main.name}: the copies fly back to you, so the boss between you "
+                 f"and the mirrors takes them; at the boss's feet x{total(f_back):.2f}, here x{factor:.2f}.")}]
 
 
 # Cadiro's Gambit's other five arrow kinds (MECHB22; COV20's note: only the Reversing Arrow was read). PoB doesn't
@@ -23451,15 +23730,16 @@ def nova_lands_at_target(main: Skill | None, support_stats: dict, texts: list[st
 # the lower reading), R = PoB's AreaOfEffectRadius (area modifiers scale it). PoB counts one hit a cast, as a disc.
 # - Landing at the target (Astral Projection, nova_lands_at_target): the main ring is centred on the boss and passes R
 #   from its centre: a stationary boss smaller than R isn't touched (HIGH by geometry; the boss's ObjectSize MEDIUM). It
-#   touches it only by the boss's own movement, which no data gives (the boss preset has no repositioning rate): 0, said.
+#   touches it only by the boss's own movement: (MECHB69, A39-1) counted at the chance the boss moves in the spikes'
+#   life (boss_moves below; the stationary 0 a row). (MECHB65's "no data gives it" was wrong: bosses.relocations.)
 #   Spell Cascade's side rings (R61-6 (b): a random axis through the target, HIGH; spacing one main radius, MEDIUM) are
 #   centred k R from the boss with radius R x sqrt(0.8) each: they cross it when |k R - R sqrt(0.8)| <= r, the axis
 #   not mattering (both sides symmetric about the boss).
 # - Around you: the main ring crosses the boss when you stand R from it (the play; the distance is MECH110's), each side
 #   ring for the axes nova_side_share's outer line gives (the boss anywhere along the main ring's band).
 # The touch reading (a spike raised inside a standing boss counts as touched, a hit at once) is UNVERIFIED (R61-3: a
-# lean, MEDIUM-LOW, from build 4's author killing bosses with it): the headline. Row: only when the boss moves (0, no data
-# on its movement). One hit per ring crossing the boss (several spikes in it, several explosions: an UNVERIFIED upper
+# lean, MEDIUM-LOW, from build 4's author killing bosses with it): the headline. Row: only when the boss moves (a
+# standing boss: 0). One hit per ring crossing the boss (several spikes in it, several explosions: an UNVERIFIED upper
 # reading). A triggered Nova landing at the target lands on the trigger's target (R61-6 (a), MEDIUM): the around-you
 # reading is a row.
 BONE_CAGE_RING = {"Bone Cage"}  # (the skills whose area is a ring of spikes; ring_of_bone_maximum_number_of_rings 1)
@@ -23485,6 +23765,27 @@ def ring_nova_hits(radius: float, boss_radius: float, per_side: int, side_scale:
                                       f"{shares[0]:.0%} of the time" if per_side else ""))
 
 
+# (MECHB69; AUDIT39 A39-1, an UNDERCOUNT: the main ring's 0 at the target rested on "no data gives the boss's movement",
+# which is false) A ring cast round the boss (Astral Projection) misses a standing boss, but its spikes stand for the
+# skill's duration (PoB's Duration; base_skill_effect_duration 1600, Bone Cage's own) and a boss that moves out of the
+# circle in that time crosses it. (MECHB70: the manager's 04:05 / 16:21 notes) The boss's moves a second are MECHD9's
+# bosses.relocations(stats, "headline", gain=True): the low end of the fight-video counts of its ground position moving
+# (its own moves and the ones that follow you, together), on the worst case the fewest among the tallied presets (the
+# cautious side for a gain); a move counts only when its mean length passes the ring's radius less the boss's body
+# (shorter moves stay inside: the lower reading). The chance it moves in the ring's life 1 - e^(-m T) (Poisson, LOW).
+# Rows: a standing boss (0); its own moves used off cooldown (relocations' "skills" reading, an UPPER BOUND). Before,
+# bosses.MOVING_CEILING / 0.5 s travel + boss_hits.red_flash_rate (MECHB69's stand-in).
+def boss_moves(stats: dict | None, reach: float = 0.0) -> tuple[float, float, str]:
+    """(MECHB70, A39-1) (the scored boss's moves a second that go `reach` metres or more, the upper bound's (its moves
+    off cooldown), how)."""
+    rate, metres, how = bosses.relocations(stats, "headline", gain=True)
+    top, top_metres, _ = bosses.relocations(stats, "skills", gain=True)
+    if metres < reach:
+        how += f" (each {metres:.1f} m, short of the {reach:.2f} m out of the ring: not counted)"
+        rate = 0.0
+    return rate, (top if top_metres >= reach else 0.0), how
+
+
 def bone_cage_ring_model(main: Skill, stats: dict, boss_radius: float, boss_how: str, at_target: str,
                          per_side: int, side_scale: float) -> tuple[list[dict], list[dict]]:
     """Bone Cage's rings against PoB's one hit a cast (above): (mods, notes)."""
@@ -23493,11 +23794,22 @@ def bone_cage_ring_model(main: Skill, stats: dict, boss_radius: float, boss_how:
         return [], []
     hits, how = ring_nova_hits(radius, boss_radius, per_side, side_scale, bool(at_target))
     rows = []
+    if at_target and radius > max(boss_radius, 0.0):  # (MECHB69, A39-1: the main ring misses a standing boss)
+        life = number(stats.get("Duration")) or 1.6
+        rate, most, move_how = boss_moves(stats, radius - max(boss_radius, 0.0))
+        moved = 1 - math.exp(-rate * life)
+        hits += moved
+        how += (f"; the boss moves out across it in the spikes' {life:.2f} s ({move_how}: {rate * 60:.1f} a minute, "
+                f"1 - e^(-m T), LOW) {moved:.0%} of casts")
+        rows.append(f"a standing boss (the main ring never crossed): x{hits - moved:.2f}")
+        rows.append(f"its own moves used off cooldown ({most * 60:.1f} a minute, an upper bound): "
+                    f"x{hits - moved + 1 - math.exp(-most * life):.2f}")
     if at_target and main.triggered:
         around, _ = ring_nova_hits(radius, boss_radius, per_side, side_scale, False)
         rows.append(f"if the triggered cast lands around you instead (R61-6 (a): on the trigger's target, MEDIUM): "
                     f"x{around:.2f}")
-    rows.append("if a spike must be walked into (the boss's movement, no data): 0")
+    if not at_target:
+        rows.append("if a spike must be walked into (a standing boss): 0")
     where = f"at the target ({at_target})" if at_target else "around you"
     note = {"label": f"{main.name}: its spike rings crossing the boss*", "value": f"x{hits:.2f}",
             "basis": (f"{main.name}'s spikes stand on a circle of radius {radius:.2f} m (PoB's, area modifiers in; "
@@ -29130,8 +29442,9 @@ def spectral_volley_model(main: Skill | None, supports: list[str], stats: dict,
 # upper bound, LOW): while it dashes it leaves the shards that are still arming under its old spot; whether it later
 # walks back onto them (the bonus) or never (lost) the preset doesn't say (no boss-path data: 0 in the headline, both
 # readings rows); (2) the 16-shard limit (permafrost_shard_limit): under a standing boss a shard lives 1.5 s, so more
-# than 16 / 1.5 = 10.7 attacks a second would replace shards before they arm (if the oldest is replaced unexploded:
-# UNVERIFIED, R61-11), a row with x(10.7 / rate) on the shards when the build's rate passes it.
+# than 16 / 1.5 = 10.7 attacks a second would replace shards before they arm; (MECHB69; RESEARCH64 R64-8, MEDIUM-HIGH:
+# the game's Limit definition) the oldest disappears WITHOUT exploding, so past that rate the headline takes
+# x(10.7 / rate) on the shards' hits (ice_shards_limit_mods; an OVERCOUNT before, a row only).
 ICE_SHARDS, ICE_SHARDS_MORE, ICE_SHARDS_RAMP = "Ice Shards", 400.0, 2.0
 ICE_SHARDS_ARM, ICE_SHARDS_LIMIT = 1.5, 16.0  # seconds (permafrost_shard_arming_time_ms), shards (permafrost_shard_limit)
 
@@ -29152,9 +29465,10 @@ def ice_shards_note(main: Skill | None, rate: float = 0.0, moving: tuple[float, 
                     "the boss's path is in no data (0 in the headline)")
     cap = ICE_SHARDS_LIMIT / ICE_SHARDS_ARM
     if rate > cap:
-        rows.append(f"the {ICE_SHARDS_LIMIT:g}-shard limit: {rate:.2f} attacks a second lay shards faster than "
-                    f"{cap:.1f} a second can arm under a standing boss ({ICE_SHARDS_ARM:g} s each); if the oldest is "
-                    f"replaced unexploded (UNVERIFIED, R61-11): x{cap / rate:.3f} on the shards' hits")
+        rows.append(f"the {ICE_SHARDS_LIMIT:g}-shard limit (in the headline, ice_shards_limit_mods): {rate:.2f} attacks "
+                    f"a second lay shards faster than {cap:.1f} a second can arm under a standing boss "
+                    f"({ICE_SHARDS_ARM:g} s each), and the oldest disappears without exploding (R64-8, MEDIUM-HIGH: the "
+                    f"game's Limit definition): x{cap / rate:.3f} on the shards' hits")
     return [{"label": f"{main.name}: shards' armed bonus (0 at the boss's feet)*", "value": "x1.000",
              "confidence": "LOW",
              "basis": (f"'Shards deal up to {ICE_SHARDS_MORE:g}% more damage {ICE_SHARDS_RAMP:g} seconds after arming', "
@@ -29163,6 +29477,14 @@ def ice_shards_note(main: Skill | None, rate: float = 0.0, moving: tuple[float, 
                        "MEDIUM-HIGH): no bonus counted; a shard nobody steps on never explodes, and PoB counts one shard "
                        "an attack, all under the boss. Rows: " + "; ".join(rows)),
              "play": "Lay shards where the boss will walk 3.5 s before it gets there: up to 5x their damage."}]
+
+
+def ice_shards_limit_mods(main: Skill | None, rate: float = 0.0) -> list[dict]:
+    """(MECHB69, R64-8) Ice Shards past its 16-shard limit's pace (see above): DPS x (16 / 1.5) / rate."""
+    cap = ICE_SHARDS_LIMIT / ICE_SHARDS_ARM
+    if main is None or main.name != ICE_SHARDS or rate <= cap:
+        return []
+    return [with_hits_per_use(raw_mod("DPS", "MORE", 100 * (cap / rate - 1), main.name), cap / rate)]
 
 
 # Align Fate (MECHB51; PLANS7 gs-align-fate.md; RESEARCH41 R41-9). "While active, visages of yourself from alternate
