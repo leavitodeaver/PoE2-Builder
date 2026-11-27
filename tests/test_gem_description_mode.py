@@ -680,8 +680,8 @@ FIRESTORM_SETS = [{"label": "Firestorm", "TotalDPS": 1000.0}, {"label": "Ice Bol
 
 @pytest.mark.parametrize("scored, shares, low, high, inc", [
     ("Firestorm", {}, None, 1.0, None),                         # no Infusions: PoB's fire set as it is
-    ("Firestorm", {"Fire": 1.0}, 4 / 3, 4 / 3, 100.0),          # every cast Fire-Infused: 0.1 s bolts held to 0.15 s
-    ("Firestorm", {"Cold": 1.0}, 1.8 * (1 / 0.15) / 10, 1.8, None),  # ice bolts added; shared limit 6.67 of 10 hits/s
+    ("Firestorm", {"Fire": 1.0}, 1.0, 1.0, 100.0),  # every cast Fire-Infused: 0.1 s bolts, every other one past 0.15 s (GEM50)
+    ("Firestorm", {"Cold": 1.0}, 1.8 * 5 / 10, 1.8, None),  # ice bolts added; shared limit: 5 of 10 impacts/s land (GEM50)
     ("Firestorm", {"Fire": 0.5, "Lightning": 0.5}, None, None, 50.0),
 ])
 def test_firestorm_counts_its_infusions_bolts_and_bonuses(scored, shares, low, high, inc):
@@ -702,14 +702,14 @@ def test_firestorms_bolt_sets_never_score_alone(scored):  # (the OVERCOUNT, prob
     mods, notes = models.firestorm_infusion_model(Skill("Firestorm", 1, spell=True), scored, FIRESTORM_SETS,
                                                   {"Cold": (1.0, "test")})
     more = [m["value"] for m in mods if m["name"] == "DPS"]
-    total = (1000 + 800) * (1 / 0.15) / 10  # (fire + ice bolts, the shared limit's 6.67 of 10 hits a second)
+    total = (1000 + 800) * 5 / 10  # (fire + ice bolts, the shared 0.15 s limit on 10 impacts a second: 5, GEM50)
     dps = {s["label"]: s["TotalDPS"] for s in FIRESTORM_SETS}
     assert 1 + more[0] / 100 == pytest.approx(total * models.FIRESTORM_BOLTS_MARGIN / dps[scored], rel=1e-4)
 
 
 def test_firestorm_rate_scale_readings():
     assert models.firestorm_rate_scale(0.0, 0.0, True) == pytest.approx(1.0)
-    assert models.firestorm_rate_scale(1.0, 1.0, False) == pytest.approx(4 / 3)        # per type: each stream x1.33
+    assert models.firestorm_rate_scale(1.0, 1.0, False) == pytest.approx(1.0)  # per type: 0.1 s bolts, every other (GEM50)
     assert models.firestorm_rate_scale(1.0, 1.0, True) == pytest.approx((1 / 0.15) / 2 / 5)  # shared: 6.67 over two
     assert models.firestorm_infusion_model(Skill("Spark", 1, spell=True), "Firestorm", FIRESTORM_SETS, {}) == ([], [])
 

@@ -8939,9 +8939,23 @@ def drenched_model(skills: list[Skill], stats: dict, main: Skill | None, groups:
 # frequency as the hits it adds under the per-target limit (0.1 s bolts, held to 0.15 s: x1.33). The extra bolts use the
 # fire bolts' timing (PoB gives the Bolts sets the same constants). Whether the per-target limit is one for the whole storm
 # or one per bolt type is UNVERIFIED (0.1.0d: "a hit-rate limit"): the shared limit (the lower) is the headline, the
-# per-type reading (PoB's, each set capped alone) is in the note. Every bolt is taken to hit the boss, as PoB does
-# (a larger storm spreads them: not counted). "Any" (Verisium) Infusions are offered to each element (a small
-# overcount where the build makes them).
+# per-type reading (PoB's, each set capped alone) is in the note. "Any" (Verisium) Infusions are offered to each element
+# (a small overcount where the build makes them).
+# (GEM50; an OVERCOUNT: before, every bolt was taken to hit the boss, as PoB does) The bolts land over the storm, not on
+# the boss: RESEARCH57 R57-7 (research/two-storms-two-orbs-r57.md): each impact lands somewhere in the storm's disc
+# (radius R: PoB's AreaOfEffectRadiusSecondary, 3.0 m base, the build's area in it) and hits a boss whose centre is within
+# the impact radius (PoB's AreaOfEffectRadius, 1.0 m base) + the boss's hit radius (bosses.hit_radius) of it: with the
+# storm on the boss, p = min(1, ((impact + r) / R)^2) (even landing over the disc: LOW-MEDIUM, as Hailstorm Rounds'
+# MECHB51 reading; no clip yet shows a storm on a boss (two tried, GEM50), and 0.1.0d's limit "to prevent cases of them
+# absolutely obliterating very large bosses" fits bolts landing by area (a bolt that sought its target would hit any
+# boss alike); RESEARCH question routed). A Fire-Infused storm is "+1.5 metre" larger
+# (firestorm_secondary_radius_+_if_consumed_fire_infusion 15): taken as a base radius the build's area scales, R x 4.5 /
+# 3.0 (the larger, the lower reading; R + 1.5 m a row: UNVERIFIED which), so its doubled bolts spread wider. And the
+# 0.15 s limit acts on landings: with impacts every i s (each storm's bolts, the extra streams with them) a bolt landing
+# within 0.15 s of the last hit misses, so after a hit the next ceil(0.15 / i) - 1 impacts can't hit and each later one
+# hits with p: hits a second = (1 / i) p / (1 + (k - 1) p), k = ceil(0.15 / i) (as Hailstorm's min(1, 0.1 / 0.2)); a
+# Fire-Infused storm's 0.1 s bolts on a boss every one reaches give 5 hits a second, not min(10, 6.67) (before: an
+# OVERCOUNT x0.75 there). Rows: every bolt on the boss (PoB's), the upper boss radius, the +1.5 m unscaled.
 # A Bolts set PoB scored alone (probe POE2T2164: Lightning Bolts 477 DPS vs the fire storm's 409, no Infusion: the
 # OVERCOUNT) gets the storm's total x FIRESTORM_BOLTS_MARGIN 0.9, so the search keeps the fire set; PoB has no stat-set tag
 # to zero that set alone (a skill-tagged -100% zeroed all three, probe POE2T2165).
@@ -8949,26 +8963,51 @@ FIRESTORM = "Firestorm"
 FIRESTORM_SETS = {"Firestorm": "Fire", "Ice Bolts": "Cold", "Lightning Bolts": "Lightning"}
 FIRESTORM_DELAY, FIRESTORM_LIMIT, FIRESTORM_FREQ = 0.2, 0.15, 1.0  # (s, s, Fire Infusion's +100% bolt frequency)
 FIRESTORM_INC = 100.0
+FIRESTORM_STORM, FIRESTORM_GROW = 30.0, 15.0  # (GEM50: base storm radius and the Fire-Infused +1.5 m, tenths of a metre)
 FIRESTORM_ENTRY = "model-gem16-firestorm-infusions"
 FIRESTORM_BOLTS_MARGIN = 0.9  # (a Bolts set scored alone: the storm's total x this, so the fire set wins)
 
 
-def firestorm_rate_scale(fire_share: float, extra: float, shared: bool) -> float:
+def limited_landings(impacts: float, p: float, limit: float = FIRESTORM_LIMIT) -> float:
+    """(GEM50) Hits a second on one boss from `impacts` a second evenly spaced, each landing on it with chance `p`, under
+    a per-target limit of one hit every `limit` s (see above): impacts x p / (1 + (k - 1) p), k = ceil(limit x impacts)."""
+    if impacts <= 0 or p <= 0:
+        return 0.0
+    p = min(p, 1.0)
+    k = max(1, math.ceil(limit * impacts - 1e-9))
+    return impacts * p / (1 + (k - 1) * p)
+
+
+def firestorm_landing(impact: float, storm: float, boss: float) -> float:
+    """(GEM50, R57-7) The share of a storm's bolts that hit a boss of hit radius `boss` m at its centre: bolts landing
+    evenly over a `storm` m disc with an `impact` m radius."""
+    if storm <= 0:
+        return 1.0
+    return min(1.0, ((max(impact, 0.0) + max(boss, 0.0)) / storm) ** 2)
+
+
+def firestorm_rate_scale(fire_share: float, extra: float, shared: bool, p: float = 1.0,
+                         p_fire: float | None = None) -> float:
     """Hits a second on the boss relative to PoB's one set alone, averaged over Fire-Infused casts (`fire_share`), with
-    `extra` expected extra bolt streams (cold + lightning shares) and the per-target limit `shared` by all bolts or not."""
-    def rate(freq: float) -> float:
+    `extra` expected extra bolt streams (cold + lightning shares), the per-target limit `shared` by all bolts or not, and
+    (GEM50) the shares of bolts landing on the boss: `p` a plain storm's, `p_fire` a Fire-Infused (larger) one's."""
+    p_fire = p if p_fire is None else p_fire
+
+    def rate(freq: float, q: float) -> float:
         each = freq / FIRESTORM_DELAY
         if shared:
-            return min(each * (1 + extra), 1 / FIRESTORM_LIMIT) / (1 + extra)
-        return min(each, 1 / FIRESTORM_LIMIT)
+            return limited_landings(each * (1 + extra), q) / (1 + extra)
+        return limited_landings(each, q)
     base = min(1 / FIRESTORM_DELAY, 1 / FIRESTORM_LIMIT)
-    return ((1 - fire_share) * rate(1.0) + fire_share * rate(1 + FIRESTORM_FREQ)) / base
+    return ((1 - fire_share) * rate(1.0, p) + fire_share * rate(1 + FIRESTORM_FREQ, p_fire)) / base
 
 
 def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[dict], shares: dict,
-                             forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+                             forbidden: set[str] = frozenset(), boss: tuple[float, str] | None = None,
+                             boss_upper: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """Firestorm as the game casts it (see above): `sets` the bridge's setRates for its group, `shares` {element: (share
-    of casts consuming one, how)} from Assumptions.infusion_share at one cast per Duration."""
+    of casts consuming one, how)} from Assumptions.infusion_share at one cast per Duration; (GEM50) `boss` / `boss_upper`
+    (hit radius in metres, how): the share of bolts landing on it (None: every bolt, PoB's reading)."""
     if main is None or main.name != FIRESTORM or FIRESTORM_ENTRY in forbidden or scored not in FIRESTORM_SETS:
         return [], []
     dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
@@ -8979,15 +9018,43 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
     s = {e: min(1.0, max(0.0, number((shares.get(e) or (0.0, ""))[0]))) for e in ("Fire", "Cold", "Lightning")}
     extra = s["Cold"] + s["Lightning"]
     streams = fire + s["Cold"] * ice + s["Lightning"] * bolt  # (PoB's per-set DPS, each at the plain rate)
-    low = firestorm_rate_scale(s["Fire"], extra, True) * streams / dps[scored]  # (each stream its share of the cap)
-    high = firestorm_rate_scale(s["Fire"], extra, False) * streams / dps[scored]
+    # (GEM50, R57-7: the share of bolts landing on the boss; the Firestorm set's radii, the build's area in them)
+    own = next((x for x in sets if x.get("label") == FIRESTORM), {})
+    impact = number(own.get("AreaOfEffectRadius")) / 10 or 1.0
+    storm = number(own.get("AreaOfEffectRadiusSecondary")) / 10 or 3.0
+    grown = storm * (FIRESTORM_STORM + FIRESTORM_GROW) / FIRESTORM_STORM  # (Fire-Infused: +1.5 m, scaled)
+
+    def lands(r: float | None, fire_storm: float = grown) -> tuple[float, float]:
+        return ((1.0, 1.0) if r is None else
+                (firestorm_landing(impact, storm, r), firestorm_landing(impact, fire_storm, r)))
+    p, p_fire = lands(boss[0] if boss else None)
+    scale = firestorm_rate_scale(s["Fire"], extra, True, p, p_fire)
+    low = scale * streams / dps[scored]  # (each stream its share of the cap)
+    high = firestorm_rate_scale(s["Fire"], extra, False, p, p_fire) * streams / dps[scored]
+    rows = []
+    if boss is not None:
+        every = firestorm_rate_scale(s["Fire"], extra, True) * streams / dps[scored]
+        rows.append(f"every bolt on the boss (PoB's) x{every:.3f}")
+        if boss_upper is not None:
+            upper = firestorm_rate_scale(s["Fire"], extra, True, *lands(boss_upper[0])) * streams / dps[scored]
+            rows.append(f"the upper boss radius ({boss_upper[0]:g} m) x{upper:.3f}")
+        if s["Fire"] > 0:
+            flat = storm + FIRESTORM_GROW / 10
+            plain_grow = firestorm_rate_scale(s["Fire"], extra, True, *lands(boss[0], flat)) * streams / dps[scored]
+            rows.append(f"the Fire-Infused +1.5 m unscaled ({flat:.2f} m) x{plain_grow:.3f}")
+    where = ((f"; {p:.0%} of a plain storm's bolts land on the boss (({impact:.2f} m impact + {boss[0]:g} m, {boss[1]}) "
+              f"/ {storm:.2f} m storm, squared: even landing over the storm, LOW-MEDIUM, RESEARCH57 R57-7)"
+              + (f", {p_fire:.0%} of a Fire-Infused one's ({grown:.2f} m)" if s["Fire"] > 0 else "")
+              + "; the 0.15 s limit lets a landing hit only 0.15 s after the last hit"
+              + (f". Rows: {'; '.join(rows)}" if rows else "")) if boss is not None else
+             "; every bolt taken to hit the boss (PoB's reading: no boss radius given)")
     if scored != FIRESTORM:
         # A Bolts set scored alone (probe POE2T2164: Lightning Bolts 477 vs the fire storm's 409 with no Infusion; PoB has
         # no stat-set tag, so a mod can't zero that set alone): the storm's total, kept FIRESTORM_BOLTS_MARGIN under, so
         # the search keeps the fire set (whose element and ailments the storm has); if ever kept, its number is low
         low, high = low * FIRESTORM_BOLTS_MARGIN, high * FIRESTORM_BOLTS_MARGIN
     mods = ([with_per_use(raw_mod("DPS", "MORE", 100 * (low - 1), FIRESTORM),
-                          firestorm_rate_scale(s["Fire"], extra, True))]  # (the storm's hits a second: its rate)
+                          scale)]  # (the storm's hits a second: its rate)
             if abs(low - 1) > 1e-9 else [])
     if s["Fire"] > 0:
         mods.append(raw_mod("Damage", "INC", FIRESTORM_INC * s["Fire"], FIRESTORM))
@@ -8999,15 +9066,17 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
         # (GEM23: strongest_ailment_model; the fire bolts always, the ice / lightning bolts on their Infused casts' share
         # of the storm's time, each stream at its share of the headline's (shared-limit) hits a second)
         "set_shares": {"Firestorm": 1.0, "Ice Bolts": s["Cold"], "Lightning Bolts": s["Lightning"]},
-        "set_uses": speed * firestorm_rate_scale(s["Fire"], extra, True),
+        "set_uses": speed * scale,
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Firestorm {fire:,.0f}, Ice Bolts {ice:,.0f}, "
                   f"Lightning Bolts {bolt:,.0f}, each its own storm). The game: fire bolts always, ice / lightning bolts on "
                   f"the casts that consume a Cold / Lightning Infusion, all with Fire Infusion's 100% increased Damage and "
                   f"bolt frequency on the casts that consume one. Shares of casts at one storm a Duration: {how}. "
                   f"Headline: one per-target hit limit for the whole storm (x{low:.3f}); one limit per bolt type: "
-                  f"x{high:.3f} (UNVERIFIED which). Fire Infusion's damage as {FIRESTORM_INC * s['Fire']:.0f}% increased"),
+                  f"x{high:.3f} (UNVERIFIED which). Fire Infusion's damage as {FIRESTORM_INC * s['Fire']:.0f}% increased"
+                  + where),
         "play": ("Keep one Firestorm on the boss and recast it as it ends, with an Infusion of each element ready: Fire for "
-                 "a bigger, faster, harder storm, Cold / Lightning for extra bolts. Without Infusions: the fire bolts "
+                 "a bigger, faster, harder storm, Cold / Lightning for extra bolts; cast it centred on the boss (its "
+                 "bolts land all over the storm, and only those near the boss hit it). Without Infusions: the fire bolts "
                  f"alone (x{fire / dps[scored]:.3f} of PoB's {scored}); with this build's: x{low:.3f}.")}]
 
 
