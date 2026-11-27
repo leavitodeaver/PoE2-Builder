@@ -1,0 +1,54 @@
+# COV63 (27 Nov 2026; the manager's 15:22 item 3, NINJA1's gap list): passive lines a model already reads that the audit
+# still listed as unread, each checked in the code on 55b57f62 (COV43's rule: the line's effect is used in the scored
+# number, by the line, the passive's name or a named constant). Method: NINJA1's 138 non-gem unread rows
+# (C:\PROJECTS\PoE2-Builder-ninja\scratch\ninja1\out\sample_unread.json) re-checked against today's audit
+# (scratch/cov63/report_refresh.json), then each one's words searched in builder/search and the reader read.
+# Left OPEN on purpose (checked on 55b57f62):
+# - Aftershocks' "Slam Skills you use yourself have 30% increased Aftershock Area of Effect": models' Aftershock lines
+#   (models.py ~25013) read only the additional-Aftershock chances; nothing reads an Aftershock's area (MECH-B).
+# - Bond of the Wolf's "Companions have 50% chance to gain Onslaught on Kill" (PoB's Condition:KilledRecently, set by
+#   nothing) and The Natural Order's "Unique Tamed Beasts are Possessed by random Azmeri Spirits, changing every 20
+#   seconds": no reader (MECH-B).
+# - Pyromantic Pact's "Lose all Infernal Flame on reaching maximum Infernal Flame" and "25% of Infernal Flame lost per
+#   second if none was gained in the past 2 seconds": COV57f (the manager's 25 Nov 07:24 ruling, MECHC61 row 35) left
+#   them open (models hold them as constants); the reset is the cycle models.flame_uptime and recovery.pact_self_hit
+#   use in the headline: a question for the manager (COV63's report), not marked here.
+# - Guiding Palm of the Heart's "Grants effect of Guided Meteoric Shrine" and Duality's "Gain Finality for 0.5 seconds
+#   per Combo expended when using Skills" (and the Legacy of Duality rune's Bonded 0.2 s): no reader (MECH-B / MECH-C).
+
+- id: model-read-cov63-martial-master
+  title: "Martial Master, Combo from all Attack Hits on either weapon set (usage.combo_builders, models._combo_builder)"
+  kind: pob_gap
+  model: usage
+  match: '^(Gain Combo from all Attack Hits|Skills can build and retain Combo regardless of Weapon Set)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Checked in the code (COVC7 / COVC8, GEM42): usage.MARTIAL_MASTER; Usage.combo_builders (usage.py ~422) makes every
+    non-support Attack in another enabled group a Combo builder when the build allocates Martial Master ("Gain Combo from
+    all Attack Hits") and counts groups on either weapon set ("regardless of Weapon Set"), which sets the Combo skills'
+    use rate; Assumptions hands the same passive in as stats["_combo"]["any_attack"] (assumptions.py ~2704) to
+    models._combo_builder, gem_stat_side_groups and vruun_builder_groups. Both lines are read by the passive's name, not
+    their text. PoB ignores both. A link only.
+  sources: ["builder/search/usage.py (MARTIAL_MASTER, combo_builders)", "builder/search/models.py (_combo_builder)"]
+  status: proposed
+
+- id: model-read-cov63-vivid-stampede-lines
+  title: "Spirit Walker's Vivid Stampede and The Mórrigan's Guidance lines (models.vivid_stampede_model, conditions.STAG_SHOCK_LEAP)"
+  kind: pob_gap
+  model: vivid_stampede
+  match: '^(Expend all Vivid Wisps to trigger Vivid Stampede when you Attack|Gain a Vivid Wisp for every \d+ metres you move, up to a maximum of \d+|Stags deal \d+% more damage per leap|Stags have \d+% more Shock Magnitude per leap)$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Checked in the code (MECHB52 / MECHB54 / MECH102 / MECH103): models.vivid_stampede_model (models.py ~30420-30520)
+    triggers a Stampede when the build attacks, one Stag per Wisp, Wisps from the build's moves (the dodge rolls and the
+    boss's forced moves x DODGE_ROLL_METRES / VIVID_METRES_PER_WISP 10; the line's 3-Wisp cap is NOT read: it binds
+    only when 3+ Wisps gather between two attacks), and with The Mórrigan's Guidance 20%
+    more damage a leap (VIVID_PER_LEAP, additive over the 4 landings); conditions.STAG_SHOCK_LEAP reads "Stags have N%
+    more Shock Magnitude per leap" into the Stags' Shock (stag_shock_scale). The two Spirit Walker lines and the damage
+    line are read through the model's constants (their only rolls), the Shock line by its text. PoB ignores all four
+    (MECHB52's check: no vivid_stag stat mapped). Not read: Sacred Unity's "Vivid Stags leap towards enemies". A link only.
+  sources: ["builder/search/models.py (vivid_stampede_model, VIVID_PER_LEAP, VIVID_METRES_PER_WISP)",
+            "builder/search/conditions.py (STAG_SHOCK_LEAP, stag_shock_scale)"]
+  status: proposed
