@@ -674,6 +674,26 @@ def template(text: str) -> str:
     return NUMBER.sub("#", text).strip()
 
 
+# (COV63; NINJA1's gap list via the manager 27 Nov 15:22: Zarokh's Gift on 14 of THE USER's 21 builds read as `none`)
+# A jewel-socket node's own "stat" is the socket's label, not a modifier: Zarokh's Gift (node 11184, the only
+# Socket-type line in gaps.json: checked, gaps.json passives by type Normal 499 / Notable 364 / Keystone 21 / Socket 1)
+# carries "Sinister Jewel Socket", which ModCache leaves as text, but PoB's tree makes the node itself a socket
+# (TreeData 0_5 tree.json: isJewelSocket, sinister, aliasPassiveSocket DeliriumAnoint_ZarokhsGift_; ItemsTab.lua 2651:
+# a Sinister socket takes non-unique jewels), and the jewel in it is counted: probe POE2T6993 (scratch/cov63/
+# sinister_probe.py, example build 1): emptying "Jewel 11184" (a rare with 7% increased Attack Speed) moves TotalDPS
+# 7,274,670.6 -> 6,543,469.7 and Speed 4.608 -> 4.490. So the label line is PoB's: the socket is read as a socket.
+SOCKET_LABEL = re.compile(r"^(?:Sinister )?Jewel Socket$", re.I)
+SOCKET_LABEL_WHY = ("the node is a jewel socket in PoB's tree (isJewelSocket; this line is its label): a jewel in it is "
+                    "counted (probe POE2T6993)")
+
+
+def socket_label_status(line: str, kind: str) -> tuple[str, str | None, str] | None:
+    """("pob", None, why) for a jewel-socket node's label line (SOCKET_LABEL's note), else None."""
+    if kind == "jewel socket" and SOCKET_LABEL.match(line.strip()):
+        return "pob", None, SOCKET_LABEL_WHY
+    return None
+
+
 def passive_kind(gap: dict) -> str:
     if gap.get("ascendancy"):
         return "ascendancy"
@@ -1146,7 +1166,7 @@ def audit(data_dir: Path | None = None, league: str | None = None) -> dict:
     # a. lines PoB admits it ignores
     for gap in gaps["passives"]:
         kind = passive_kind(gap)
-        status, entry, reason = ignored_line_status(gap["line"], True)
+        status, entry, reason = socket_label_status(gap["line"], kind) or ignored_line_status(gap["line"], True)
         add("passive", gap["node"], kind, gap["line"], status, entry, reason, SOURCE_WEIGHT[kind], node_id=gap["id"],
             ascendancy=gap.get("ascendancy"))
     for gap in gaps["uniques"]:
