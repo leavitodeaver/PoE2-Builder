@@ -1,4 +1,6 @@
 """MECHB71: RESEARCH68 R68-3 / R68-7 and AUDIT41 A41-10 (pure: no PoB engine)."""
+import pytest
+
 from builder.search import bosses, models
 
 
@@ -38,3 +40,37 @@ def test_untallied_named_boss_moves_fall_back_never_zero():
             assert rate > 0 and "A41-10" in how and rate <= top + 1e-9
     tallied = next(n for n in bosses.REAL if n in bosses.RELOCATE_VIDEO)
     assert models.boss_moves({"_boss": tallied})[0] == bosses.relocations({"_boss": tallied}, "headline", gain=True)[0]
+
+
+SLAM_TYPES = {"Slam", "Attack", "Melee", "Area"}
+
+
+def test_delayed_aftershocks_find_the_boss_still_there():
+    """(turn 3, GEM49's ranking) Rampage's Aftershocks land 0.3 s late: its Aftershock hits x bosses.still_there(its
+    radius, 0.3 s); a slam with no delay keeps them whole."""
+    hymn = ["Slam Skills you use yourself cause an additional Aftershock"]
+    stats = {"Speed": 1.0, "AreaOfEffectRadius": 15}
+    still = bosses.still_there(stats, 1.5, models.AFTERSHOCK_DELAY["Rampage"])[0]
+    assert 0 < still < 1
+    rampage = models.Skill("Rampage", 1, attack=True, melee=True)
+    mods, notes = models.aftershock_model(hymn, stats, rampage, SLAM_TYPES, [], {"Two Hand Mace"},
+                                          translate=lambda t: None)
+    dps = next(m for m in mods if m["name"] == "DPS")
+    assert dps["value"] == pytest.approx(100 * still, abs=1e-3) and "0.3 s after the impact" in notes[0]["basis"]
+    sunder = models.Skill("Sunder", 1, attack=True, melee=True)
+    mods, _ = models.aftershock_model(hymn, stats, sunder, SLAM_TYPES, [], {"Two Hand Mace"}, translate=lambda t: None)
+    assert next(m for m in mods if m["name"] == "DPS")["value"] == pytest.approx(100.0)
+
+
+def test_seismic_cry_quality_raises_its_empowered_aftershocks():
+    """(turn 3, b21) Seismic Cry's quality: its Empowered slams' Aftershocks deal 0.5% more a point (10% at 20)."""
+    slam = models.Skill("Rolling Slam", 1, attack=True, melee=True)
+    base, _ = models.aftershock_model([], {"Speed": 1.0}, slam, SLAM_TYPES, [], {"One Handed Mace"},
+                                      translate=lambda t: None, empowered=(0.25, "a test"))
+    more, notes = models.aftershock_model([], {"Speed": 1.0}, slam, SLAM_TYPES, [], {"One Handed Mace"},
+                                          translate=lambda t: None, empowered=(0.25, "a test"),
+                                          empowered_more=20 * models.SEISMIC_QUALITY_PER_POINT)
+    v0 = next(m for m in base if m["name"] == "DPS")["value"]
+    v1 = next(m for m in more if m["name"] == "DPS")["value"]
+    assert v0 == pytest.approx(25.0) and v1 == pytest.approx(25.0 + 100 * 0.25 * 1.0 * 0.10, abs=1e-3)
+    assert "Seismic Cry's quality" in notes[0]["basis"]

@@ -5788,9 +5788,14 @@ class Assumptions:
                 # (GEM44: Seismic Cry's Empowered Slams, one more Aftershock each; MECH-B's aftershock_model takes it)
                 seis_uses, seis_how = self.empowered_uses(stats, None, only=models.SEISMIC_CRY)
                 seismic = models.seismic_aftershocks(seis_uses, number(stats.get("Speed")), seis_how)
+            # (MECHB71: Seismic Cry's quality, its Empowered slams' Aftershocks x (1 + 0.5% a point))
+            seis_quality = max((number(x.get("quality")) for g_ in build.groups() if g_.get("enabled") is not False
+                                for x in g_.get("gems") or [] if x.get("name") == models.SEISMIC_CRY
+                                and x.get("enabled", True)), default=0.0)
             shock_mods, shock_notes = models.aftershock_model(
                 texts, stats, main, set(gem.get("skillTypes") or []), group["gems"] if group else [],
-                set(gem.get("weaponTypes") or []), models.cast_by_totem(found, main), forbidden, empowered=seismic)
+                set(gem.get("weaponTypes") or []), models.cast_by_totem(found, main), forbidden, empowered=seismic,
+                empowered_more=seis_quality * models.SEISMIC_QUALITY_PER_POINT)
             hand_mods, hand_notes = hand_mods + shock_mods, hand_notes + shock_notes
             hit_cut(build, shock_mods, main.name)  # (MECHB57: the Aftershocks' hits a slam, models.HIT_CUT_PER_USE)
             slam_hits = next((number(m.get(models.HIT_CUT_PER_USE)) for m in shock_mods

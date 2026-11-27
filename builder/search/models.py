@@ -14028,9 +14028,15 @@ def triskelion_cascade_model(main: Skill | None, main_types: set[str], casts: fl
 # the main slam's uses Empowered by it: Assumptions.empowered_uses(only="Seismic Cry") (the Warcry's own uses, its
 # Empowered count from the boss's Power, at the boss's Heavy Stunned share: assumptions.warcry_empowers) over the slam's
 # uses a second; each Empowered slam one more Aftershock, into MECH-B's aftershock_model beside Tremors' extras
-# (MEDIUM-LOW: "additional" read as on top of the chance roll). Not counted: seismic_cry_slam_skill_aftershock_damage_
-# +%_final (its quality's 0.5% a point more Aftershock damage, a small undercount).
+# (MEDIUM-LOW: "additional" read as on top of the chance roll). (MECHB71; GEM49's unread-stat ranking, the manager 27 Nov
+# 03:10, an UNDERCOUNT on b21) its quality: seismic_cry_slam_skill_aftershock_damage_+%_final, 0.5 a quality point
+# (GrantedEffectQualityStats SeismicCryPlayer 500 permille; seismic_cry.csd: "[Empowered] [Attack] [Aftershock|
+# Aftershocks] deal {0}% more damage"; PoB lists it as the gem's quality stat, act_str.lua, and maps it to nothing:
+# checked, grep over Data/SkillStatMap.lua and Modules/: none): every Aftershock of a slam Seismic Cry Empowers (the
+# summed chance's, Tremors', its own one) x (1 + q / 100) (MEDIUM: "Empowered Attack Aftershocks" read as the
+# Aftershocks of the slams it Empowers).
 SEISMIC_CRY = "Seismic Cry"
+SEISMIC_QUALITY_PER_POINT = 0.5  # % more Empowered Aftershock damage a quality point (GrantedEffectQualityStats)
 
 
 def seismic_aftershocks(empowered: float, slams: float, how: str) -> tuple[float, str]:
@@ -25190,6 +25196,17 @@ AFTERSHOCK_LINES = (  # (pattern, "self" = Slams you use yourself / "any", the c
                 r"Aftershock$", re.I), "self", "Shapeshift"),
     (re.compile(r"^(\d+(?:\.\d+)?)% chance for Slam Skills to cause an additional Aftershock$", re.I), "any", ""),
 )
+# (MECHB71; GEM49's unread-stat ranking, the manager 27 Nov 03:10 / 05:35: a possible OVERCOUNT; MECHD9's reader rule)
+# Some slams' Aftershocks land LATER than the impact: aftershock_delay_ms on their own stat sets (game 26650308
+# GrantedEffectStatSets ConstantStats: SuperchargedSlamAftershockPlayer 250, BearRampagePlayer 300, FuriousSlamPlayer
+# 500; checked: every Stats id holding "aftershock" with delay / _ms / time (aftershock_delay_ms,
+# cascade_aftershock_delay_ms, vaal_earthquake_aftershock_delay_ms, chance_to_aftershock_+%_per_250_ms_attack_time) and
+# every stat set's constants using them: only these three player sets carry a delay (plus a monster's
+# ExecutionerChannelledSlam 33); no modifier to the delay found (UNVERIFIED that none exists)). A delayed Aftershock
+# hits the same area that much later: on the boss only if it is still inside the slam's area then, so the Aftershock
+# hits (the summed chance, Tremors', Seismic Cry's) x bosses.still_there(the slam's PoB radius, the delay) (the boss's
+# video relocations, lengths exponential: LOW); rows: a standing boss (x1, PoB's reading), every move its mean length.
+AFTERSHOCK_DELAY = {"Supercharged Slam": 0.25, "Rampage": 0.3, "Furious Slam": 0.5}
 LEDGER_SLAM_MORE = re.compile(r"^Slam Skills (deal|have) (\d+(?:\.\d+)?)% more (Damage|DPS)(?: (while .*))?$", re.I)
 ONE_SLOT_AILMENTS = ("Ignite", "Bleed", "Poison")
 
@@ -25254,7 +25271,8 @@ def ledger_slam_mores(texts: list[str], forbidden: set[str], mace: bool, shapesh
 def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_types: set[str], group_gems: list[dict],
                      weapon_types: set[str], totem: bool = False, forbidden: set[str] = frozenset(),
                      translate: Callable[[str], tuple | None] | None = None,
-                     empowered: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
+                     empowered: tuple[float, str] = (0.0, ""), empowered_more: float = 0.0
+                     ) -> tuple[list[dict], list[dict]]:
     """The main slam's Aftershocks (see above): a DPS "more" bringing its hits to 1 + A against the ledger's, and each
     one-slot ailment's duration "more" bringing its applications to p (1 + A - A p). ([], []) for a non-slam."""
     if main is None or "Slam" not in main_types or not main.attack:
@@ -25281,7 +25299,21 @@ def aftershock_model(texts: list[str], stats: dict, main: Skill | None, main_typ
     if total <= 0 and damage == 1.0 and dps == 1.0 and not extra:
         return [], []
     a = min(1.0, total / 100)
-    target, applied = 1 + a + extra, damage * dps
+    delay = AFTERSHOCK_DELAY.get(main.name, 0.0)
+    radius = number(stats.get("AreaOfEffectRadius")) / 10
+    still, fixed = 1.0, 1.0
+    if delay > 0 and radius > 0 and (a + extra) > 0:  # (MECHB71: a delayed Aftershock finds the boss still there)
+        still, still_how = bosses.still_there(stats, radius, delay)
+        fixed = bosses.still_there(stats, radius, delay, moves="fixed")[0]
+        why.append(f"its Aftershocks land {delay:g} s after the impact (aftershock_delay_ms, game data, HIGH), on the "
+                   f"boss only if it is still in the {radius:.2f} m area: {still_how}: x{still:.3f} on them (LOW); rows: "
+                   f"a standing boss x1 (PoB's), every move its mean length x{fixed:.3f}")
+    target, applied = 1 + (a + extra) * still, damage * dps
+    if seismic > 0 and empowered_more > 0:  # (MECHB71: Seismic Cry's quality on its Empowered slams' Aftershocks)
+        boost = seismic * (a + extra - seismic + 1.0) * still * empowered_more / 100
+        target += boost
+        why.append(f"Seismic Cry's quality: its Empowered slams' Aftershocks deal {empowered_more:g}% more "
+                   f"(seismic_cry_slam_skill_aftershock_damage_+%_final, unread by PoB): +{boost:.3f} hits' worth a slam")
     if tremors:
         why.append(f"Tremors: {' + '.join(f'{k} x {c:.0%}' for k, c in sorted(tremors.items()))} = {extra - seismic:.2f} more "
                    "Aftershocks a slam, on top (one roll or several adding up give the same; UNVERIFIED how they meet "
