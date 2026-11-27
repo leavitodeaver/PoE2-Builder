@@ -92,3 +92,12 @@ def test_a_pressed_group_whose_selected_skill_is_triggered_is_rated_by_its_untri
     calls.clear()
     plain = [{"index": 1, "name": "Spark"}, {"index": 2, "name": "Despair"}]
     assert untriggered_presses(call, plain, [1, 2], [1, 2], by_index, 1) == (plain, [1, 2], {}, set()) and not calls
+
+
+def test_the_sniper_cloud_duration_reading_steps_2_02_s_at_the_base_poison():
+    """GEM50 via the manager (05:37): at the base 2 s Poison both readings step R67-1's measured 2.02 s (a 6.03 s cloud:
+    3 Poisons, not 4)."""
+    cloud = {"PoisonDPS": 1000.0, "PoisonStackPotential": 0.25, "PoisonStacksMax": 4, "PoisonDuration": 2.0}
+    fixed = models.sniper_cloud_poison(cloud, 6.03, 20.0, "fixed")[1]
+    by_duration = models.sniper_cloud_poison(cloud, 6.03, 20.0, "duration")[1]
+    assert fixed == pytest.approx(by_duration) == pytest.approx(3 * 2.0 / 20.0)

@@ -14778,7 +14778,10 @@ def sniper_cloud_poison(cloud: dict, alive: float, every: float, reading: str | 
         if limit <= 1:  # (one at a time: R67-1's two clouds, one Poison)
             return min(1.0, covered / every)
         return min(limit, n * seconds / every)
-    fixed, by_duration = held_by(CLOUD_REPOISON), held_by(max(seconds, 0.1))
+    # (MECHB72; GEM50's note via the manager 05:37) the "duration" reading steps each Poison's duration plus the 0.02 s
+    # R67-1 measured past its 2.0 s Poisons' end (2.02 at the base duration, as the fixed reading and GEM49's
+    # cloud_poison_step), not the bare duration (2.0 s before)
+    fixed, by_duration = held_by(CLOUD_REPOISON), held_by(max(seconds, 0.1) + (CLOUD_REPOISON - 2.0))
     held = {"fixed": fixed, "duration": by_duration}.get(reading or "", min(fixed, by_duration))
     return one * held, held, one
 
