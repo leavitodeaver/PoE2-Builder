@@ -129,6 +129,13 @@ def upkeep_use(row: dict) -> tuple[float, str, float]:
             return 0.0, "no totem duration read: not charged", 0.0
         return 1.0 / lasts, f"once per its {lasts:.2f} s totem duration (one totem kept placed)", place
     uses, how, _ = press_use_rate(row, None)
+    cooldown, lasts = number(row.get("cooldown")), number(row.get("duration"))
+    if cooldown > 0 and lasts > cooldown and not row.get("projectile"):
+        # (SEARCH44) kept up for its effect: once per its duration keeps it up; casting it again on its shorter cooldown
+        # only refreshes it (press_use_rate charges a press skill on its cooldown). A projectile's duration is its
+        # projectiles' life, not a thing kept up (MECHB39): left on its cooldown
+        uses = min(uses, uses * cooldown / lasts)
+        how = f"once per its {lasts:.2f} s duration (its {cooldown:.2f} s cooldown is shorter), to keep it up"
     return uses, how, press_action(row)
 
 
@@ -329,6 +336,7 @@ class Search:
         self.resume_sweep = False
         self.press_rows: dict[str, dict] = {}  # (Search.press_round: each candidate's useRates row, its trial DPS)
         self.upkeep_rows: dict[str, dict] = {}  # (Search.upkeep_round: each kept-up side skill's row, uses, DPS without)
+        self.upkeep_dropped: dict[str, dict] = {}  # (SEARCH44: kept-up skills switched off, their casts cost more)
         self.tree_rebuilt = False  # M2: the line's tree rebuild was tried (carried in the line's state)
         self.fill_seen: list[list] = []  # (SEARCH35, socket_fill_round: the main-group sets the line's fill has seen)
         self.skipped: dict[str, int] = {}  # (IDLE_SKIP: phase -> times this task skipped it, in the task's event)
@@ -572,6 +580,7 @@ class Search:
                                   if any(o is not None and o.raw == raw for o in self.build.equipped.values())},
             "press_choices": press_choices(self.build), "press_rows": copy.deepcopy(self.press_rows),
             "upkeep_rows": copy.deepcopy(self.upkeep_rows),
+            "upkeep_dropped": copy.deepcopy(getattr(self, "upkeep_dropped", None) or {}),
             "line": {"passes": self.line_passes, "step": self.resume_step, "sweep": self.resume_sweep,
                      "short": self.line_short,
                      "kicked": sorted(self.kicked), "rebuilt": self.gems.rebuilt, "curses_tried": self.gems.curses_tried,
@@ -594,7 +603,8 @@ class Search:
             "assumptions": {k: getattr(assumptions, k) for k in self.ASSUMPTION_FIELDS},
             "uptimes": conditions.uptimes, "found_uptimes": getattr(conditions, "found_uptimes", None),
             "uptime_cache": self.uptime_cache, "uptime_floor": self.uptime_floor, "uptime_rows": self.uptime_rows,
-            "play_notes": self.play_notes, "press_rows": self.press_rows, "upkeep_rows": self.upkeep_rows})
+            "play_notes": self.play_notes, "press_rows": self.press_rows, "upkeep_rows": self.upkeep_rows,
+            "upkeep_dropped": getattr(self, "upkeep_dropped", None) or {}})
 
     def _put_scoring_state(self, saved: dict) -> None:
         saved = copy.deepcopy(saved)
@@ -609,6 +619,7 @@ class Search:
         self.uptime_rows, self.play_notes = saved["uptime_rows"], saved["play_notes"]
         self.press_rows = saved.get("press_rows", {})
         self.upkeep_rows = saved.get("upkeep_rows", {})
+        self.upkeep_dropped = saved.get("upkeep_dropped", {})
 
     def load(self, state: dict) -> None:
         self.build.call("loadXml", xml=state["xml"])
@@ -645,6 +656,7 @@ class Search:
         setattr(self.build.objective, PRESS_CHOICES, dict(state.get("press_choices") or {}))
         self.press_rows = copy.deepcopy(state.get("press_rows") or {})
         self.upkeep_rows = copy.deepcopy(state.get("upkeep_rows") or {})
+        self.upkeep_dropped = copy.deepcopy(state.get("upkeep_dropped") or {})
         if self.press_sync():
             self.build.score = self.build.objective.score(self.build.stats)
         line = state.get("line") if PERSIST_LINES else None
@@ -820,6 +832,8 @@ class Search:
                     uses, how, seconds = upkeep_use(row)
                     if uses > 0 and seconds > 0:
                         self.upkeep_rows[name] = {"row": row, "uses": uses, "seconds": seconds, "how": how, "without": dps}
+            self.upkeep_sync()
+            self.upkeep_drop_losers()
             # (the guide's "without it": the skill off with the OTHER kept-up skills' casts still charged)
             if len(self.upkeep_rows) > 1:
                 for name, info in list(self.upkeep_rows.items()):
@@ -835,6 +849,51 @@ class Search:
         for info in self.upkeep_rows.values():
             info["with"] = build.objective.dps(build.stats)
         return (objective.upkeep_busy, objective.upkeep_rates) != before
+
+    def upkeep_drop_losers(self) -> list[str]:
+        """(SEARCH44, the manager 27 Nov 13:43, COV62's POE2T6977-6980: an UNDERCOUNT) A kept-up skill is kept only when
+        the build's score WITH its casts charged beats the score without the skill at all. upkeep_round's first test
+        (its group off vs on, the casts not yet charged) only says the skill's effect is worth something; charged at its
+        cooldown / duration rate it may cost more of the fight than it gives (2b75c: Disengage on its cooldown took 83%
+        of the fight, 83,070 DPS vs 452,342 without it; b07: Spark kept up x0.803 of Spark off). Its use rate is the one
+        its effect needs (upkeep_use: on its cooldown, once per its duration, a totem once per its totem duration): a
+        lower rate would leave its effect counted at full uptime, an overcount, so the choice is that rate or 0. Each
+        kept skill in turn: its group off (its casts uncharged) vs on (charged with the others); off wins unless charged
+        beats it by over EPSILON, and then the group stays off (the player doesn't cast it: its effects and its button
+        go), named in upkeep_dropped and the play guide. A skill the request requires is never switched off (it stays
+        charged). Repeated until a pass drops nothing (one drop can make another skill worth its casts). Returns the
+        skills dropped."""
+        build = self.build
+        request = getattr(getattr(build, "ctx", None), "request", None)
+        required = set(getattr(getattr(request, "require", None), "skills", None) or ())
+        self.upkeep_dropped = getattr(self, "upkeep_dropped", None) or {}
+        dropped: list[str] = []
+        changed = True
+        while changed and self.upkeep_rows:
+            changed = False
+            for name in sorted(self.upkeep_rows):
+                if name in required:
+                    continue
+                info = self.upkeep_rows[name]
+                charged = self._rescore()
+                charged_dps = build.objective.dps(build.stats)
+                self.upkeep_rows.pop(name)
+                self.upkeep_sync()
+                build.set_group(index=info["row"]["index"], enabled=False)
+                off = self._rescore()
+                off_dps = build.objective.dps(build.stats)
+                if charged > off + EPSILON:
+                    build.set_group(index=info["row"]["index"], enabled=True)
+                    self.upkeep_rows[name] = info
+                    self.upkeep_sync()
+                    continue
+                self.upkeep_dropped[name] = {"how": info["how"], "uses": info["uses"], "seconds": info["seconds"],
+                                             "with": charged_dps, "without": off_dps}
+                dropped.append(name)
+                changed = True
+                break  # (the others are tested again against the build without it)
+        self._rescore()
+        return dropped
 
     def upkeep_guide_rows(self) -> list[dict]:
         """The play guide's "without it / with it" row for each kept-up side skill charged (CLAUDE.md's flat-rate rule)."""
@@ -852,6 +911,18 @@ class Search:
                          f"{without:,.0f} without it"),
                 "dps_with": with_it, "dps_without": without,
                 "change": (with_it - without) / without if without > 0 else 0.0, "confidence": "modelled"})
+        for name, info in sorted((getattr(self, "upkeep_dropped", None) or {}).items()):  # (SEARCH44: switched off)
+            if name in self.upkeep_rows:
+                continue
+            without, with_it = number(info.get("without")), number(info.get("with"))
+            share = info["uses"] * info["seconds"]
+            rows.append({
+                "var": f"upkeep:{name}", "label": f"{name}: not cast*", "kind": play_guide.PLAYER, "counted": True,
+                "play": (f"don't cast {name}: kept up {info['how']} its casts would take {share:.1%} of the fight from the "
+                         f"main skill, for less than they give: {without:,.0f} DPS without it, {with_it:,.0f} with it "
+                         f"(its group is switched off)"),
+                "dps_with": without, "dps_without": with_it,
+                "change": (without - with_it) / with_it if with_it > 0 else 0.0, "confidence": "modelled"})
         return rows
 
     def _press(self, name: str, rate: float) -> tuple[float, float]:

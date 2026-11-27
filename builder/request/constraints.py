@@ -214,7 +214,23 @@ def player_buttons(facts: dict, pressed: set[str] | None = None) -> list[str]:
                 names.append(gem["name"])
     # (SEARCH44, THE USER 27 Nov ~10:45) a flask the build drinks for its damage, e.g. "Flask: Melting Maelstrom" (the
     # search fills "damageFlasks": gems.damage_flask_buttons)
-    return names + [n for n in facts.get("damageFlasks") or () if n not in names]
+    # search fills "damageFlasks": gems.damage_flask_buttons; MECH-C's flasks.damage_flasks_of publishes each as a row
+    # with its "name", counted as "Flask: <name>": damage_flask_button)
+    flasks = [damage_flask_button(n) for n in facts.get("damageFlasks") or ()]
+    return names + [n for n in dict.fromkeys(flasks) if n and n not in names]
+
+
+def damage_flask_button(entry) -> str | None:
+    """A damage flask's button name: "Flask: <name>" from a row with a "name" (MECH-C's flasks.damage_flasks_of) or the
+    name already made (gems.damage_flask_buttons). A row measured at no damage gained ("damage" 0, or "counts" False)
+    is free; an unmeasured one (no number) counts (MECHC71's rule, the manager 27 Nov)."""
+    if isinstance(entry, dict):
+        damage = entry.get("damage")
+        if entry.get("counts") is False or not entry.get("name") or (
+                isinstance(damage, (int, float)) and not isinstance(damage, bool) and damage <= 0):
+            return None
+        entry = str(entry["name"])
+    return entry if entry.startswith("Flask: ") else f"Flask: {entry}"
 
 
 def enabled_gems(facts: dict) -> list[dict]:

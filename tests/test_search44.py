@@ -197,3 +197,91 @@ def test_over_the_cap_the_search_may_switch_the_damage_flask_off_and_it_stays_of
     assert buttons() == ["Spark"]
     g.cap_flask("Flask 2", False)
     assert getattr(build, gear_mod.CAPPED_FLASKS) == {} and synced[-1] == {}
+
+
+# --- the upkeep round keeps a skill only when its charged score beats off (the manager, 27 Nov 13:43; COV62) -----------
+
+def _upkeep_search(monkeypatch, effects: dict, rows: dict, required=()):
+    """A Search whose score is ln-like: the enabled side skills' effects plus ln(1 - the upkeep busy share)."""
+    import math
+
+    from builder.search import inner
+
+    monkeypatch.setattr(inner, "UPKEEP_PRESS", True)
+    enabled = {row["index"]: True for row in rows.values()}
+    objective = SimpleNamespace(upkeep_busy=0.0, upkeep_rates={}, dps=lambda stats: math.exp(stats["score"]))
+    build = SimpleNamespace(objective=objective, stats={"score": 0.0}, score=0.0,
+                            ctx=SimpleNamespace(request=SimpleNamespace(require=SimpleNamespace(skills=list(required)))))
+    names = {row["index"]: name for name, row in rows.items()}
+    build.set_group = lambda index, enabled=True: enabled_set(index, enabled)
+
+    def enabled_set(index, on):
+        enabled[index] = on
+    build.groups = lambda: [{"main": False, "enabled": enabled[i], "gems": [{"name": names[i]}]} for i in enabled]
+    search = object.__new__(inner.Search)
+    search.build = build
+    search.upkeep_candidates = lambda: {n: dict(r) for n, r in rows.items() if enabled[r["index"]]}
+
+    def rescore():
+        score = sum(effects[names[i]] for i, on in enabled.items() if on) + math.log(1 - objective.upkeep_busy)
+        build.stats, build.score = {"score": score}, score
+        return score
+    search._rescore = rescore
+    return search, enabled
+
+
+def test_a_kept_up_skill_whose_casts_cost_more_than_it_gives_is_switched_off(monkeypatch):
+    """Disengage-like: worth +0.1 uncharged, but on its cooldown it takes 83% of the fight (ln(0.17) = -1.77): off. Its
+    neighbour (worth +0.2 at 5% of the fight) stays charged. The guide names the dropped one."""
+    rows = {"Disengage": {"index": 2, "cooldown": 1.2, "speed": 1.0, "_press": None},
+            "Thunderstorm": {"index": 3, "duration": 4.0, "speed": 1.0, "_press": None}}
+    search, enabled = _upkeep_search(monkeypatch, {"Disengage": 0.1, "Thunderstorm": 0.2}, rows)
+    import builder.search.inner as inner
+    monkeypatch.setattr(inner, "upkeep_use", lambda row: (1 / 1.2, "on its cooldown", 1.0) if row["index"] == 2
+                        else (0.25, "once per its duration", 0.2))
+    search.upkeep_round()
+    assert enabled == {2: False, 3: True}
+    assert set(search.upkeep_rows) == {"Thunderstorm"} and set(search.upkeep_dropped) == {"Disengage"}
+    assert abs(search.build.objective.upkeep_busy - 0.05) < 1e-9
+    monkeypatch.setattr(inner.play_guide, "PLAYER", "player", raising=False)
+    labels = [r["label"] for r in search.upkeep_guide_rows()]
+    assert "Disengage: not cast*" in labels
+
+
+def test_a_kept_up_skill_whose_charged_score_beats_off_is_kept_and_a_required_one_is_never_dropped(monkeypatch):
+    import builder.search.inner as inner
+
+    rows = {"Disengage": {"index": 2, "cooldown": 1.2, "speed": 1.0, "_press": None}}
+    monkeypatch.setattr(inner, "upkeep_use", lambda row: (1 / 1.2, "on its cooldown", 1.0))
+    search, enabled = _upkeep_search(monkeypatch, {"Disengage": 0.1}, rows, required=["Disengage"])
+    search.upkeep_round()
+    assert enabled == {2: True} and set(search.upkeep_rows) == {"Disengage"}  # (required: stays, charged)
+    monkeypatch.setattr(inner, "upkeep_use", lambda row: (0.1, "on its cooldown", 0.5))  # (5% of the fight)
+    search, enabled = _upkeep_search(monkeypatch, {"Disengage": 0.1}, rows)
+    search.upkeep_round()
+    assert enabled == {2: True} and set(search.upkeep_rows) == {"Disengage"} and not search.upkeep_dropped
+
+
+def test_the_button_check_reads_mech_cs_damage_flask_rows_too():
+    from builder.request.constraints import damage_flask_button, player_buttons
+
+    spark = {"name": "Spark", "support": False, "enabled": True, "skillTypes": ["Spell", "Damage", "Projectile"]}
+    facts = {"skillGroups": [{"enabled": True, "main": True, "fromItem": False, "gems": [spark]}],
+             "damageFlasks": [{"slot": "Flask 2", "name": "Melting Maelstrom", "damage": 1200.0},
+                              {"slot": "Flask 1", "name": "Blood of the Warrior", "damage": 0.0},
+                              {"slot": "Flask 3", "name": "Stimulant flask", "damage": None},
+                              "Flask: Melting Maelstrom"]}
+    assert player_buttons(facts) == ["Spark", "Flask: Melting Maelstrom", "Flask: Stimulant flask"]
+    assert damage_flask_button("Lavianga's Spirits") == "Flask: Lavianga's Spirits"
+
+
+def test_a_kept_up_skill_with_a_duration_longer_than_its_cooldown_is_cast_once_per_its_duration(monkeypatch):
+    from builder.search import inner
+
+    monkeypatch.setattr(inner, "press_action", lambda row: 0.5)
+    uses, how, seconds = inner.upkeep_use({"speed": 2.0, "cooldown": 2.0, "duration": 8.0})
+    assert abs(uses - 1 / 8) < 1e-9 and "8.00 s duration" in how and seconds == 0.5
+    uses, how, _ = inner.upkeep_use({"speed": 2.0, "cooldown": 6.2, "duration": 4.0})  # (the cooldown is longer)
+    assert abs(uses - 1 / 6.2) < 1e-9 and "cooldown" in how
+    uses, _, _ = inner.upkeep_use({"speed": 2.0, "cooldown": 1.0, "duration": 3.0, "projectile": True})
+    assert abs(uses - 1.0) < 1e-9
