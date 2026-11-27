@@ -6757,7 +6757,10 @@ class Assumptions:
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
                 presses[models.INEVITABLE_AGONY] = (agony_rate, agony_notes[0]["play"])
-        # (MECH115, R68-7: Poisons from different sources share your Poison limit, the strongest acting)
+        # (MECH115, R68-7: Poisons from different sources share your Poison limit, the strongest acting; at a raised
+        # limit the Full DPS groups PoB's "max" drops fill the slots left, MECHB71's find)
+        group_mods, group_notes = self.poison_other_groups(stats, forbidden)
+        hand_mods, hand_notes = hand_mods + group_mods, hand_notes + group_notes
         hand_mods, pool_notes = models.poison_pool_model(hand_mods, hand_notes, self.poison_base(main, stats),
                                                          number(stats.get("PoisonStacksMax")) or 1.0, forbidden)
         hand_notes += pool_notes
@@ -8301,6 +8304,53 @@ class Assumptions:
         grants = self.unbuilt_grants(skills, notes)
         mods = mods + self.grant_mods
         return mods, [bosses.note(boss), boss_pool_note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + grants  # (the boss first)
+
+    def poison_other_groups(self, stats: dict, forbidden: set[str]) -> tuple[list[dict], list[dict]]:
+        """(MECH115; MECHB71's raised-limit UNDERCOUNT, models.POISON_GROUP_PREFIX's note) The Full DPS groups whose
+        Poison PoB's Full DPS drops (its "Best Poison DPS" keeps one group), as added pools for models.poison_pool_model,
+        which cuts them to the slots the headline's own Poisons leave: each group's PoisonDPS (the bridge's useRates: the
+        group calculated alone) x its press scale (objective.press_scales, as the Full DPS entry), held = min(its
+        PoisonStackPotential x PoisonStacksMax, PoisonStacksMax). Only with a limit above 1 (at limit 1 PoB's max is the
+        strongest-wins reading already) and a Full DPS score."""
+        build = self.build
+        objective = getattr(build, "objective", None)
+        limit = number(stats.get("PoisonStacksMax")) or 1.0
+        if (models.POISON_POOL_ENTRY in forbidden or limit <= 1 or objective is None
+                or not getattr(objective, "full", False)):
+            return [], []
+        full = build.call("stats", fields=["SkillDPS", "FullDPS"])
+        best = next((e for e in full.get("SkillDPS") or [] if e.get("name") == "Best Poison DPS"), None)
+        if number(full.get("FullDPS")) <= 0 or best is None:
+            return [], []
+        indices = [g["index"] for g in build.groups() if g.get("fullDPS") and g.get("enabled", True)]
+        rows = build.call("useRates", indices=indices)["rates"] if indices else []
+        press = getattr(objective, "press_scales", None) or {}
+        mods, notes = [], []
+        for row in rows:
+            dps, name = number(row.get("PoisonDPS")), str(row.get("name") or "")
+            if dps <= 0 or models.named(best.get("source"), {name}) or models.named(name, {str(best.get("source"))}):
+                continue
+            cap = number(row.get("PoisonStacksMax")) or limit
+            potential = number(row.get("PoisonStackPotential"))
+            held = min(potential * cap, cap) if potential > 0 else 1.0
+            scale = number(next((v for k, v in press.items() if models.named(str(k), {name})), 1.0))
+            one, held = dps / held, held * max(scale, 0.0)
+            if one * held <= 0:
+                continue
+            key = f"{row.get('index')}"
+            mods.append(models.added_input(f"PoisonGroup{key}", one * held))
+            notes.append({"label": f"{name}'s Poison beside PoB's best Poison group*", "value": f"+{one * held:,.1f} DPS",
+                          "confidence": "MEDIUM", "entry": models.POISON_POOL_ENTRY,
+                          "poison_pool": (f"{models.POISON_GROUP_PREFIX}{key}", one, held),
+                          "basis": (f"PoB's Full DPS keeps one group's Poison ({best.get('source')}, Best Poison DPS "
+                                    f"{number(best.get('dps')):,.1f}) and drops {name}'s {dps:,.1f} (Calcs.lua PoisonDPS "
+                                    f"mode \"max\"); at your limit of {limit:g} the strongest Poisons act across sources "
+                                    f"(R68-7), so its {held:.2f} Poisons of {one:,.1f} each"
+                                    + (f" (x{scale:.2f} its press scale)" if abs(scale - 1) > 1e-9 else "")
+                                    + " fill the slots the headline's own leave: the shared-limit row ('Your Poison "
+                                      "limit') cuts it to them. Row: PoB's max alone, +0"),
+                          "play": f"{name}'s Poisons add only where your Poison limit has room beside your main skill's."})
+        return mods, notes
 
     def poison_base(self, main: models.Skill | None, stats: dict) -> tuple[float, float, str]:
         """(MECH115, R68-7) The headline's own Poison on the boss for models.poison_pool_model: (one Poison's DPS, Poisons

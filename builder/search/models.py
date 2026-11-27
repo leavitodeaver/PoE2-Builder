@@ -16537,6 +16537,20 @@ POISON_POOL_ENTRY = "model-mech115-poison-limit-pool"
 POISON_POOL_NAMES = {"AddedGasArrowCloud": "Gas Arrow's cloud", "AddedBlockPoison": "Lycosidae's Block Poison",
                      "AddedHeraldOfPlague": "Herald of Plague's spread", "AddedSniperGasArrow": "the Skeletal Sniper's cloud"}
 POISON_POOL_MINIONS = {"AddedSniperGasArrow"}
+# (MECH115; MECHB71's find, probe POE2T9101: PoB's Full DPS keeps 3,090,274 of b11's 3,379,472 Poison sum, its "max"
+# dropping Chayula's Will's and Toxic Growth's) At a RAISED limit the N strongest act across sources, so where the
+# headline's own Poisons don't fill the N slots, the Full DPS groups PoB drops fill the rest: each such group is an added
+# pool "AddedPoisonGroup<index>" (Assumptions.poison_other_groups: its PoisonDPS at its own count, PoisonStackPotential x
+# PoisonStacksMax, x its press scale), cut by the same fill to the slots left (at limit 1 behind a stronger headline
+# Poison: nothing). The headline: the fill; the row: PoB's max alone.
+POISON_GROUP_PREFIX = "AddedPoisonGroup"
+
+
+def poison_pool_label(name: str) -> str | None:
+    """The label of an added Poison source's mod name (POISON_POOL_NAMES or a dropped Full DPS group's), else None."""
+    if name in POISON_POOL_NAMES:
+        return POISON_POOL_NAMES[name]
+    return f"Full DPS group {name[len(POISON_GROUP_PREFIX):]}'s Poison" if str(name).startswith(POISON_GROUP_PREFIX) else None
 
 
 def poison_fill(limit: float, pools: list[tuple[float, float]]) -> float:
@@ -16557,7 +16571,7 @@ def poison_pool_model(mods: list[dict], notes: list[dict], base: tuple[float, fl
     `notes`: the models' notes (their "poison_pool": (added mod name, one Poison's DPS, held)); `base`: the headline's
     own Poison (one Poison's DPS, held, how); `limit`: your Poison limit (PoB's PoisonStacksMax)."""
     values = {m["name"]: number(m.get("value")) / 100 for m in mods
-              if m.get("kind") == "Derived" and m.get("name") in POISON_POOL_NAMES and number(m.get("value")) > 0}
+              if m.get("kind") == "Derived" and poison_pool_label(m.get("name")) and number(m.get("value")) > 0}
     pools: dict[str, tuple[float, float]] = {}
     for note in notes:
         pool = note.get("poison_pool")
@@ -16598,7 +16612,7 @@ def poison_pool_model(mods: list[dict], notes: list[dict], base: tuple[float, fl
                 args["fixed"] = value
             m = {**m, "value": int(round(value * 100)), "args": args}
         out.append(m)
-    names = "; ".join(f"{POISON_POOL_NAMES[n]} {portion[n]:,.1f} ({pools[n][1]:.2f} of {pools[n][0]:,.1f} each)"
+    names = "; ".join(f"{poison_pool_label(n)} {portion[n]:,.1f} ({pools[n][1]:.2f} of {pools[n][0]:,.1f} each)"
                       for n in pools)
     minion = any(n in POISON_POOL_MINIONS for n in pools)
     return out, [{

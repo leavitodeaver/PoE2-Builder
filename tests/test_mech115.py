@@ -84,3 +84,17 @@ def test_minion_ignite_passes_the_legion_gate_when_set(monkeypatch):
     cond.build = SimpleNamespace(legion_gate=0.5)
     assert cond.minion_ignite({"Infernal Legion II"})[0] == pytest.approx(0.2)
     assert seen == [None, 0.5]
+
+
+def test_dropped_full_dps_groups_fill_free_slots_only():
+    """MECHB71's raised-limit UNDERCOUNT: PoB's Full DPS keeps one Poison group; the dropped groups fill the free slots."""
+    assert models.poison_pool_label("AddedPoisonGroup7") == "Full DPS group 7's Poison"
+    assert models.poison_pool_label("AddedThorns") is None
+    mods = [models.added_input("PoisonGroup7", 3 * 50.0)]
+    notes = [{"poison_pool": ("AddedPoisonGroup7", 50.0, 3.0)}]
+    # limit 4, the headline's own 2 Poisons of 300: two slots left for the dropped group's 3 of 50
+    out, rows = models.poison_pool_model(mods, notes, (300.0, 2.0, "main"), 4.0)
+    assert _value(out, "AddedPoisonGroup7") == pytest.approx(100.0) and rows
+    # the headline's own fill the limit (b11: 1.57 x 4 = 6.28 Poisons for 4 slots): nothing added
+    out, _ = models.poison_pool_model(mods, notes, (772.0, 4.0, "main"), 4.0)
+    assert _value(out, "AddedPoisonGroup7") == pytest.approx(0.0)

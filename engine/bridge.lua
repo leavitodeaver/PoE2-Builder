@@ -5701,6 +5701,9 @@ function bridge.useRates(args)
 					-- (MECH88: each group's own ailment DPS, for the "Best <ailment> DPS" row when its source is used 0 times a
 					-- second: Assumptions.zero_use_ailments takes the next-best group's)
 					"PoisonDPS", "BleedDPS", "CorruptingBloodDPS", "BurningGroundDPS", "CausticGroundDPS",
+					-- (MECH115, R68-7 at a raised limit: each group's own Poison count, PoisonStackPotential x PoisonStacksMax,
+					-- for the groups PoB's Full DPS drops (its "max" keeps one): Assumptions.poison_other_groups)
+					"PoisonStackPotential", "PoisonStacksMax",
 					-- (MECH95: each group's hit and crit by damage type, for its Heavy Stun buildup's Cold share,
 					-- models.stun_uncold: Cold hits build none; conditions.buildup_others, models.heavy_stun_rate)
 					"PhysicalHitAverage", "PhysicalCritAverage", "FireHitAverage", "FireCritAverage", "ColdHitAverage",
