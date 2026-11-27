@@ -715,9 +715,16 @@ def orb_remnants(build, skill: dict) -> tuple[float, str]:
     the Orb's own cycle with timer bolts only: PoB's Duration for it (its duration modifiers included) plus its cast
     time, recast as each one ends (the play: keep one up; an undercount where the main Spell is cast near it)."""
     found = (getattr(build, ORB_PRESSES, None) or {}).get(ORB_OF_STORMS)
-    if found is not None:
-        return found[0], f"one Remnant per Orb, {found[0]:.3f} Orbs/s ({found[1]})"
     group = models.Skill.of(skill).group
+    if found is not None:
+        if ORB_STAY and group is not None and found[0] > 0:
+            from builder.search import bosses  # (as Assumptions' boss readers import it)
+            rows = build.call("useRates", indices=[group])["rates"]
+            boss = getattr(getattr(getattr(build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
+            rate, how = orb_stay(found[0], rows[0] if rows else {}, {"_boss": boss})
+            if how:
+                return rate, f"one Remnant per Orb, {rate:.3f} Orbs/s ({found[1]}; {how})"
+        return found[0], f"one Remnant per Orb, {found[0]:.3f} Orbs/s ({found[1]})"
     rows = build.call("useRates", indices=[group])["rates"] if group is not None else []
     row = rows[0] if rows else {}
     duration, cast = number(row.get("duration")), number(row.get("castTime"))
@@ -727,6 +734,46 @@ def orb_remnants(build, skill: dict) -> tuple[float, str]:
     return rate, (f"one Remnant per Orb, recast as each ends: its {duration:.2f} s duration + {cast:.2f} s cast = "
                   f"{rate:.3f} Orbs/s (timer bolts only: casting the main Spell near it ends each Orb sooner, MECH-B's "
                   "orb_cycle, which isn't exposed to this yet: an undercount there)")
+
+
+# The boss walking off a side Orb of Storms (MECHC69; AUDIT41 A41-33, a possible OVERCOUNT; the manager's READER RULE of
+# 26 Nov 06:30). MECH-B's side-Orb cycle (orbs_per_second, ORB_PRESSES) ends each Orb at its maximum hits after `life`
+# s, its bolts fed by the Spells cast near it and its timer, and recasts it at once. "Fires Chaining Lightning bolts at
+# nearby enemies" (ActiveSkills orb_of_storms, 26650308): with the boss walked out of its 5.6 m bolt reach
+# (models.ORB_REACH) the Orb fires at no one (MEDIUM: a bolt needs an enemy near), so it no longer reaches its maximum
+# and lives out its duration D; "a Lightning Infusion Remnant if all of its bolts are used up or its duration expires"
+# (patch 0.3.0, the latest word on it; the game's description "when it expires"). Each Orb placed on the boss: q =
+# bosses.still_there(R, life) is the chance the boss is still in reach when the maximum comes (moves exponential, LOW);
+# a walked-off Orb lives D. By renewal (one Orb per cycle) the Orbs a second are 1 / (q life + (1 - q) D + its cast
+# time): fewer Orbs, fewer Remnants. Not read: the boss walking back into an old Orb's reach (an undercount, small);
+# recasting the Orb at the boss's new spot (a play strategy: whether an Orb replaced at its limit leaves a Remnant is
+# UNVERIFIED, so not counted). The cycle's own casts already sit at orb_stand_share's (1 - moving_ceiling) (MECH-B's):
+# that is the boss moving, this the boss gone from the Orb's spot. Row: the boss standing still (the cycle as is).
+# POE2_ORB_STAY=0 is the old reading.
+ORB_STAY = os.environ.get("POE2_ORB_STAY", "1") != "0"
+
+
+def orb_stay(orbs: float, row: dict, boss: dict) -> tuple[float, str]:
+    """(Orbs a second with the boss walking off, how; "" when it changes nothing) from the cycle's `orbs` a second, the
+    Orb's useRates `row` (duration, castTime / speed) and {"_boss": name}: see ORB_STAY's note."""
+    duration = number(row.get("duration")) or models.ORB_DURATION
+    action = models.press_action(row) if row else 0.0
+    life = 1.0 / orbs - action
+    if life <= 0 or life >= duration - 1e-6:
+        return orbs, ""  # (it lives out its duration already: the boss leaving changes nothing)
+    from builder.search import bosses
+    still, still_how = bosses.still_there(boss, models.ORB_REACH, life)
+    rate = 1.0 / (still * life + (1.0 - still) * duration + action)
+    # (the row: recast at the boss as soon as it leaves, the old Orb replaced at the limit of 1
+    # (orb_of_storms_base_maximum_number_of_orbs 1, PoB act_int.lua) and taken to leave its Remnant (UNVERIFIED):
+    # an Orb then lasts min(life, the boss's leave time), mean (1 - q) / k with q = e^(-k life))
+    k = -math.log(still) / life if 0 < still < 1 else 0.0
+    recast = 1.0 / (((1.0 - still) / k if k > 0 else life) + action)
+    return rate, (f"the boss walks off: an Orb reaches its maximum in {life:.2f} s with the boss still in its "
+                  f"{models.ORB_REACH:g} m reach {still:.0%} of the time ({still_how}); else it fires at no one and "
+                  f"lives its {duration:.2f} s: {rate:.3f} Orbs/s. Rows: the boss standing still {orbs:.3f}; recast "
+                  f"at the boss once it leaves, if an Orb replaced at its limit of 1 leaves its Remnant (UNVERIFIED) "
+                  f"{recast:.3f}")
 
 
 # Infusion Remnants out of reach (MECHC33; RESEARCH26 R26-35, ASSUMED: spawn spots HIGH from the skill text, the base

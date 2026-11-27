@@ -1766,7 +1766,13 @@ def test_a_side_orb_of_storms_rate_is_published_on_the_build_for_its_remnants(en
     from builder.search.assumptions import orb_remnants
     skill = next(s for s in build.call("activeSkills")["skills"] if s["name"] == models.ORB_OF_STORMS)
     remnants, remnant_how = orb_remnants(build, skill)
-    assert remnants == pytest.approx(rate) and "orbs_per_second" in remnant_how
+    # (MECHC69, A41-33: the boss walking out of the Orb's reach lengthens its life, orb_stay; the cycle's rate the
+    # standing-still row)
+    from builder.search.assumptions import orb_stay
+    from builder.search import bosses
+    row = build.call("useRates", indices=[models.Skill.of(skill).group])["rates"][0]
+    assert remnants == pytest.approx(orb_stay(rate, row, {"_boss": bosses.DEFAULT})[0])
+    assert remnants < rate and "orbs_per_second" in remnant_how and f"the boss standing still {rate:.3f}" in remnant_how
 
 
 def test_the_bridge_rates_each_ancestral_spirit_type_and_puts_pobs_choice_back(engine):

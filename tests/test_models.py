@@ -5530,7 +5530,8 @@ def test_orb_of_storms_leaves_a_remnant_per_orb_at_the_builds_own_orb_rate():
     fed = Build(12.0)
     setattr(fed, ORB_PRESSES, {"Orb of Storms": (0.23, "orb_cycle: Spark cast near it")})
     rate, how = orb_remnants(fed, skill)
-    assert rate == 0.23 and "orb_cycle" in how
+    # (MECHC69, A41-33: the boss walking off the Orb lengthens its life, orb_stay; the boss standing still a row)
+    assert rate < 0.23 and "orb_cycle" in how and "the boss standing still 0.230" in how
 
 
 def test_the_boss_resists_leech_at_its_monster_levels_share_under_pobs_rate_cap():
