@@ -48,8 +48,8 @@ TABLES = [
     "PassiveSkills", "PassiveSkillTrees", "Ascendancy", "Characters", "PassiveJewelSlots",
     "ClassPassiveSkillOverrides", "AscendancyPassiveSkillOverrides",
     # Timeless jewels (Heroic Tragedy, Undying Hate): what a conquered passive can become, and the jewel-stat extras
-    # (Undying Hate's desecrated Historic mods); TIMELESS1, builder/search/timeless.py
-    "AlternateTreeVersions", "AlternatePassiveSkills", "AlternatePassiveAdditions", "AlternateTreeVersionKeystones",
+    # (Undying Hate's desecrated Historic mods); TIMELESS1. AlternateTreeVersionKeystones is not in build 26744644
+    "AlternateTreeVersions", "AlternatePassiveSkills", "AlternatePassiveAdditions",
     "AlternateTreeExtraAdditionsFromJewelStats", "AlternateTreeExtraPassiveOverridesFromJewelStats",
 ]
 FILES = ["Metadata/PassiveSkillGraph.psg"]
