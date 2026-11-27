@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, replace
 from builder.data.rules import OFF_HAND_ITEMS, rules as game_rules
 from builder.request.constraints import main_skill as facts_main_skill, meta_socketed, presses
 from builder.request.schema import Offhand, WeaponSwap
+from builder.search import required_items
 from builder.search.context import Context
 
 # Weapons a spell or minion caster might hold: (item type, sub-type; "" = plain caster staff)
@@ -262,6 +263,9 @@ def passive_offhand_archetypes(ctx: Context, skill: str, ascendancy: str, weapon
         # martial weapon, "shield" for a Shield; SEARCHB8)
         named_kind = _OFFHAND_CHOICES.get(offhand, (Offhand.ANY, Offhand.WEAPON))[1]
         named = choice == named_kind and ctx.request.weapon_type == rule["main_hand"]
+        # (SEARCHD3) required items that name both hands of the pair name it too (a required Two Hand Mace and a required
+        # Shield: Giant's Blood holds both in weapon set 1)
+        named = named or required_items.names_pair(ctx, rule["main_hand"], offhand)
         if (rule.get("named_only") and not named and not open_pair(rule)) \
                 or (named_only and not rule.get("named_only")):
             continue
@@ -384,6 +388,39 @@ def code_hands(ctx: Context, skill: str | None, hands: tuple[str | None, str | N
 
 
 def seed_skeleton(ctx: Context, facts: dict) -> tuple[Skeleton | None, list[str]]:
+    """The PoB code's skeleton (_seed_skeleton), re-planned when its weapons can't hold the request's required items
+    (SEARCHD3: THE USER's Liminal Coil, a Wand, beside a code's Sceptre + Focus): the main skill's legal setup closest to
+    the code's (its off hand kept, else its main hand) whose set 1 holds them, else weapon set 2 where the request allows a
+    swap. Neither: the code's own, with the game rule (the search's other skeletons are judged the same way)."""
+    skeleton, notes = _seed_skeleton(ctx, facts)
+    if skeleton is None:
+        return skeleton, notes
+    found, why = required_items.fit(ctx, skeleton)
+    if found is skeleton or not required_items.unheld(ctx, skeleton):  # (its hands hold them; a ring problem is said)
+        return skeleton, notes + ([why] if why else [])
+    unique = skeleton.granted_by.split(":", 1)[1] if (skeleton.granted_by or "").startswith("unique:") else None
+    allowed, _ = weapon_archetypes(ctx, skeleton.main_skill, unique if unique and _is_weapon(ctx, unique) else None)
+    plain = replace(skeleton, swap=False, swap_weapon=None, swap_sub=None, swap_offhand=None, requires_passive=None)
+    holds = [a for a in allowed if not required_items.unheld(ctx, replace(plain, weapon=a[0], weapon_sub=a[1],
+                                                                           offhand=a[2]))]
+    holds.sort(key=lambda a: (a[2] != skeleton.offhand, a[0] != skeleton.weapon))
+    what = ", ".join(name for name, _, _ in required_items.unheld(ctx, skeleton))
+    if holds:
+        weapon, sub, offhand = holds[0]
+        moved = replace(skeleton, weapon=weapon, weapon_sub=sub, offhand=offhand, requires_passive=None)
+        moved, _ = with_swap(ctx, replace(moved, swap=False, swap_weapon=None, swap_sub=None, swap_offhand=None))
+        notes.append(f"your PoB code's weapons ({_hands(skeleton.weapon, skeleton.weapon_sub, skeleton.offhand)}) can't "
+                     f"hold the required {what}; the search starts from {_hands(weapon, sub, offhand)} instead")
+        return moved, notes
+    if found is not None:
+        notes.append(f"your PoB code's weapons ({_hands(skeleton.weapon, skeleton.weapon_sub, skeleton.offhand)}) can't "
+                     f"hold the required {what}, and no setup for {skeleton.main_skill} can: it goes in weapon set 2 "
+                     f"({_hands(found.swap_weapon, found.swap_sub, found.swap_offhand)})")
+        return found, notes
+    return skeleton, notes + [why]
+
+
+def _seed_skeleton(ctx: Context, facts: dict) -> tuple[Skeleton | None, list[str]]:
     """The skeleton of the request's PoB code (its facts): its ascendancy, main skill (the request's,
     if it names one the code has) and weapons, as far as the request allows them. None, with the
     reason, when the request rules the code's ascendancy or main skill out."""
@@ -636,7 +673,10 @@ def enumerate_skeletons(ctx: Context, skills: list[str]) -> tuple[list[Skeleton]
         skeleton, found = with_swap(ctx, skeleton)
         swapped.append(skeleton)
         problems += found
-    return swapped, sorted(set(problems))
+    # (SEARCHD3) required items before the weapons: only skeletons that hold every required weapon / off-hand item (set 1,
+    # else weapon set 2 when the request allows a swap); none can: the closest, and the game rule that stops the rest
+    swapped, found = required_items.choose(ctx, swapped)
+    return swapped, sorted(set(problems + found))
 
 
 # Item types only an off hand holds (a base of one that grants a skill sits in Weapon 2)

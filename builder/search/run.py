@@ -31,6 +31,7 @@ from builder.search.context import Context, make_payload
 from builder.search.gear import OWNED  # (SEARCHB3: the user's own items, listed apart from the budget)
 from builder.search.objective import (PACK_SIZE, SUSTAIN_FLOOR, SUSTAIN_LEFT_OUT, boss_recovery, goal_value, number, rank_key,
                                       shortfall, sustain)
+from builder.search import required_items  # (SEARCHD3)
 from builder.search.skeletons import Skeleton, candidate_skills, enumerate_skeletons, weapon_archetypes
 from builder.search import unfinished
 
@@ -416,8 +417,12 @@ class Run:
         self.emit("status", message=f"No main skill given: screening {len(skills)} skills")
         ascendancy = self.ctx.compiled.filters.ascendancies[0] if self.ctx.compiled.filters.ascendancies else None
         screen = []
+        required = required_items.required_hand_items(self.ctx)
         for skill in skills:
             archetypes, _ = weapon_archetypes(self.ctx, skill)
+            if ascendancy and required:  # (SEARCHD3) the screen's two setups hold the required hand items where one can
+                archetypes = sorted(archetypes, key=lambda a: bool(required_items.unheld(
+                    self.ctx, Skeleton(self.ctx.class_of[ascendancy], ascendancy, skill, *a), required)))
             for weapon, sub, offhand in archetypes[:2]:
                 if ascendancy:
                     screen.append(Skeleton(self.ctx.class_of[ascendancy], ascendancy, skill, weapon, sub, offhand))

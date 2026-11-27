@@ -507,6 +507,8 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
     presence_check("Banned uniques", forbidden["uniques"], uniques_present, False)
     presence_check("Required augments", required["augments"], augments_present, True)
     presence_check("Banned augments", forbidden["augments"], augments_present, False)
+    # (SEARCHD3) a required item class was never checked (nor searched for): a build without one now shows it unmet
+    presence_check("Required item classes", required["item_classes"], classes_present, True)
     presence_check("Banned item classes", forbidden["item_classes"], classes_present, False)
     if forbidden["mechanics"]:
         checks.append(lambda f: (lambda hit: CheckResult(
