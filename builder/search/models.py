@@ -16550,7 +16550,11 @@ def poison_pool_label(name: str) -> str | None:
     """The label of an added Poison source's mod name (POISON_POOL_NAMES or a dropped Full DPS group's), else None."""
     if name in POISON_POOL_NAMES:
         return POISON_POOL_NAMES[name]
-    return f"Full DPS group {name[len(POISON_GROUP_PREFIX):]}'s Poison" if str(name).startswith(POISON_GROUP_PREFIX) else None
+    if not str(name).startswith(POISON_GROUP_PREFIX):
+        return None
+    m = re.match(r"(\d+)(.*)", name[len(POISON_GROUP_PREFIX):])
+    return (f"Full DPS group {m.group(1)}" + (f" ({m.group(2)})" if m.group(2) else "") + "'s Poison" if m else
+            f"Full DPS group {name[len(POISON_GROUP_PREFIX):]}'s Poison")
 
 
 def poison_fill(limit: float, pools: list[tuple[float, float]]) -> float:

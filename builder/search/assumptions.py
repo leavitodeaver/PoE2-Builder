@@ -8322,8 +8322,15 @@ class Assumptions:
         best = next((e for e in full.get("SkillDPS") or [] if e.get("name") == "Best Poison DPS"), None)
         if number(full.get("FullDPS")) <= 0 or best is None:
             return [], []
-        indices = [g["index"] for g in build.groups() if g.get("fullDPS") and g.get("enabled", True)]
-        rows = build.call("useRates", indices=indices)["rates"] if indices else []
+        # (every active skill of each Full DPS group, as PoB's Full DPS counts them: MECHB71's POE2T9101 read b11's
+        # Chayula's Will / Toxic Growth Poison that way; the group's main active skill alone missed them, POE2T6758)
+        rows = []
+        for g in build.groups():
+            if g.get("enabled") is False or not g.get("fullDPS"):
+                continue
+            actives = list(range(1, len(g.get("skills") or []) + 1))
+            if actives:
+                rows += build.call("useRates", indices=[g["index"]] * len(actives), actives=actives)["rates"]
         press = getattr(objective, "press_scales", None) or {}
         mods, notes = [], []
         for row in rows:
@@ -8337,7 +8344,7 @@ class Assumptions:
             one, held = dps / held, held * max(scale, 0.0)
             if one * held <= 0:
                 continue
-            key = f"{row.get('index')}"
+            key = f"{row.get('index')}{re.sub(r'[^A-Za-z]', '', name)}"
             mods.append(models.added_input(f"PoisonGroup{key}", one * held))
             notes.append({"label": f"{name}'s Poison beside PoB's best Poison group*", "value": f"+{one * held:,.1f} DPS",
                           "confidence": "MEDIUM", "entry": models.POISON_POOL_ENTRY,
