@@ -5805,6 +5805,19 @@ class Assumptions:
                                                                   bosses.hit_radius(stats)[0])  # (MECHB35, R28-1)
             hand_mods, hand_notes = hand_mods + combo_mods, hand_notes + combo_notes
             hit_cut(build, combo_mods, main.name)  # (GEM33: its hit part, the mod's hit_cut)
+        if main is not None and group and main.name in (models.SHATTERING_PALM, models.SHATTERING_PALM_EXPLOSION):
+            # (GEM49: Shattering Palm's explosion only from a shattered coat, models.shattering_palm_model)
+            spots = {x["name"]: n for n, x in enumerate(group.get("skills") or [], start=1)}
+            if models.SHATTERING_PALM in spots and models.SHATTERING_PALM_EXPLOSION in spots:
+                palm_sets = build.call("setRates", index=group["index"], active=spots[models.SHATTERING_PALM])["sets"]
+                blast_sets = build.call("setRates", index=group["index"],
+                                        active=spots[models.SHATTERING_PALM_EXPLOSION])["sets"]
+                palm_level = next((x.get("levelStats") or {} for x in build.call(
+                    "activeSkills", levelStats=[models.SHATTERING_PALM])["skills"]
+                    if x["name"] == models.SHATTERING_PALM and x.get("group") == group["index"]), {})
+                palm_mods, palm_notes = models.shattering_palm_model(
+                    main.name, palm_sets, blast_sets, number(palm_level.get(models.SHATTERING_PALM_THRESHOLD)), forbidden)
+                hand_mods, hand_notes = hand_mods + palm_mods, hand_notes + palm_notes
         if main is not None and group and main.name == models.FROST_DARTS:  # (MECHB35: Frost Darts' whole cast)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             up, _ = models.ailment_up_of(build)

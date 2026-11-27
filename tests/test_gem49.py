@@ -37,3 +37,30 @@ def test_drenched_reads_a_kept_up_thunderstorm_at_its_upkeep_rate():
 def test_rakiatas_flow_exposure_order_carries_research67s_tag():
     note = models.frost_bomb_spot_note(100.0, 120.0, "away")
     assert "R67-2" in note["basis"] and "UNVERIFIED" not in note["basis"]
+
+
+def test_lightning_rods_quality_chance_for_another_burst_is_more_damage_on_it():
+    rod = models.Skill("Lightning Rod", group=1, attack=True,
+                       level_stats={"lightning_rod_%_chance_for_additional_burst_on_landing": 20})
+    mods, notes = models.gem_stat_model([rod], main=rod, stats={})
+    line = [m for m in mods if m.get("skill") == "Lightning Rod" and m.get("line") == "1% more Damage"]
+    assert line and line[0]["scale"] == pytest.approx(20.0)
+    assert any(n.get("entry") == "model-gem49-lightning-rod-extra-burst" for n in notes)
+    mods, _ = models.gem_stat_model([rod], forbidden={"model-gem49-lightning-rod-extra-burst"}, main=rod, stats={})
+    assert not [m for m in mods if m.get("skill") == "Lightning Rod" and m.get("line") == "1% more Damage"]
+
+
+def test_shattering_palms_explosion_comes_from_a_shattered_coat_not_its_own_cast_rate():
+    palm = [{"label": "Melee", "AverageDamage": 49.056, "Speed": 0.68721765}]
+    blast = [{"label": "Explosion", "AverageDamage": 165.5403288, "Speed": 1.036}]
+    # (POE2T9792's skeleton: the Strike's 49 a hit is far under the 12,788 threshold: about one explosion a minute)
+    mods, notes = models.shattering_palm_model("Freezing Explosion", palm, blast, 12788.0)
+    melee = 49.056 * 0.68721765
+    total = melee + 165.5403288 * 0.68721765 * 49.056 / 12788.0
+    assert mods[0]["value"] == pytest.approx(100 * (total / (165.5403288 * 1.036) - 1), abs=0.01)
+    assert "Freezing Explosion" in notes[0]["basis"]
+    # (a build whose Strike passes the threshold: every Strike explodes; the Strike scored gains the explosions)
+    mods, _ = models.shattering_palm_model("Shattering Palm", [{**palm[0], "AverageDamage": 20000.0}], blast, 12788.0)
+    assert mods[0]["value"] == pytest.approx(100 * ((20000.0 + 165.5403288) / 20000.0 - 1), abs=0.01)
+    assert models.shattering_palm_model("Freezing Explosion", palm, blast, 12788.0,
+                                        {models.SHATTERING_PALM_ENTRY}) == ([], [])

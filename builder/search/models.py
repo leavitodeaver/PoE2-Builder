@@ -11701,6 +11701,66 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                  f"{arrow + blast + cloud_poison:,.0f} (the cloud's Poison {cloud_poison:,.0f} in each).")}]
 
 
+# (GEM49; GEM46's unread list: shattering_palm_debuff_damage_threshold; an OVERCOUNT where PoB scores the explosion as a
+# skill of its own, an UNDERCOUNT of the explosions where the Strike is scored) Shattering Palm (ActiveSkills
+# shattering_palm, 26650308): "Dash to an enemy and Strike them with an Attack that manifests a wave of cold, coating
+# nearby enemies in shards of ice. Dealing enough damage to these enemies will shatter the shards, causing an icy
+# explosion that deals Attack damage". PoB lists the explosion (ShatteringPalmExplosionPlayer, "Freezing Explosion") as
+# a second active skill of the group with a 1 s cast time and rates it at its own cast rate (probe POE2T9792, a level-90
+# skeleton: Freezing Explosion 165.5 a hit at 1.036 a second, 171.5 DPS, scored as the main skill; the Strike's Melee set
+# 33.7 DPS at 0.687 a second). In the game it is never cast: it comes when a Strike's coat is shattered. The coat
+# shatters once the coated enemy has taken shattering_palm_debuff_damage_threshold damage (a fixed amount on the Melee
+# set: 12,788 at gem level 20, 13,640 from 21; PoB act_int.lua 17423-17452), so with a Strike's hit h (PoB's
+# AverageDamage, hit chance in) explosions a second = the Strikes a second x min(1, h / threshold) (a coat taken to last
+# until it shatters and one coat a Strike: UNVERIFIED, the coat's duration isn't in the files; damage from the build's
+# other skills toward the threshold not counted: the lower reading). The group's real DPS = Melee + the explosion's hit
+# x that rate, as a DPS "more" on whichever of the two PoB scores (scored: Freezing Explosion x (that / its PoB DPS);
+# Shattering Palm x (that / the Melee DPS)). The explosion hits the coated boss where it stands (no wait to move off).
+# Rows: every Strike shatters its coat (the upper reading where h < threshold); PoB's own (x1). Full DPS with both
+# groups summed at PoB's rates isn't corrected here (named). MEDIUM.
+SHATTERING_PALM = "Shattering Palm"
+SHATTERING_PALM_EXPLOSION = "Freezing Explosion"
+SHATTERING_PALM_THRESHOLD = "shattering_palm_debuff_damage_threshold"
+SHATTERING_PALM_ENTRY = "model-gem49-shattering-palm-explosion"
+
+
+def shattering_palm_model(scored: str | None, palm_sets: list[dict], blast_sets: list[dict], threshold: float,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for Shattering Palm's group (see above): `scored` the active skill PoB scores (Shattering Palm or
+    Freezing Explosion), `palm_sets` / `blast_sets` their setRates, `threshold` the coat's damage threshold (0: not read)."""
+    if scored not in (SHATTERING_PALM, SHATTERING_PALM_EXPLOSION) or SHATTERING_PALM_ENTRY in forbidden:
+        return [], []
+    melee = next((s for s in palm_sets if s.get("label") == "Melee"), palm_sets[0] if palm_sets else {})
+    blast = next((s for s in blast_sets if s.get("label") == "Explosion"), blast_sets[0] if blast_sets else {})
+    uses, hit = number(melee.get("Speed")), number(melee.get("AverageDamage"))
+    blast_hit, blast_speed = number(blast.get("AverageDamage")), number(blast.get("Speed"))
+    melee_dps, blast_dps = uses * hit, blast_hit * blast_speed
+    own = melee_dps if scored == SHATTERING_PALM else blast_dps
+    if uses <= 0 or own <= 0:
+        return [], []
+    share = min(1.0, hit / threshold) if threshold > 0 else 1.0
+    rate = uses * share
+    total = melee_dps + blast_hit * rate
+    every = melee_dps + blast_hit * uses
+    factor = max(total / own, AILMENT_FLOOR)
+    mods = [raw_mod("DPS", "MORE", 100 * (factor - 1), scored, tag=SHATTERING_PALM_ENTRY)] if abs(factor - 1) > 1e-9 else []
+    where = (f"a Strike's {hit:,.0f} against the coat's {threshold:,.0f} threshold: {share:.0%} of Strikes shatter it"
+             if threshold > 0 else "the coat's threshold not read: every Strike taken to shatter it")
+    return mods, [{
+        "label": f"{SHATTERING_PALM}: one Freezing Explosion a shattered coat*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": SHATTERING_PALM_ENTRY,
+        "basis": (f"PoB scores {scored} alone ({own:,.1f} DPS) and rates Freezing Explosion as a skill you cast "
+                  f"({blast_speed:.3f} a second, {blast_dps:,.1f} DPS). The game: each Strike ({uses:.3f} a second, "
+                  f"{melee_dps:,.1f} DPS) coats the boss, and the coat shatters into the explosion once it has taken "
+                  f"{SHATTERING_PALM_THRESHOLD} damage ({where}, the coat taken to last until it shatters: UNVERIFIED), "
+                  f"so {rate:.3f} explosions a second at {blast_hit:,.1f}: Melee + explosions = {total:,.1f} DPS, "
+                  f"x{factor:.3f} on {scored}. Rows: every Strike shattering its coat {every:,.1f}; PoB's own x1. "
+                  "Damage from your other skills toward the threshold not counted (the lower reading); Full DPS with "
+                  "both groups at PoB's rates not corrected"),
+        "play": (f"Strike with {SHATTERING_PALM}: each coat explodes once the boss takes {threshold:,.0f} damage. "
+                 f"Without the explosions: {melee_dps:,.0f}; with this build's: {total:,.0f}.")}]
+
+
 # Frozen Locus's explosion only when its Ice Crystal is destroyed (GEM20; an OVERCOUNT: PoB scores the Explosion set at
 # every cast; probe POE2T3441, level 90: Crystal 0, Explosion 254.3 at 0.98 casts a second). The game (26650308):
 # ActiveSkills frozen_locus "call forth an [IceCrystals|Ice Crystal] which can be damaged by you and enemies. If the

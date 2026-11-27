@@ -1,0 +1,53 @@
+# GEM49 (27 Nov 2026): gem stats from GEM46's unread list (scratch/gem46/unread_now.txt), ranked DPS first (GEM lane).
+
+- id: model-gem49-lightning-rod-extra-burst
+  title: "Lightning Rod's quality: 0-20% chance for an additional Burst on impact (PoB: one Burst a use)"
+  kind: gem_stat
+  match: '^lightning_rod_%_chance_for_additional_burst_on_landing$'
+  replace: ["1% more Damage"]
+  stats: ["lightning_rod_%_chance_for_additional_burst_on_landing"]
+  skill: [Lightning Rod]
+  confidence: MEDIUM
+  notes: >-
+    The game (26650308, specific_skill_stat_descriptions/lightning_rod.csd): "{0}% chance to cause an additional Burst
+    on impact" (100% and over: "Causes an additional Burst on impact"); LightningRodPlayer's quality stat, 1% a quality
+    point (PoB act_dex.lua qualityStats), so 20% at quality 20 (more from quality beyond 20). Second source: patch 0.3.0
+    "Lightning Rod: Quality now provides 0-20% chance to cause an additional Burst on Impact, instead of +0-0.4 metres
+    to Burst Radius" (grep_notes --history "Lightning Rod": no later entry on it). PoB maps the stat to nothing (checked:
+    grep of vendor/PathOfBuilding-PoE2/src for the id: only its qualityStats line; no SkillStatMap entry, no reader in
+    Modules) and scores one Burst a use: an UNDERCOUNT. Counted: each % of chance as 1% more Damage on Lightning Rod
+    (the expected Bursts on impact a use, 1 + c / 100; the extra Burst lands on the same spot, so it hits what the first
+    hit). Only the impact Burst: no model of ours scales the chained-to Bursts from Lightning Rod's hit (checked:
+    models.py / assumptions.py, Lightning Rod is read only as a lingering arrow for Magnetic Salvo), so the line moves
+    nothing else. Labelled: a more-Damage line also raises the one Burst's Shock chance and magnitude a little, where a
+    second Burst would roll its own (a small difference either way, UNVERIFIED which is larger).
+  sources: ["data/game-26650308/files/data/statdescriptions/specific_skill_stat_descriptions/lightning_rod.csd",
+            "vendor/PathOfBuilding-PoE2/src/Data/Skills/act_dex.lua (LightningRodPlayer qualityStats)",
+            "patch notes 0.3.0 (Lightning Rod)"]
+  test_in_game: "Not needed: the game text and the patch note agree; a quality-20 Lightning Rod shows a second Burst about one use in five."
+  status: proposed
+
+- id: model-gem49-shattering-palm-explosion
+  title: "Shattering Palm's Freezing Explosion only from a shattered coat (12,788 damage at gem 20), not cast at its own 1 s rate"
+  kind: model
+  model: shattering_palm
+  stats: ["shattering_palm_debuff_damage_threshold"]
+  skill: [Shattering Palm]
+  confidence: MEDIUM
+  notes: >-
+    The game (ActiveSkills shattering_palm, 26650308): a Strike coats nearby enemies in shards of ice; "Dealing enough
+    damage to these enemies will shatter the shards, causing an icy explosion that deals Attack damage".
+    shattering_palm_debuff_damage_threshold is a fixed damage amount on the Melee set (12,788 at gem level 20, 13,640
+    from 21; PoB act_int.lua 17423-17452), which PoB maps to nothing (checked: grep of vendor/PathOfBuilding-PoE2/src
+    for the id: only the stat list). PoB lists the explosion (ShatteringPalmExplosionPlayer, Freezing Explosion) as an
+    active skill with a 1 s cast and rates it at that cast rate: probe POE2T9792 (level-90 skeleton): 165.5 a hit at
+    1.036 a second = 171.5 DPS, the search's main skill, while the Strike lands 0.687 times a second (Melee 33.7 DPS):
+    an OVERCOUNT of the explosion's rate where the explosion is scored, and the Strikes left out. models.
+    shattering_palm_model: explosions a second = Strikes a second x min(1, a Strike's hit / the threshold); the group's
+    DPS = Melee + the explosion's hit x that, as a DPS more on the scored skill. UNVERIFIED (labelled): the coat lasting
+    until it shatters and one coat a Strike (no duration stat in the files); the build's other damage toward the
+    threshold not counted (the lower reading). Row: every Strike shattering its coat.
+  sources: ["vendor/PathOfBuilding-PoE2/src/Data/Skills/act_int.lua (ShatteringPalmPlayer, ShatteringPalmExplosionPlayer)",
+            "builder/search/models.py (shattering_palm_model)", "builder/search/assumptions.py (the main group's hook)"]
+  test_in_game: "Strike a training dummy with Shattering Palm at a low damage level: the explosion should come only after the coat has taken the threshold's damage, never on its own."
+  status: proposed
