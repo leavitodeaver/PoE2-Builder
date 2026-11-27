@@ -13,7 +13,9 @@ def test_creeping_chill_reach_grows_to_the_boss():
     assert c.creeping_chill_reach(5.0) == 0.0
 
 
-def test_chilled_ground_counts_creeping_chill_where_it_is_made():
+def test_chilled_ground_counts_creeping_chill_where_it_is_made(monkeypatch):
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.search import conditions as c
 
     # Frost Wall: made at the target, one ground a use with a charge: 0.1/s x 6 s = 60% of the fight

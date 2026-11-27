@@ -96,8 +96,10 @@ FURY = ("Drop Ignited Ground while moving, which lasts 8 seconds and Ignites as 
         "of your maximum Life")
 
 
-def test_the_builds_ignited_ground_at_the_boss_from_its_fire_infused_casts_charm_and_trail():
+def test_the_builds_ignited_ground_at_the_boss_from_its_fire_infused_casts_charm_and_trail(monkeypatch):
     """conditions.ignited_ground (MECH79): each source at its own rate x duration, combined as independent; no source, 0."""
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     near, far = {"_distance_choice": (1.0, "")}, {"_distance_choice": (8.0, "")}
     assert conditions.ignited_ground({}, [], near) == (0.0, "")
     share, how = conditions.ignited_ground({"Incinerate": (0.05, "x"), "Ball Lightning": (0.1, "y")}, [], far)
@@ -1060,7 +1062,9 @@ def test_djinn_hits_per_use_follow_research29():
     assert models.clone_explosions(5.0) == pytest.approx(booms) and models.clone_explosions(3.0) == 1.0
 
 
-def test_explosive_spears_frenzy_charged_throws_make_ignited_ground_at_their_rate():
+def test_explosive_spears_frenzy_charged_throws_make_ignited_ground_at_their_rate(monkeypatch):
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     pieces = []
     share, how = conditions.ignited_ground({"Explosive Spear": (0.1, "0.10 of its 1.00 throws/s")}, [],
                                            {"_distance_choice": (1.0, "t")}, None, pieces)
@@ -1159,9 +1163,11 @@ def test_pob_counts_a_second_shock_only_with_strike_twice_and_the_box_at_two(eng
     assert dps(2, []) == pytest.approx(dps(1, []), rel=1e-6)
 
 
-def test_spear_of_solaris_and_burning_inscription_make_ignited_ground_at_their_own_rates():
+def test_spear_of_solaris_and_burning_inscription_make_ignited_ground_at_their_own_rates(monkeypatch):
     """MECH84: Spear of Solaris's skybeam ground at its Glory-paid uses and Burning Inscription's at its supported casts,
     each 4 s (the skybeam's 20 pulses 0.2 s apart; TriggeredBurningRunesPlayer's base duration), as independent."""
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     far = {"_distance_choice": (8.0, "")}
     share, how = conditions.ignited_ground({"Spear of Solaris": (0.05, "Glory")}, [], far)
     assert share == pytest.approx(0.05 * 4) and "uses its Glory pays for" in how

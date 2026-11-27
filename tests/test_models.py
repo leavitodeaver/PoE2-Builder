@@ -1775,10 +1775,12 @@ def test_a_curse_laid_as_a_cursed_area_is_labelled_with_the_boss_assumed_to_stay
     for support in models.CURSE_ZONE_SUPPORTS:
         group = [{"gems": [{"name": "Enfeeble", "support": False}, {"name": support, "support": True}]}]
         (use,) = models.curse_uses(group, {**gems, support: {"skillTypes": []}}, {}, 8.0)
-        assert use.zone == support and use.share == 1.0
-        assert "stay in it the whole time" in use.how and "OVERCOUNT" in use.how
+        # (MECH114: the boss walks out of the area, MECHD9's reader rule: the share x stay_share over its duration)
+        assert use.zone == support and use.share == 1.0 and use.on_boss == pytest.approx(models.bosses.stay_share(
+            {}, models.CURSE_ZONE_RADIUS, use.duration)[0])
+        assert use.on_boss < 1.0 and "walks out of it" in use.how and "standing still in it 100%" in use.how
     (plain,) = models.curse_uses([{"gems": [{"name": "Enfeeble", "support": False}]}], gems, {}, 8.0)
-    assert plain.zone == "" and "OVERCOUNT" not in plain.how
+    assert plain.zone == "" and "OVERCOUNT" not in plain.how and plain.share == 1.0
 
 
 def test_press_model_counts_a_pressed_skill_at_its_cooldown_and_shrinks_the_main_skill():

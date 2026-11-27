@@ -8327,9 +8327,9 @@ def _curse_expired(lines: list[str], stats: dict) -> tuple[object, str]:
     for use in stats.get("_curse_uses") or ():
         if use.hexblast or not use.by_hand:
             continue
-        share = use.share * (1.0 - t / 100.0)
+        share = use.on_boss * (1.0 - t / 100.0)  # (MECH114: on the boss, a zone's walk-out in)
         if share > best:
-            best, how = share, (f"{use.name} on the boss {use.share:.0%} of the fight, cast by hand for its whole "
+            best, how = share, (f"{use.name} on the boss {use.on_boss:.0%} of the fight, cast by hand for its whole "
                                 f"{use.duration:g} s, so past {t}% of it for {1 - t / 100:.0%} of that")
     return (t if best >= MIN_UPTIME else 0), how, best
 
@@ -8516,6 +8516,8 @@ CREEPING_CRYSTALS = {"Frozen Locus": 1, "Grim Pillars": 8, "Frost Wall": None, "
 CREEPING_CHILL_RADIUS = 1.2  # m (active_skill_base_area_of_effect_radius 12)
 CREEPING_CHILL_GROWTH = 0.5  # area +50% a second (active_skill_ground_effect_area_of_effect_+%_final_per_second 50)
 CREEPING_CHILL_GROWTH_MAX = 3.0  # to +300% (..._per_second_max 300)
+# (MECH114) its radius for the boss walking out (ground_stay): at half its 6 s life, 1.2 m x sqrt(1 + 0.5 x 3) (LOW)
+CREEPING_CHILL_MID_RADIUS = CREEPING_CHILL_RADIUS * math.sqrt(1 + CREEPING_CHILL_GROWTH * 3.0)
 
 
 def creeping_chill_reach(metres: float, seconds: float = CHILLED_GROUND_SECONDS) -> float:
@@ -8534,15 +8536,24 @@ def chilled_ground(stats: dict, texts: list[str], main_gems: set[str],
     """(share of the fight the boss stands on your Chilled Ground, how); see the note above. (0.0, "") with no source.
     `creeping` (MECH93): [(crystal skill, Creeping Chill triggers a second, how)] (Conditions._creeping_chill)."""
     creeping_parts, creeping_off = [], 1.0
+    still_off, fixed_off, walks = 1.0, 1.0, []  # (MECH114: the rows, the boss standing still / every move its mean)
     for name, rate, how in creeping or []:
+        stay = row = 1.0
         if name in CREEPING_CHILL_AT_BOSS:
-            seconds, where = CHILLED_GROUND_SECONDS, "made at the target, the boss taken to stay in it (LOW)"
+            seconds, where = CHILLED_GROUND_SECONDS, "made at the target (LOW)"
+            # (MECH114: the boss walks out of it, ground_stay; its radius at half its life, 1.2 m growing, LOW)
+            stay, row, walk_how = ground_stay(stats, CREEPING_CHILL_MID_RADIUS, seconds, rate)
+            if stay < 1.0 and rate > 0:
+                walks.append(walk_how)
         else:
             metres = _boss_metres(stats)
             seconds = creeping_chill_reach(metres)
             where = (f"made at you: it reaches the boss {metres:g} m away {seconds:.1f} s of its "
                      f"{CHILLED_GROUND_SECONDS:g} s (radius 1.2 m growing to 2.4 m)")
-        up = _covered(rate, 1.0, seconds)
+        up0 = _covered(rate, 1.0, seconds)
+        up = up0 * stay
+        still_off *= 1 - up0
+        fixed_off *= 1 - up0 * row
         creeping_off *= 1 - up
         creeping_parts.append(f"{CREEPING_CHILL} on {how}; {CHILLED_GROUND_SECONDS:g} s a ground (the default, MEDIUM), "
                               f"{where}: {up:.0%}")
@@ -8558,21 +8569,35 @@ def chilled_ground(stats: dict, texts: list[str], main_gems: set[str],
         elif m := CHILLED_CHANCE_ON_FREEZE.match(text.strip()):
             sources.append((int(m.group(1)) / 100, CHILLED_CHANCE_SECONDS,
                             f"{m.group(1)}% a Freeze ({CHILLED_CHANCE_SECONDS:g} s)"))
+    def rows() -> str:
+        if not walks:
+            return ""
+        return ("; the boss walks out of it once it can move (MECHD9's reader rule, LOW): " + "; ".join(dict.fromkeys(walks))
+                + f". Rows: the boss standing still in it {1 - still_off:.0%}; every move its mean length "
+                f"{1 - fixed_off:.0%}")
     if not sources:
         if not creeping_parts:
             return 0.0, ""
         share = 1 - creeping_off
-        return share, "; ".join(creeping_parts) + f": on Chilled Ground {share:.0%} of the fight"
+        return share, "; ".join(creeping_parts) + f": on Chilled Ground {share:.0%} of the fight" + rows()
     freezes = models.buildup_rate(stats, "Freeze")
+    # (MECH114) a Frozen boss can't walk out: it stays in the patch for the Freeze, then may (ground_stay's `still`)
+    frozen = models.immobilise_duration(stats, "Freeze") if freezes > 0 else 0.0
     off, parts = creeping_off, []
     for chance, seconds, how in sources:
-        up = _covered(freezes, chance, seconds)
+        up0 = _covered(freezes, chance, seconds)
+        stay, row, walk_how = ground_stay(stats, CHILLED_GROUND_RADIUS, seconds, freezes * chance, still=frozen)
+        if stay < 1.0 and up0 > 0:
+            walks.append(walk_how)
+        up = up0 * stay
+        still_off *= 1 - up0
+        fixed_off *= 1 - up0 * row
         off *= 1 - up
         parts.append(f"{how}: {up:.0%}")
     share = 1 - off
     return share, (f"the boss Frozen {freezes:.3f}/s by the main skill; " + "; ".join(parts + creeping_parts)
-                   + f": on Chilled Ground {share:.0%} of the fight (the frozen boss taken to stay in the patch, MEDIUM; "
-                   "skills' own ground and other skills' Freezes not counted)")
+                   + f": on Chilled Ground {share:.0%} of the fight (the frozen boss stays in the patch while Frozen, "
+                   "MEDIUM; skills' own ground and other skills' Freezes not counted)" + rows())
 
 
 # Ignited Ground under the boss (MECH79; plans/kw-ignited-ground.md item 1). KeywordPopups IgnitedGround: "repeatedly
@@ -8633,9 +8658,19 @@ def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats
     source. `pieces` (MECH80, ground_ignite): each counted source is appended as (label, its share, its ground's s, the
     Fire damage it Ignites as though dealing, or None where it isn't read)."""
     parts, notes, off = [], [], 1.0
+    still_off, fixed_off, walks = 1.0, 1.0, []  # (MECH114: the rows, the boss standing still / every move its mean)
+
+    def walk(up: float, seconds: float, per_second: float) -> float:
+        nonlocal still_off, fixed_off
+        stay, row, how = ground_stay(stats, IGNITED_GROUND_RADIUS, seconds, per_second)
+        still_off *= 1 - up
+        fixed_off *= 1 - up * row
+        if stay < 1.0 and up > 0:
+            walks.append(how)
+        return up * stay
     for name, (rate, how) in makers.items():
         seconds = IGNITED_GROUND_MAKERS[name]
-        up = _covered(rate, 1.0, seconds)
+        up = walk(_covered(rate, 1.0, seconds), seconds, rate)
         parts.append(f"{name}'s ground on its {MAKER_USES.get(name, 'Fire-Infused casts')} ({how}; {seconds:g} s, made at "
                      f"the boss, LOW): {up:.0%}")
         off *= 1 - up
@@ -8648,7 +8683,7 @@ def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats
                 notes.append(f"the charm's ground at your feet (you fight {_boss_metres(stats):g} m from the boss: not "
                              "counted)")
                 continue
-            up = _covered(uses, 1.0, int(m.group(1)))
+            up = walk(_covered(uses, 1.0, int(m.group(1))), float(m.group(1)), uses)  # (MECH114: you follow the boss out)
             parts.append(f"the charm's ground at your feet ({how}; {m.group(1)} s, {IGNITED_GROUND_RADIUS:g} m): {up:.0%}")
             off *= 1 - up
             if pieces is not None:
@@ -8662,13 +8697,17 @@ def ignited_ground(makers: dict[str, tuple[float, str]], texts: list[str], stats
             else:
                 parts.append(f"the trail while moving ({m.group(1)} s): walk or roll through the boss's spot at least "
                              f"every {m.group(1)} s (a way to play the build; without it, the trail adds nothing): 100%")
-                off = 0.0
+                off = still_off = fixed_off = 0.0  # (MECH114: laid where the boss stands as you pass: no walk-out)
                 if pieces is not None:
                     pieces.append(("the trail while moving", 1.0, float(m.group(1)), _as_though_life(text, stats)))
             break
     if not parts and not notes:
         return 0.0, ""
     share = 1 - off
+    if walks:  # (MECH114: the boss walks out of it; rows)
+        notes.append("the boss walks out of it (MECHD9's reader rule, LOW): " + "; ".join(dict.fromkeys(walks))
+                     + f". Rows: the boss standing still in it {1 - still_off:.0%}; every move its mean length "
+                     f"{1 - fixed_off:.0%}")
     return share, "; ".join(parts + notes + [f"on Ignited Ground {share:.0%} of the fight ({IGNITED_NOT_COUNTED})"])
 
 
@@ -8875,6 +8914,10 @@ OIL_ADDED = {"Oil Grenade": 1.5, "Oil Barrage": 1.0}  # the permyriad stat / 100
 OIL_GROUND_SKILLS = {name: 1.0 + added for name, added in OIL_ADDED.items()}  # the set's own Fire + the added share
 OIL_GROUND_SET = 2  # PoB's "Oil Ground" stat set of both (act_str.lua OilBarragePlayer / OilGrenadePlayer statSets[2])
 OIL_GROUND_SECONDS = 6.0  # s, both skills' Oil Ground (game files above; duration modifiers not read)
+# (MECH114) the Oil Ground's radius, for the boss walking out of it (ground_stay): PoB's "Oil Ground" stat sets'
+# active_skill_base_area_of_effect_radius, Oil Grenade 20-26 (levels 1-20; level 20's taken), Oil Barrage 21 (tenths of
+# a metre; area modifiers not read: LOW)
+OIL_GROUND_RADII = {"Oil Grenade": 2.6, "Oil Barrage": 2.1}
 OIL_PIECE = "'s lit Oil Ground"  # (the label oil_ground gives its pieces; MECH100 keys the Oil ones on it)
 DETONATOR = "Detonator"  # PoB's skill type for "Detonator Skills" (KeywordPopups Detonator)
 
@@ -8895,11 +8938,11 @@ def oil_ignite_share(lit: float, oilings: float, reach: float, seconds: float) -
 
 
 def oil_ground(makers: dict[str, tuple[float, float, str]], lighters: list[tuple[str, float]], ground: float,
-               pieces: list | None = None) -> tuple[list[tuple[str, float, float]], str]:
+               pieces: list | None = None, stats: dict | None = None) -> tuple[list[tuple[str, float, float]], str]:
     """([(skill, share of the fight its lit Oil Ground is under the boss, the Fire it Ignites as though dealing)], how);
     see the note above. `makers`: {skill: (its Oil-making uses a second, its Oil Ground set's Fire hit, how)};
     `lighters`: [(what, lights a second)]; `ground`: your Ignited Ground's share under the boss. Each counted ground is
-    appended to `pieces` as ground_ignite reads them."""
+    appended to `pieces` as ground_ignite reads them. `stats` (MECH114): the boss read for walking out (ground_stay; None: standing still)."""
     lights = sum(rate for _, rate in lighters if rate > 0)
     chance = oil_lit_chance(lights, ground)
     said = ", ".join(f"{what} {rate:.2f}/s" for what, rate in lighters if rate > 0)
@@ -8907,12 +8950,18 @@ def oil_ground(makers: dict[str, tuple[float, float, str]], lighters: list[tuple
         said = ", ".join(filter(None, [said, f"your Ignited Ground under the boss {ground:.0%}"]))
     out, parts = [], []
     for name, (uses, fire, how) in sorted(makers.items()):
-        up = _covered(uses, 1.0, OIL_GROUND_SECONDS)
+        still = _covered(uses, 1.0, OIL_GROUND_SECONDS)
+        # (MECH114: the boss walks out of it, ground_stay; the Oil's Slow on it not read: LOW)
+        stay, row, walk_how = (ground_stay(stats, OIL_GROUND_RADII.get(name, 2.0), OIL_GROUND_SECONDS, uses)
+                               if stats is not None else (1.0, 1.0, ""))  # (no stats: the boss standing still)
+        up = still * stay
         lit = up * chance
         damage = OIL_GROUND_SKILLS[name] * fire
-        parts.append(f"{name}'s Oil Ground ({how}; {OIL_GROUND_SECONDS:g} s, thrown at the boss, MEDIUM) up {up:.0%}, lit "
-                     f"{chance:.0%} of the time ({said or 'nothing lights it'}): {lit:.0%} of the fight, Igniting as though "
-                     f"dealing its {fire:,.0f} Fire hit + the added {OIL_ADDED[name]:.0%} = {damage:,.0f} (MEDIUM)")
+        parts.append(f"{name}'s Oil Ground ({how}; {OIL_GROUND_SECONDS:g} s, thrown at the boss, MEDIUM) up {up:.0%}"
+                     + (f" (the boss walks out of it, MECHD9's reader rule, LOW: {walk_how}; rows: standing still "
+                        f"{still:.0%}, every move its mean length {still * row:.0%})" if stay < 1.0 else "")
+                     + f", lit {chance:.0%} of the time ({said or 'nothing lights it'}): {lit:.0%} of the fight, Igniting "
+                     f"as though dealing its {fire:,.0f} Fire hit + the added {OIL_ADDED[name]:.0%} = {damage:,.0f} (MEDIUM)")
         if lit > 0 and damage > 0:
             out.append((name, lit, damage, uses * chance))
             if pieces is not None:
@@ -9226,6 +9275,38 @@ def _covered(uses: float, chance: float, duration: float) -> float:
     return 1.0 - (1.0 - chance) ** n if n >= 1 else n * chance
 
 
+# The boss walks out of a ground made on it (MECH114; MECHD9's "boss stands still" survey, scratch/mechd9/survey.md in
+# MECH-D's folder: an OVERCOUNT in every ground reader, which took each ground at the boss for its whole duration; the
+# manager's READER RULE, 26 Nov 06:30: the share x bosses.stay_share(stats, R, T), T the shorter of the ground's duration
+# and the build's own recast interval on the boss; rows: the boss standing still, every move its mean length). _covered
+# spaces a source's grounds evenly, one every c = 1 / (uses x chance) s, each made where the boss stands (the player
+# recasts on the boss: a player who takes the skill plays to keep it under the boss). With out-moves at k a second (the
+# preset's video relocations that go past R + its hit radius; bosses.stay_share) the boss is inside the newest ground
+# min(T, c) / c x stay_share(R, min(T, c)) of the fight: _covered's share x ground_stay's factor. A boss that left an
+# older ground isn't taken to walk back into it (the lower reading, stay_share's). `still`: seconds at the start of each
+# ground the boss can't move (a ground made by Freezing it: it stays in the patch while Frozen). Random-chance sources
+# (chance < 1) read their mean gap (LOW, as _covered).
+def ground_stay(stats: dict, radius: float, seconds: float, per_second: float,
+                still: float = 0.0) -> tuple[float, float, str]:
+    """(the share of a ground's covered time the boss is still inside it, the fixed-move row's, how): see above.
+    `per_second` the grounds made a second (uses x chance), `seconds` a ground's duration, `radius` its metres."""
+    if seconds <= 0 or radius <= 0:
+        return 1.0, 1.0, ""
+    window = min(seconds, 1.0 / per_second) if per_second > 0 else seconds
+    held = min(max(still, 0.0), window)
+    rest = window - held
+    if rest <= 0:
+        return 1.0, 1.0, f"held still (Frozen) for the whole {window:g} s"
+    head, how = bosses.stay_share(stats, radius, rest)
+    fixed, _ = bosses.stay_share(stats, radius, rest, moves="fixed")
+    share, row = (held + rest * head) / window, (held + rest * fixed) / window
+    if share >= 1.0 - 1e-9:
+        return 1.0, 1.0, how
+    recast = f"a new ground every {window:.1f} s (before its {seconds:g} s end), " if window < seconds else ""
+    frozen = f"Frozen in it the first {held:.1f} s, then " if held > 0 else ""
+    return share, row, f"{share:.0%} inside: {recast}{frozen}{how}"
+
+
 def _boss_metres(stats: dict) -> float:
     """The distance the build fights the boss from: the search's choice, else the main skill's natural one."""
     chosen = stats.get("_distance_choice")
@@ -9246,6 +9327,17 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
     notes: list[str] = []
     off = 1.0
     radii: list[tuple[float, float]] = []  # (share, radius m) per counted source, for "you on it" (_on_shocked_ground)
+    still_off, fixed_off, walks = 1.0, 1.0, []  # (MECH114: the rows, the boss standing still / every move its mean)
+
+    def walk(up: float, radius: float, seconds: float, per_second: float) -> float:
+        """(MECH114) `up` x the share the boss stays in the ground (ground_stay); the rows kept."""
+        nonlocal still_off, fixed_off
+        stay, row, how = ground_stay(stats, radius, seconds, per_second)
+        still_off *= 1 - up
+        fixed_off *= 1 - up * row
+        if stay < 1.0 and up > 0:
+            walks.append(how)
+        return up * stay
     if skill := stats.get("_sg_skill"):
         name, ms = skill
         if ms > 0:
@@ -9253,41 +9345,46 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
             how = feed.get("how") or "no rate read for the uses that make it: 0"
             radius = SHOCKED_GROUND_RADII.get(name, SHOCKED_GROUND_RADIUS)
             if SHOCKED_GROUND_GATED.get(name) == "cull":  # (made only in the last t of the boss's pool)
-                up = _covered(uses, 1.0, ms / 1000) * min(1.0, number(feed.get("share")))
+                up0 = _covered(uses, 1.0, ms / 1000) * min(1.0, number(feed.get("share")))
+                up = walk(up0, radius, ms / 1000, uses)
                 parts.append(f"{name}'s ground only when it explodes ({how}; {ms / 1000:g} s, {radius:g} m): {up:.0%}")
             elif name in SHOCKED_GROUND_GATED:
                 rate = min(uses, number(feed.get("rate")))
-                up = _covered(rate, 1.0, ms / 1000)
+                up0 = _covered(rate, 1.0, ms / 1000)
+                up = walk(up0, radius, ms / 1000, rate)
                 parts.append(f"{name}'s ground from {rate:.2f} of its {uses:.2f} uses/s ({how}; {ms / 1000:g} s, "
                              f"{radius:g} m): {up:.0%}")
             else:
                 # (MECH103: Vivid Stampede's rate is its landings, 4 a Stag; the ground comes once a Stag, at its path's
                 # end: an OVERCOUNT x4 in grounds made before)
                 each = uses / models.VIVID_LANDINGS if name == models.VIVID_STAMPEDE else uses
-                up = _covered(each, 1.0, ms / 1000)
+                up0 = _covered(each, 1.0, ms / 1000)
+                up = walk(up0, radius, ms / 1000, each)
                 where = (f"; once a Stag ({models.VIVID_LANDINGS} landings), at the end of its full path, taken to be "
                          "at the boss, LOW" if name == models.VIVID_STAMPEDE else "")
                 parts.append(f"{name}'s own ground on each use ({ms / 1000:g} s, {uses:.2f} uses/s, {radius:g} m{where}): "
                              f"{up:.0%}")
             off *= 1 - up
-            radii.append((up, radius))
+            radii.append((up0, radius))
         else:
             notes.append(f"{name}'s ground (no duration stat in its level stats: not counted, an undercount)")
     if ms := number(stats.get("_sg_support")):
         crit = min(number(stats.get("CritChance")), 100.0) / 100.0
-        up = _covered(uses * hit, crit, ms / 1000)
+        up0 = _covered(uses * hit, crit, ms / 1000)
+        up = walk(up0, SHOCKED_GROUND_RADII[SHOCKED_GROUND_SUPPORT], ms / 1000, uses * hit * crit)
         parts.append(f"{SHOCKED_GROUND_SUPPORT}, on the first Critical Hit of a use ({crit:.0%} crit, {ms / 1000:g} s, "
                      f"{SHOCKED_GROUND_RADII[SHOCKED_GROUND_SUPPORT]:g} m): {up:.0%}")
         off *= 1 - up
-        radii.append((up, SHOCKED_GROUND_RADII[SHOCKED_GROUND_SUPPORT]))
+        radii.append((up0, SHOCKED_GROUND_RADII[SHOCKED_GROUND_SUPPORT]))
     for text in texts:
         if m := SHOCK_MAKES_GROUND.search(text):
             shock = min(number(stats.get("ShockChancePerHit")), 100.0) / 100.0
-            up = _covered(uses * hit, shock * int(m.group(1)) / 100, SHOCKED_GROUND_DURATION)
+            up0 = _covered(uses * hit, shock * int(m.group(1)) / 100, SHOCKED_GROUND_DURATION)
+            up = walk(up0, SHOCKED_GROUND_RADIUS, SHOCKED_GROUND_DURATION, uses * hit * shock * int(m.group(1)) / 100)
             parts.append(f"{m.group(1)}% chance on Shocking ({shock:.0%} Shock chance per hit, {SHOCKED_GROUND_DURATION:g} s "
                          f"by default): {up:.0%}")
             off *= 1 - up
-            radii.append((up, SHOCKED_GROUND_RADIUS))
+            radii.append((up0, SHOCKED_GROUND_RADIUS))
         elif m := GROUND_WHILE_MOVING.search(text):
             if stats.get("_stationary") and not number(stats.get("_rolling")):
                 notes.append("the trail while moving (the build stands still and doesn't roll: not counted)")
@@ -9298,42 +9395,52 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
                 continue
             parts.append(f"the trail while moving ({m.group(1)} s): walk or roll through the boss's spot at least every "
                          f"{m.group(1)} s (a way to play the build; without it, the trail adds nothing): 100%")
-            off = 0.0
+            off = still_off = fixed_off = 0.0  # (MECH114: laid where the boss stands as you pass: no walk-out)
             radii.append((1.0, SHOCKED_GROUND_RADIUS))
     if mark := stats.get("_sg_charged_mark"):  # (MECH61: was a note, not counted)
         rate, how, radius = mark
-        up = _covered(rate, 1.0, CHARGED_MARK_SECONDS)
+        up0 = _covered(rate, 1.0, CHARGED_MARK_SECONDS)
+        up = walk(up0, radius, CHARGED_MARK_SECONDS, rate)
         if up > 0:
             parts.append(f"{CHARGED_MARK}'s ground on each Activation of the Mark it supports ({how}; "
                          f"{CHARGED_MARK_SECONDS:g} s, {radius:g} m): {up:.0%}")
             off *= 1 - up
-            radii.append((up, radius))
+            radii.append((up0, radius))
         else:
             notes.append(f"{CHARGED_MARK}'s ground ({how}: 0)")
     if leap := stats.get("_sg_leap"):  # (MECH105, R54-6: Thunderous Leap's quality ground)
         rate, chance, how = leap
-        up = _covered(rate, chance, SHOCKED_GROUND_DURATION)
+        up0 = _covered(rate, chance, SHOCKED_GROUND_DURATION)
+        up = walk(up0, SHOCKED_GROUND_RADIUS, SHOCKED_GROUND_DURATION, rate * chance)
         if up > 0:
             parts.append(f"{THUNDEROUS_LEAP}'s ground when Detonating Spears ({how}; {chance:.0%} a Leap that Detonates, "
                          f"{SHOCKED_GROUND_DURATION:g} s by default, MEDIUM): {up:.0%}")
             off *= 1 - up
-            radii.append((up, SHOCKED_GROUND_RADIUS))
+            radii.append((up0, SHOCKED_GROUND_RADIUS))
         else:
             notes.append(f"{THUNDEROUS_LEAP}'s ground ({how}: 0)")
     if storm := stats.get("_sg_death_storm"):  # (MECH65: counted; MECH61 had it as a note, an undercount)
         rate, chance, how = storm
-        up = _covered(rate, chance, models.DEATH_STORM_SECONDS)
+        up0 = _covered(rate, chance, models.DEATH_STORM_SECONDS)
+        up = walk(up0, models.DEATH_STORM_RADIUS, models.DEATH_STORM_SECONDS, rate * chance)
         if up > 0:
             parts.append(f"Death Storm's ground around the fallen Skeletons it strikes at the boss ({how}; "
                          f"{models.DEATH_STORM_SECONDS:g} s, {models.DEATH_STORM_RADIUS:g} m): {up:.0%}")
             off *= 1 - up
-            radii.append((up, models.DEATH_STORM_RADIUS))
+            radii.append((up0, models.DEATH_STORM_RADIUS))
         else:
             notes.append(f"Death Storm's ground ({how}: 0)")
     stats["_sg_radii"] = radii
     if not parts:
         return 0.0, "; ".join(notes)
-    return 1.0 - off, "; ".join(parts + notes) + "; each ground taken to be at the boss for its full duration (LOW)"
+    tail = "; each ground made at the boss (LOW)"
+    if walks:  # (MECH114: the boss walks out of it; rows: standing still, every move its mean length)
+        tail += ("; the boss walks out of it (MECHD9's reader rule, LOW): " + "; ".join(dict.fromkeys(walks))
+                 + f". Rows: the boss standing still in it {1.0 - still_off:.0%}; every move its mean length "
+                 f"{1.0 - fixed_off:.0%}")
+    else:
+        tail += " for its full duration"
+    return 1.0 - off, "; ".join(parts + notes) + tail
 
 
 # Jagged Ground (MECH51; RESEARCH5's spike-pit.md, game files HIGH; FIX_QUEUE RESEARCH12 / AUDIT10). Its ledger condition
@@ -9361,6 +9468,8 @@ PERSISTENT_GROUND_INC = 50.0
 JAGGED_DURATION_LINE = re.compile(r"(\d+(?:\.\d+)?)% (increased|reduced) Jagged Ground Duration", re.I)
 JAGGED_GROUND_ASSUMED = 0.4  # the share the ledger's "if:JaggedGround" lines bake in (spike-pit, aggravate-bleed-jagged-ground)
 FURIOUS_SLAM_RAGE = 10  # bear_slam_spend_X_rage_for_stronger_slam (RAGE_PER_USE)
+JAGGED_GROUND_RADIUS = 1.5  # m (MECH114: MECHD9's survey estimate; no radius stat in the game data, checked: Stats ids
+# holding jagged: area +% stats only; used only where PoB gives the skill no AreaOfEffectRadius; LOW)
 
 
 def quake_patch_share(uses: float, fuse: float) -> float:
@@ -9380,6 +9489,19 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
     stats = models.at_main_share(stats)  # (MECH93: the main skill at its share of the fight, AT_MAIN_SHARE's note)
     uses = number(stats.get("Speed"))
     off, parts, notes = 1.0, [], []
+    # (MECH114: the boss walks out of a patch, ground_stay; the patch's radius taken as the skill's area, PoB's
+    # AreaOfEffectRadius, else JAGGED_GROUND_RADIUS: LOW; its 20% Slow on the boss not read)
+    radius = number(stats.get("AreaOfEffectRadius")) / 10 or JAGGED_GROUND_RADIUS
+    still_off, fixed_off, walks = 1.0, 1.0, []
+
+    def walk(up: float, seconds: float, per_second: float) -> float:
+        nonlocal still_off, fixed_off
+        stay, row, how = ground_stay(stats, radius, seconds, per_second)
+        still_off *= 1 - up
+        fixed_off *= 1 - up * row
+        if stay < 1.0 and up > 0:
+            walks.append(how)
+        return up * stay
     inc = sum(float(m.group(1)) * (1 if m.group(2).lower() == "increased" else -1)
               for t in texts or [] if (m := JAGGED_DURATION_LINE.search(t)))
     persistent = any(g in main_gems for g in PERSISTENT_GROUND_GEMS)
@@ -9399,6 +9521,8 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
         limit, own, short = earthquake if earthquake else (0.0, seconds, None)
         fuse = short if short and short < seconds else seconds
         up = quake_patch_share(uses, fuse)
+        period = math.ceil(uses * fuse - 1e-9) / uses if uses > 0 else 0.0
+        up = walk(up, fuse, 1.0 / period if period > 0 else 0.0)
         parts.append(f"Earthquake's patch on each use that finds none ({uses:.2f}/s, evenly spaced: a patch every "
                      f"{math.ceil(uses * fuse - 1e-9) if uses > 0 else 0:g} use(s), {fuse:g} s"
                      + (f": Overabundance's less duration on the fuse (R56-6, MEDIUM); with the full {seconds:g} s: "
@@ -9407,20 +9531,20 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
                         else "") + f"): {up:.0%}")
         off *= 1 - up
     if main == "Stampede":
-        up = min(1.0, uses * 6.0 * factor)
+        up = walk(min(1.0, uses * 6.0 * factor), 6.0 * factor, uses)
         parts.append(f"Stampede's footstep patches ({6.0 * factor:g} s; whether its closing slam ends them: UNVERIFIED, "
                      f"counted): {up:.0%}")
         off *= 1 - up
     if main == "Furious Slam":
         if rage >= FURIOUS_SLAM_RAGE:
-            up = min(1.0, uses * seconds)
+            up = walk(min(1.0, uses * seconds), seconds, uses)
             parts.append(f"Furious Slam spending Rage ({rage:.0f} held, {FURIOUS_SLAM_RAGE} a slam): {up:.0%}")
             off *= 1 - up
         else:
             notes.append(f"Furious Slam makes it only when it spends Rage ({rage:.0f} held: none)")
     if "Jagged Ground I" in main_gems and slam:
         rate = min(uses, endurance_gains)
-        up = min(1.0, rate * seconds)
+        up = walk(min(1.0, rate * seconds), seconds, rate)
         if up > 0:
             parts.append(f"Jagged Ground I, a patch per Endurance Charge consumed ({endurance_gains:.2f} gained/s, "
                          f"{uses:.2f} uses/s): {up:.0%}")
@@ -9429,7 +9553,7 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
             notes.append("Jagged Ground I consumes an Endurance Charge for each patch: the build gains none")
     if "Jagged Ground II" in main_gems and slam:
         rate = uses * min(1.0, aftershock_pct / 100)
-        up = min(1.0, rate * seconds)
+        up = walk(min(1.0, rate * seconds), seconds, rate)
         if up > 0:
             parts.append(f"Jagged Ground II, a patch per Aftershock ({aftershock_pct:.0f}% chance): {up:.0%}")
             off *= 1 - up
@@ -9437,6 +9561,11 @@ def jagged_ground(main: str | None, main_types: set[str], main_gems: set[str], s
             notes.append("Jagged Ground II makes it from Aftershocks: the main slam has no Aftershock chance")
     if not parts:
         return 0.0, "; ".join(notes) or "no source of Jagged Ground on the main skill"
+    if walks:  # (MECH114: rows)
+        return 1.0 - off, "; ".join(parts + notes) + (
+            "; each patch made at the boss (LOW), which walks out of it (MECHD9's reader rule, LOW): "
+            + "; ".join(dict.fromkeys(walks)) + f". Rows: the boss standing still in it {1 - still_off:.0%}; every move "
+            f"its mean length {1 - fixed_off:.0%}")
     return 1.0 - off, "; ".join(parts + notes) + "; each patch taken to be at the boss for its full duration (LOW)"
 
 
@@ -11803,7 +11932,7 @@ class Conditions:
         ignites = sum(r * min(m, 100.0) / 100.0 for _, r, m in flammability_sources(stats))
         if ignites > 0:
             lighters.append(("the boss's Ignites", ignites))
-        found, how = oil_ground(makers, lighters, number((stats.get("_ignited_ground") or (0.0, ""))[0]), pieces)
+        found, how = oil_ground(makers, lighters, number((stats.get("_ignited_ground") or (0.0, ""))[0]), pieces, stats)
         stats["_oil_ground_how"] = how
         return found
 

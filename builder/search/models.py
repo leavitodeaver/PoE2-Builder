@@ -3322,6 +3322,16 @@ CURSED_UNSCALED = re.compile(r"against cursed enemies|hitting cursed enemies|poi
 CURSE_ZONE_SUPPORTS = ("Cursed Ground", "Doedre's Undoing", "Hayoxi's Fulmination")
 CURSE_ZONE_NOTE = ("; as a cursed area on the ground ({0}): the boss is assumed to stay in it the whole time (MEDIUM: no "
                    "boss-movement data; an OVERCOUNT wherever the boss walks out of it)")
+# (MECH114; MECHD9's "boss stands still" survey, the manager's READER RULE 26 Nov 06:30) the boss walks out of the cursed
+# area: the zone curse's share x bosses.stay_share(stats, R, its duration) (each cast laid where the boss stands, recast
+# once a duration by hand or at the trigger's rate: the window is the duration), R the curse's own radius (PoB's
+# activeSkills curseRadius, stats["_curse_radii"], tenths of a metre), else CURSE_ZONE_RADIUS (MECHD9's survey figure,
+# LOW); rows: standing still (before MECH114), every move its mean length. The area's own duration taken as the curse's
+# (UNVERIFIED, as before). The note CURSE_ZONE_WALK_NOTE replaces CURSE_ZONE_NOTE where the boss moves.
+CURSE_ZONE_RADIUS = 3.1  # m
+CURSE_ZONE_WALK_NOTE = ("; as a cursed area on the ground ({0}), each laid where the boss stands: it walks out of it "
+                        "(MECHD9's reader rule, LOW): {1}. Rows: the boss standing still in it {2:.0%}; every move its "
+                        "mean length {3:.0%}")
 # Hexblast as the main skill (MECHB31; MECHB30's turn-4 finding beside GEM10's hexblast_model, PATCH_CHECK L2-2). The game
 # (ActiveSkills hexblast; patch 0.2.0, the newest entry on it, grep_notes.py --history "Hexblast"): it "can only detonate
 # Curses for which at least 50% of the duration has expired" and removes the curse. Played for its damage, each hand-cast
@@ -3369,6 +3379,15 @@ class CurseUse:
     # the curse is on)
     hexblast: bool = False
     delay: float = CURSE_DELAY  # (MECH86) its activation delay: PoB's with the build's modifiers, else 1.5 s
+    # (MECH114) the share of `share` the boss stays in the curse's area (curse_zone_walk; 1 for a curse on the boss).
+    # `share` stays the casts' view (Doom Blast's expiries, Hexblast's detonations, triggered rates read share /
+    # duration); the curse's effect on the boss reads on_boss
+    stay: float = 1.0
+
+    @property
+    def on_boss(self) -> float:
+        """(MECH114) The share of the fight the curse is on the boss: `share` x `stay`."""
+        return self.share * self.stay
 
 
 # Repulsion (MECH93; GEM26's two OVERCOUNTS, the manager 07:40; RESEARCH35 R35-25, research/caltrops-fulmination-
@@ -3498,8 +3517,7 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
                 uses[-1] = repulsion_use(uses[-1], stats, gems, "Blasphemy" in types or meta is not None, rate)
             uses[-1] = curse_level_capped(uses[-1], stats)  # (MECH100: under gem level 18, a cap below the boss's level)
         if zone:  # (every curse this group applies is laid as the support's area, the Blasphemy aura excepted)
-            uses[before:] = [replace(u, how=u.how + CURSE_ZONE_NOTE.format(zone), zone=zone)
-                             if "Blasphemy" not in u.how else u for u in uses[before:]]
+            uses[before:] = [curse_zone_walk(u, zone, stats) if "Blasphemy" not in u.how else u for u in uses[before:]]
     hits = hits_per_second(stats) > 0
     for text in lines:
         if m := CURSE_ON_HIT.search(text):
@@ -3508,12 +3526,23 @@ def curse_uses(groups: list[dict], gems: dict, stats: dict, metres: float,
     return uses
 
 
+def curse_zone_walk(use: CurseUse, zone: str, stats: dict) -> CurseUse:
+    """(MECH114) A zone curse's use with the boss walking out of the area (CURSE_ZONE_WALK_NOTE's note above)."""
+    reach = number((stats.get("_curse_radii") or {}).get(use.name)) / 10 or CURSE_ZONE_RADIUS
+    stay, how = bosses.stay_share(stats, reach, use.duration)
+    if use.share <= 0 or stay >= 1.0:
+        return replace(use, how=use.how + CURSE_ZONE_NOTE.format(zone), zone=zone)
+    fixed, _ = bosses.stay_share(stats, reach, use.duration, moves="fixed")
+    return replace(use, stay=stay, zone=zone,
+                   how=use.how + CURSE_ZONE_WALK_NOTE.format(zone, how, use.share, use.share * fixed))
+
+
 def curse_share(uses: list[CurseUse]) -> tuple[float, str]:
     """(share of the fight the boss carries one of your curses, basis)."""
     if not uses:
         return 0.0, "no curse in the build"
-    best = max(uses, key=lambda u: u.share)
-    return best.share, f"{best.name} {best.how}"
+    best = max(uses, key=lambda u: u.on_boss)  # (MECH114: on the boss, the zone's walk-out in)
+    return best.on_boss, f"{best.name} {best.how}"
 
 
 def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
@@ -3526,8 +3555,8 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
     by_name = {s.name: s for s in skills}
     for use in uses:
         basis = use.how
-        if use.share < 1.0 and use.name in by_name:
-            mods.append(line("1% more Effect of your Curses", 100 * (use.share - 1), skill=use.name))
+        if use.on_boss < 1.0 and use.name in by_name:  # (MECH114: on the boss, the zone's walk-out in)
+            mods.append(line("1% more Effect of your Curses", 100 * (use.on_boss - 1), skill=use.name))
         cast = by_name.get(use.name)
         if use.by_hand and main is not None and cast is not None and cast is not main:
             took = cast.cast_time or 0.7
@@ -3537,7 +3566,7 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
             lost = min(1.0, took / every)
             mods.append(line("1% more Attack and Cast Speed", -100 * lost, skill=main.name))
             basis += f"; casting it ({took:.2f} s every {every:.3g} s) takes {lost:.0%} of {main.name}'s time"
-        notes.append({"label": f"{use.name}: share of the fight on the boss", "value": round(use.share, 2),
+        notes.append({"label": f"{use.name}: share of the fight on the boss", "value": round(use.on_boss, 2),
                       "basis": basis + " (PoB counts every curse always up)", "confidence": "theory"})
     share, how = curse_share(uses)
     found, unscaled = [], []

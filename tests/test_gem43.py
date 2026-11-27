@@ -141,7 +141,9 @@ def test_with_jagged_ground_the_eruption_adds_at_its_share_on_either_scored_set(
     assert models.totem_slam_model("Rolling Slam", "Slam", TOTEM_SETS, 1.0, "") == ([], [])
 
 
-def test_a_pressed_side_stampede_lays_the_ground_the_totems_eruption_needs(engine):
+def test_a_pressed_side_stampede_lays_the_ground_the_totems_eruption_needs(engine, monkeypatch):
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.request.schema import BuildRequest
     from builder.search.context import Context, make_payload
     from builder.search.inner import Search

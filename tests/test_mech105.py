@@ -55,7 +55,9 @@ def test_leap_ground_rate_needs_a_spear():
     assert rate == pytest.approx(0.5 * (1 - 2.718281828 ** -3), rel=1e-6) and "finding a Spear" in how
 
 
-def test_leap_ground_joins_shocked_ground():
+def test_leap_ground_joins_shocked_ground(monkeypatch):
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.search.conditions import shocked_ground
     share, how = shocked_ground({"Speed": 0, "_sg_leap": (0.5, 0.3, "test")}, [])
     assert share == pytest.approx(1 - 0.7 ** 3) and "Thunderous Leap" in how
@@ -75,7 +77,9 @@ def test_his_grave_command_gets_its_own_zero_note():
     assert "no data gives it" in notes[0]["basis"] and "UNDERCOUNT" in notes[0]["basis"]
 
 
-def test_earthquakes_jagged_ground_follows_overabundances_shorter_fuse():
+def test_earthquakes_jagged_ground_follows_overabundances_shorter_fuse(monkeypatch):
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.search.conditions import jagged_ground
     full = jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1})
     short, how = jagged_ground("Earthquake", {"Slam"}, set(), {"Speed": 0.1}, earthquake=(7.0, 4.0, 2.0))

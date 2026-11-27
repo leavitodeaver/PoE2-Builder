@@ -1149,9 +1149,11 @@ def test_ailment_uptime_uses_each_ailments_own_duration_and_hits_that_land():
     assert shocked.uptime_fn({"ShockChancePerHit": 2, "Speed": 2}) == pytest.approx(1 - 0.98 ** 16)
 
 
-def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it():
+def test_shocked_ground_shocks_the_boss_and_counts_you_standing_in_it(monkeypatch):
     """MECH43 (FIX_QUEUE; the user questioned "monster-only"): player-made Shocked Ground Shocks the boss standing in it
     (KeywordPopups), combined with the hits' own Shock as independent; Stormwalker's line counts in your own ground."""
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.search.conditions import shock_share, shocked_ground
 
     by = {c.var: c for c in CONDITIONS}
@@ -2196,9 +2198,11 @@ def test_steal_charges_and_vaal_lines_count_zero_with_their_evidence():
     assert "Vaal" in up[1] and up[2] == 0
 
 
-def test_jagged_ground_from_the_builds_own_sources():
+def test_jagged_ground_from_the_builds_own_sources(monkeypatch):
     """MECH51 (RESEARCH5 spike-pit.md; FIX_QUEUE RESEARCH12 / AUDIT10): Jagged Ground comes from the main skill's sources,
     not from any gem name or description saying "Jagged Ground"."""
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.search.conditions import jagged_ground
 
     # (MECH105: a patch every ceil(4 s x 1.2) = 5 uses, so 4.8 / 5 of the fight, not all of it)
@@ -3255,9 +3259,11 @@ def test_persistent_ground_lengthens_the_main_skills_shocked_ground():
     assert Conditions.ground_ms(warp, {"base_secondary_skill_effect_duration": 8000}, 50) == pytest.approx(13600)
 
 
-def test_jagged_ground_reads_its_duration_lines():
+def test_jagged_ground_reads_its_duration_lines(monkeypatch):
     """AUDIT32 A32-12 (MECH68, an UNDERCOUNT): the Perforation notable's "40% increased Jagged Ground Duration" and
     Persistent Ground's 50% increased Ground Surface duration lengthen each patch (fixed 4 s / 6 s before)."""
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.search.conditions import jagged_ground
 
     perforation = ["40% increased Jagged Ground Duration"]

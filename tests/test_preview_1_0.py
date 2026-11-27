@@ -293,7 +293,9 @@ def test_pob_reads_agnars_cold_per_level_and_the_card_numbers(engine):
     assert whole["MainHand.AverageHit"] > 10 * engine.call("stats", fields=["MainHand.AverageHit"])["MainHand.AverageHit"]
 
 
-def test_blade_conduits_ground_goes_through_the_shocked_ground_model(engine):
+def test_blade_conduits_ground_goes_through_the_shocked_ground_model(engine, monkeypatch):
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.search import conditions
 
     preview.install(engine, BuildRequest(preview_1_0=True))

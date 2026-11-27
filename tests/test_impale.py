@@ -80,6 +80,8 @@ def test_shattering_roar_joins_the_intimidated_box_as_one_more_source():
 def test_chilled_ground_under_the_boss_from_its_freezes(monkeypatch):
     """MECH76 (for COV-A's Desert's Scorn): Frost Nexus 8 s a Freeze, the Invoker line 6 s, a 15% chance 3 s, at the
     boss's Freezes a second; nothing without a source."""
+    # (MECH114: the boss standing still in the ground, the reading this test pins; the walk-out: test_mech114.py)
+    monkeypatch.setattr("builder.search.conditions.ground_stay", lambda *a, **k: (1.0, 1.0, ""))
     from builder.search import conditions
 
     monkeypatch.setattr(models, "buildup_rate", lambda stats, ailment: 0.05 if ailment == "Freeze" else 0.0)
