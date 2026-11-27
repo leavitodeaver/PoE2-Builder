@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from builder import clock
 from builder.search import alloys, anoints, cultivated, desecrated, essences, influence
 from builder.search import unfinished  # (SEARCHD1 hook: the "Not finished" record)
+from builder.search import required_items  # (SEARCHD3: why a required unique has no slot)
 from builder.search.context import ARMOUR_SLOTS, JEWELLERY_SLOTS, SLOT_TYPE, ItemOption, implicit_variant, implicit_variants
 from builder.search.flasks import (
     CHARM_SLOTS, FLASK_SLOTS, RECOVERY_FIELDS, Charges, charges_per_second, is_flask_slot,
@@ -563,9 +564,11 @@ class Gear:
             if name in pasted:
                 continue  # (the user's own copy is in already)
             option = self.ctx.unique_option(name)
+            if option is not None and option.type == "Jewel":
+                continue  # (SEARCHD3: a passive-tree socket, Search.ensure_required_items)
             slot = self.slot_for(option) if option else None
             if slot is None:
-                problems.append(f"required unique {name} fits no slot of this skeleton")
+                problems.append(required_items.no_slot(self, name, option))  # (SEARCHD3: the reason, in the game's terms)
                 continue
             if name in owned:
                 option = owned_option(option)

@@ -34,6 +34,10 @@ from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, 
 from builder.search.gear import CHARM_SLOTS, Gear, SlotSpec, extra_ring_passive, is_flask_slot, owned_option
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
+
+# (SEARCHD3) how far (passive points) the tree may go for a socket to hold a required unique Jewel when none is allocated: a
+# search reach, not a game number (jewels.SOCKET_REACH, 4, is the score-driven socket trial's)
+REQUIRED_SOCKET_REACH = 40
 from builder.search import flasks, play_guide
 from builder.search import gems as gems_module
 from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS, PRESS_CHOICES, press_choices, press_use_rate
@@ -50,6 +54,7 @@ from builder.search.state import EPSILON, Build, OutOfTime, model_valued_support
 from builder.search.tree import Tree
 from builder.search.usage import Usage
 from builder.search import unfinished  # (SEARCHD1 hook: the "Not finished" record)
+from builder.search import required_items  # (SEARCHD3: required items before the skeleton's weapons)
 
 KICK_TREE_POINTS = (6, 16)
 SWEEP_EVERY = 3
@@ -392,6 +397,8 @@ class Search:
         missing = self.gems.add_required_supports()
         self.problems += [f"required support {n} can't support {sk.main_skill}" for n in missing]
         self.problems += self.gear.setup(([source] if kind == "unique" else []) + granted_uniques)
+        self.require_ring_passive()
+        self.ensure_required_items()  # (SEARCHD3: a required Jewel into a socket; Gear.setup has no jewel slots)
         self.tree.choose_default_attribute(sk.main_skill)
         self.problems += [f"required passive {n} isn't reachable" for n in self.tree.allocate_required(sk.class_name)]
         if kind is not None:
@@ -400,6 +407,68 @@ class Search:
         self.gems.choose_active_skill()
         if quests:
             self.conditions.choose_quests()
+
+    def ensure_required_items(self, after_search: bool = False) -> bool:
+        """(SEARCHD3: a required item is LOCKED) Every required unique worn: a gear one back in its slot if a round took it
+        out, a Jewel into a passive-tree socket (place_required_jewel). Gear rounds already skip locked slots; the jewel
+        rounds (jewels.py) have no lock, so this runs after setup and after every search (Search.run, beside
+        Tree.ensure_required). True if one had to go back."""
+        ctx, build = self.ctx, self.build
+        owned = set(getattr(ctx.request, "owned_uniques", None) or [])
+        worn = {o.name for o in build.equipped.values() if o is not None}
+        names = list(ctx.compiled.request.require.uniques) + ([ctx.request.weapon_unique] if ctx.request.weapon_unique else [])
+        back = False
+        for name in dict.fromkeys(names):
+            option = ctx.unique_option(name)
+            if name in worn or option is None or name in ctx.compiled.filters.forbidden_uniques:
+                continue
+            option = owned_option(option) if name in owned else option
+            if option.type == "Jewel":
+                placed = self.place_required_jewel(name, option)
+            else:
+                slot = self.gear.slot_for(option)
+                placed = slot is not None
+                if placed:
+                    self.gear.put(slot, option)
+                    build.locked_slots.add(slot)
+            back = back or (placed and after_search)
+        if back:
+            lost = "a required unique had gone during the search; it was put back"
+            if lost not in self.problems:
+                self.problems.append(lost)
+            self.gear.settle()
+        return back
+
+    def place_required_jewel(self, name: str, option: ItemOption) -> bool:
+        """A required unique Jewel in the allocated socket (one that takes uniques) where it scores best, else in the
+        nearest free socket the tree allocates for it (REQUIRED_SOCKET_REACH); the slot locked and the socket kept like a
+        required passive (Tree.required: its path is never pruned)."""
+        build, jewels = self.build, self.jewels
+        sockets = [s for s in jewels.sync() if not jewels.plain_only(s) and jewels.slot(s) not in build.locked_slots]
+        if not sockets:
+            nodes = build.call("frontier", maxDistance=REQUIRED_SOCKET_REACH, sockets="only")["nodes"]
+            nodes = [n for n in nodes if not self.tree.forbidden.intersection(n["path"])]
+            if not nodes:
+                self.problems.append(f"required unique {name} is a Jewel, and no passive-tree socket is within "
+                                     f"{REQUIRED_SOCKET_REACH} points that the request's banned passives leave open")
+                return False
+            target = min(nodes, key=lambda n: (n["distance"], n["id"]))
+            build.allocate(add=[target["id"]], attribute=self.tree.attribute)
+            sockets = [target["id"]]
+        if len(sockets) > 1:
+            scored = build.item_deltas([{"slot": jewels.slot(s), "raw": option.raw} for s in sockets])
+            sockets = [max(zip((score for score, _ in scored), sockets), key=lambda x: x[0])[1]]
+        slot = jewels.slot(sockets[0])
+        self.gear.put(slot, option)
+        build.locked_slots.add(slot)
+        self.tree.required.add(sockets[0])
+        return True
+
+    def require_ring_passive(self) -> None:
+        """(SEARCHD3) A required unique locked in Ring 3 needs the passive that adds the slot (PoB ignores the slot until it
+        is allocated: Gear.add_ring_slot), so the tree allocates it as it does a required passive."""
+        if "Ring 3" in self.build.locked_slots and (passive := extra_ring_passive(self.ctx, self.skeleton.ascendancy)):
+            self.tree.required_names.add(passive)
 
     def setup_seed(self, quests: bool = True) -> None:
         """Start from the request's PoB code (PLAN.md §5.1, gate 4) and take out what the request
@@ -494,9 +563,11 @@ class Search:
             option = ctx.unique_option(name)
             if option is not None and name in owned:
                 option = owned_option(option)  # (SEARCH36: the user owns it: price 0, as Gear.setup)
+            if held is None and option is not None and option.type == "Jewel":
+                continue  # (SEARCHD3: a passive-tree socket, ensure_required_items)
             slot = held or (self.gear.slot_for(option) if option else None)
             if slot is None:
-                self.problems.append(f"required unique {name} fits no slot of this skeleton")
+                self.problems.append(required_items.no_slot(self.gear, name, option))  # (SEARCHD3)
                 continue
             if held is None:
                 self.gear.put(slot, option)
@@ -524,6 +595,8 @@ class Search:
             build.allocate(remove=banned)
             notes.append(f"removed {len(banned)} banned passive(s)")
         self.tree.choose_default_attribute(sk.main_skill)
+        self.require_ring_passive()
+        self.ensure_required_items()  # (SEARCHD3)
         self.problems += [f"required passive {n} isn't reachable" for n in self.tree.allocate_required(sk.class_name)]
         if trimmed := self.tree.trim_to_budget():
             notes.append(f"removed {trimmed} passive(s) over a level {ctx.level} character's points")
@@ -1968,6 +2041,7 @@ class Search:
             if self.shortfall(closest["stats"]) < short - 1e-6:
                 self.build.restore(closest)
         self.keep_feasible()
+        self.ensure_required_items(after_search=True)  # (SEARCHD3: a required unique a round took out goes back)
         lost = "a required passive had gone from the tree during the search; it was put back"
         if self.tree.ensure_required():
             if lost not in self.problems:
