@@ -5795,6 +5795,7 @@ class Assumptions:
         hand_notes = hand_notes + self.side_forge_hammer(main, name or "", main_types, number(stats.get("Speed")),
                                                          [e["text"] for e in source_lines], bosses.hit_radius(stats)[0])
         hand_notes = hand_notes + self.crater_fissures(main, number(stats.get("Speed")))  # (MECHB49, R39-4)
+        hand_notes = hand_notes + self.side_delayed_landing(main, stats)  # (MECHB70, R65-8: a side Comet's fall)
         if main is not None and group and main.name == models.FIRESTORM:  # (GEM16: its Infusions' bolts and bonuses)
             sets = build.call("setRates", index=group["index"], active=group.get("mainActiveSkill") or 1)["sets"]
             duration = number(build.call("stats", fields=["Duration"]).get("Duration"))
@@ -5992,9 +5993,14 @@ class Assumptions:
                 previous=self.mods, rage_paid=getattr(build, "rage_paid", None),  # (MECHB50: Molten Crash's Rage, MECHC48)
                 cap=self.fissure_limit(main.name, [e["text"] for e in source_lines]),  # (GEM41: the build's Limit)
                 overgrown=self.fissure_overgrown(found, main, [e["text"] for e in source_lines],  # (MECHB65)
-                                                 stat_stats))  # (MECHB69, A39-3: Nature's Archon too)
+                                                 stat_stats),  # (MECHB69, A39-3: Nature's Archon too)
+                stay=models.fissure_vine_stay(stats, number(stats.get("Speed")), sets, main.name))  # (MECHB70)
             hand_mods, hand_notes = hand_mods + fis_mods, hand_notes + fis_notes
             hit_cut(build, fis_mods, main.name)  # (MECHB57: the Fissures' hits a use, models.HIT_CUT_PER_USE)
+        if main is not None and main.name in models.DELAYED_LANDING:  # (MECHB70, R65-8: the fall a moving boss leaves)
+            fall_mods, fall_notes = models.delayed_landing_model(main, stats,
+                                                                 number(stats.get("AreaOfEffectRadius")) / 10)
+            hand_mods, hand_notes = hand_mods + fall_mods, hand_notes + fall_notes
         if main is not None and main.name == models.EYE:  # (GEM19: its first hit a use, 900% more, never read by PoB)
             eye_stats = build.call("stats", fields=["AverageDamage", "Speed", "TotalDPS"])
             eye_own = sum(number(m.get("value")) for m in self.mods or []
@@ -6289,6 +6295,18 @@ class Assumptions:
             reflect, reflect_notes = models.melee_reflect_model(
                 [e["text"] for e in source_lines], got, boss_name, bosses.benefit_skill_time(got),
                 boss_hits_mod.land_share(got), number(bosses.defence_vars(boss_name)["enemyArmour"]))
+        texts_now = [e["text"] for e in source_lines]
+        if any(models.BODACH_LINE.match(t.strip()) for t in texts_now):  # (MECHB70, R65-21..23: Vestige of Darkness)
+            boss_name = bosses.of(stats).name
+            presence = number(build.call("stats", fields=["PresenceRadius"]).get("PresenceRadius")) / 10
+            config = build.call("getConfig")["input"]
+            metres = number(config.get("enemyDistance")) / 10 or conditions_mod.RANGED_DISTANCE
+            inside = presence > 0 and metres <= presence + 1e-9
+            _, bodach_mods, bodach_notes = models.bodach_model(
+                texts_now, models.power_of(stats), int(build.ctx.level or 0) or enemy_level(build), enemy_level(build),
+                number(bosses.defence_vars(boss_name)["enemyArmour"]), number(config.get("enemyPhysicalReduction")),
+                inside, f"the boss at {metres:g} m, your Presence {presence:.1f} m: {'inside' if inside else 'outside'}")
+            hand_mods, hand_notes = hand_mods + bodach_mods, hand_notes + bodach_notes
         hand_mods += [models.added_input("MeleeReflect", reflect)] if reflect > 0 else []
         hand_notes += reflect_notes
         hand_mods += [models.added_input("Thorns", thorn)] if thorn > 0 else []
@@ -7446,8 +7464,9 @@ class Assumptions:
             if poison is None:  # (MECHB15: the stored-Poison "with it" row; PoB's Poison DPS on the boss, main skill)
                 poison = number(self.build.call("stats", fields=["PoisonDPS"]).get("PoisonDPS"))
             from builder.search import bosses  # (MECHB44, R35-4: the boss's hit radius for Toxic Growth's spread)
-            radius = bosses.hit_radius({"_boss": getattr(getattr(self.build.ctx, "request", None), "boss", None)})[0]
-            more, why = models.pustule_cap(rates, name, poison, radius)
+            boss = {"_boss": getattr(getattr(self.build.ctx, "request", None), "boss", None)}
+            radius = bosses.hit_radius(boss)[0]
+            more, why = models.pustule_cap(rates, name, poison, radius, boss)  # (MECHB70: the boss still there)
             mods, notes = mods + more, notes + why
         return mods, notes
 
@@ -8134,7 +8153,10 @@ class Assumptions:
 
         from builder.search import boss_hits  # (MECHC6: how hard it hits, per damage type)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
-        return mods, [bosses.note(boss), boss_pool_note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills, notes)  # (the boss first)
+        self.grant_mods = []  # (MECHB70: an unbuilt grant's added source, e.g. a pressed Dark Pact, A40-29)
+        grants = self.unbuilt_grants(skills, notes)
+        mods = mods + self.grant_mods
+        return mods, [bosses.note(boss), boss_pool_note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + grants  # (the boss first)
 
     def poison_base(self, main: models.Skill | None, stats: dict) -> tuple[float, float, str]:
         """(MECH115, R68-7) The headline's own Poison on the boss for models.poison_pool_model: (one Poison's DPS, Poisons
@@ -10258,9 +10280,27 @@ class Assumptions:
 
                 level = models.PACT_LEVEL.search(line["text"])
                 own = models.number(self.build.call("stats", fields=["Life"]).get("Life"))
-                notes += models.pact_model(m.group(1), int(level.group(1)) if level else 20,
-                                           getattr(self.build, "minion_lives", None) or {}, own,
-                                           main_dps(getattr(self.build, "stats", None) or {}))
+                lives = getattr(self.build, "minion_lives", None) or {}
+                main = main_dps(getattr(self.build, "stats", None) or {})
+                # (MECHB70, A40-29: its presses rated from the build's Reviving minions, models.pact_press_model)
+                entries = self.build.call("stats", fields=["SkillDPS"]).get("SkillDPS") or []
+                reviving = [models.Skill.of(x) for x in skills if (x.get("summon") or {}).get("persistent")
+                            and not number((x.get("summon") or {}).get("duration")) and not x.get("disabled")]
+                minions = [(r.name, number(lives.get(r.name)), number(r.summon.get("limit")),
+                            models.revive_seconds([r])[0],
+                            sum(number(e.get("dps")) * (e.get("count") or 1) for e in entries if e.get("name") == r.name))
+                           for r in reviving if number(lives.get(r.name)) > 0]
+                added, pact_mods, pact_notes = models.pact_press_model(
+                    m.group(1), int(level.group(1)) if level else 20, minions, main)
+                self.grant_mods = list(getattr(self, "grant_mods", []) or []) + pact_mods
+                if pact_notes:
+                    notes += pact_notes
+                    if added > 0:  # (a press: the button cap counts it, as a Command's)
+                        presses = getattr(self.build, models.ITEM_PRESSES, None)
+                        if isinstance(presses, dict):
+                            presses[m.group(1)] = (pact_notes[-1]["uses"], pact_notes[-1]["play"])
+                    continue
+                notes += models.pact_model(m.group(1), int(level.group(1)) if level else 20, lives, own, main)
                 continue
             if m.group(1) == HIS_GRAVE_COMMAND:  # (MECH105, AUDIT37 P4: why its captured Companion counts 0)
                 notes.append({"label": f"{HIS_GRAVE_COMMAND}: its captured Companion not counted*", "value": 0,
@@ -12870,7 +12910,8 @@ class Assumptions:
         build = self.build
         storms = sorted({s.group for s in found if s.name in models.OVERGROW_SKILLS and s.group is not None})
         press = getattr(build.objective, "press_scales", None) or {}
-        groups = {r["index"]: {**r, "_press": press.get(r["name"])}
+        upkeep = getattr(build.objective, "upkeep_rates", None) or {}  # (MECHB70: SEARCH41's kept-up rate, b12)
+        groups = {r["index"]: {**r, "_press": press.get(r["name"]), "_upkeep": upkeep.get(r["name"])}
                   for r in build.call("useRates", indices=storms)["rates"]} if storms else {}
         share, parts, conf = models.overgrown_share(found, groups, texts)
         stats = stats or {}
@@ -13397,6 +13438,35 @@ class Assumptions:
         return [{**note, "label": f"{note['label']} (side group {group.get('label') or group['index']})",
                  "side_hits": hits} for note in notes]
 
+    def side_delayed_landing(self, main: models.Skill | None, stats: dict) -> list[dict]:
+        """(MECHB70; models.DELAYED_LANDING) A Full DPS group other than the main skill's holding Comet / Siege Cascade:
+        its Full DPS entry x the boss still under it when it lands (Objective.entry_scales), its radius PoB's for that
+        group (setRates' AreaOfEffectRadius). The main skill's is the main block's (the entry's name is shared)."""
+        build = self.build
+        objective = getattr(build, "objective", None)
+        if objective is None or not getattr(objective, "full", False):
+            return []
+        off, notes, done = pob_disabled(build), [], set()
+        for g in build.groups():
+            if not g.get("enabled", True) or not g.get("fullDPS"):
+                continue
+            for n, x in enumerate(g.get("skills") or [], 1):
+                name = x["name"]
+                if (name not in models.DELAYED_LANDING or name in done or (g["index"], name) in off
+                        or (main is not None and main.name == name)):
+                    continue
+                done.add(name)
+                sets = build.call("setRates", index=g["index"], active=n).get("sets") or []
+                radius = max((number(s.get("AreaOfEffectRadius")) for s in sets), default=0.0) / 10
+                _, fall_notes = models.delayed_landing_model(models.Skill(name, g["index"], spell=True), stats, radius)
+                if not fall_notes:
+                    continue
+                scale = float(fall_notes[0]["value"][1:])
+                objective.entry_scales[name] = number(objective.entry_scales.get(name, 1.0)) * scale
+                fall_notes[0]["label"] = f"{name} (side group {g.get('label') or g['index']}): " +                     fall_notes[0]["label"].split(": ", 1)[1]
+                notes += fall_notes
+        return notes
+
     def side_forge_hammer(self, main: models.Skill | None, name: str, main_types: set[str], speed: float,
                           texts: list[str] | None = None, radius: float = 0.0) -> list[dict]:
         """(MECHB49; MECHB48's leftover) Forge Hammer in a Full DPS group other than the main skill's: PoB scores the
@@ -13431,6 +13501,22 @@ class Assumptions:
             lambda idx: build.call("useRates", indices=idx)["rates"], ["when you use a Warcry"],
             models.press_choices(build)).get("Warcry", (0.0, "no Warcry in the build"))
         share = models.detonated_share(hammer, uses, cries)
+        # (MECHB70; MECHD9's reader rule, the manager 12:14: Forge Hammer's site is MECH-B's) the hammer's Fissures spiral
+        # from where it lodged, set off by a Warcry up to 1 / d s later: x stay_share(their radius, that wait), as GEM47's
+        # DETONATED_STAY reads Earthshatter's spikes; rows in the note: the boss standing still, every move its mean length
+        stay, stay_how = 1.0, ""
+        if share > 0 and cries > 0:
+            from builder.search import bosses as bosses_mod
+            boss_stats = {"_boss": getattr(getattr(build.ctx, "request", None), "boss", None) or bosses_mod.DEFAULT}
+            fis_radius = number(next((x for x in got.get("sets") or [] if x.get("label") == "Fissures"), {})
+                                .get("AreaOfEffectRadius")) / 10 or models.DETONATED_STAY_RADIUS
+            wait = models.detonated_wait(cries, models.DETONATED_SETS[hammer][3])
+            stay, stay_how = bosses_mod.stay_share(boss_stats, fis_radius, wait)
+            fixed = bosses_mod.stay_share(boss_stats, fis_radius, wait, moves="fixed")[0]
+            stay_how = (f"; its Fissures set off within {wait:.1f} s of the hammer landing find the boss there: {stay_how} "
+                        f"(MECHD9's reader rule): x{stay:.2f}; rows: the boss standing still x1, every move its mean "
+                        f"length x{fixed:.2f}")
+        share *= stay
         real = impact + share * fissures
         count_how = ""
         if share > 0 and fissures > 0:  # (its Fissures a use, not PoB's one: the main skill's count model)
@@ -13453,7 +13539,8 @@ class Assumptions:
                  "basis": (f"PoB scores its {chosen} set every use ({dps[chosen]:,.1f} DPS). The game: its Impact "
                            f"({impact:,.1f}) every use, its Fissures ({fissures:,.1f}) only on the {share:.0%} of hammers a "
                            f"Warcry shatters ({how or 'no Warcry in the build'}; {uses:.2f} throws/s, one hammer lying "
-                           f"{models.DETONATED_SETS[hammer][3]:g} s, UNVERIFIED as its lying time{count_how}): {real:,.1f}, "
+                           f"{models.DETONATED_SETS[hammer][3]:g} s, UNVERIFIED as its lying time{count_how}{stay_how}): "
+                           f"{real:,.1f}, "
                            f"x{scale:.3f} on its Full DPS entry"),
                  "play": "Use a Warcry next to the lodged hammer to shatter it into Fissures."}]
 

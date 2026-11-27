@@ -50,11 +50,12 @@ def test_the_snipers_gas_arrow_adds_its_hit_and_one_held_poison_a_command_at_its
 
 
 def test_the_snipers_cloud_poison_follows_its_limit_and_the_press_rate():
-    """With limit 1, held = (cloud life + Poison duration) / the press period, at most 1; a higher limit holds more."""
+    """With limit 1, held = the cloud's Poison cover / the press period, at most 1; a higher limit holds more.
+    (MECHB70, R67-1: a 2 s cloud makes one application, 2 s of Poison, not life + duration.)"""
     poison, held, one = models.sniper_cloud_poison(CLOUD, 2.0, 10.0)
-    assert held == pytest.approx(0.4) and poison == pytest.approx(one * 0.4)
+    assert held == pytest.approx(0.2) and poison == pytest.approx(one * 0.2)
     poison, held, _ = models.sniper_cloud_poison({**CLOUD, "PoisonStacksMax": 3, "PoisonStackPotential": 0.3}, 8.0, 2.0)
-    assert held == pytest.approx(min(3, models.gas_cloud_poisons(8.0) * 2.0 / 2.0))
+    assert held == pytest.approx(min(3, 4 * 2.0 / 2.0))
     assert models.sniper_gas_arrow_model({}, {}, {}, 0.0, "", False, 0.0, 0.0, 0.0)[0] == 0.0
 
 

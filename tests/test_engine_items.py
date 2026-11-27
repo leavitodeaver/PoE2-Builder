@@ -1046,6 +1046,8 @@ def test_toxic_growth_explosion_is_held_to_its_pustule_limit(engine):
     # (MECHB44, RESEARCH35 R35-4: of the Limit's 6, those whose burst reaches the default boss a fuse)
     from builder.search import bosses
     share = models.pustules_on_boss(6, bosses.hit_radius({"_boss": None})[0]) / 15 / rate["speed"]
+    # (MECHB70; the manager's reader rule) x the boss still within the burst a fuse after the cast
+    share *= bosses.still_there({"_boss": None}, models.TOXIC_BURST, 15)[0]
     assert mods == [models.raw_mod("DPS", "MORE", 100 * (share - 1), "Toxic Growth")], mods
     assert notes[0]["value"] == f"x{share:.3f}"
 

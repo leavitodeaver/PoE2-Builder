@@ -8798,12 +8798,19 @@ def overgrown_share(skills: list[Skill], groups: dict, texts: list[str] = ()) ->
     for storm in sorted({s.group for s in skills if s.name in OVERGROW_SKILLS and s.group is not None}):
         row = groups.get(storm) or {}
         press = row.get("_press")
-        rate = max(number(row.get("speed")) * number(press if press is not None else 1.0), 0.0)
+        # (MECHB70; SEARCH41's upkeep charge, the manager 26 Nov 04:50: b12's press time) a storm with no chosen rate is
+        # kept up at the use its own data gives (objective.upkeep_rates, the rate its casts' time is charged at), where
+        # the search charged it: that rate, not PoB's cast rate (which no press pays for)
+        upkeep = row.get("_upkeep")
+        rate = (max(number(upkeep), 0.0) if press is None and upkeep is not None else
+                max(number(row.get("speed")) * number(press if press is not None else 1.0), 0.0))
         duration = max(number(row.get("duration")), 0.0)
         share = min(1.0, rate * duration)
         up = 1 - (1 - up) * (1 - share)
-        parts.append(f"{row.get('name') or 'Thunderstorm'} {rate:.3g}/s" + (f" pressed {number(press):.0%}" if press
-                     is not None else " at PoB's rate") + f" x {duration:.2f} s = {share:.0%}")
+        parts.append(f"{row.get('name') or 'Thunderstorm'} {rate:.3g}/s" + (
+            f" pressed {number(press):.0%}" if press is not None else
+            " kept up at its own use (SEARCH41's upkeep: its time charged)" if upkeep is not None else " at PoB's rate")
+            + f" x {duration:.2f} s = {share:.0%}")
         conf = "LOW" if share > 0 else conf
     for rx, what in ((OVERGROW_CHANCE, "chance to immediately Overgrow"),
                      (OVERGROW_PRESENCE, "chance as they enter your Presence (made at a boss inside it: LOW)")):
@@ -14469,10 +14476,33 @@ GROUND_NO_TRIGGER = PERSISTENT_GROUND_STAT  # (MECHB70: aliases of MECH113's two
 GROUND_DURATION = GROUND_DURATION_STAT
 
 
-def sniper_cloud_poison(cloud: dict, alive: float, every: float) -> tuple[float, float, float]:
+# (MECHB70; RESEARCH67 R67-1, research/poison-cloud-measured-r67.md: THE USER's own Gas Arrow clip against Gozen, default
+# 2 s Poisons: an OVERCOUNT before) A cloud Poisons the target standing in it when it lands and then every 2.0 s while it
+# lives (13 gaps of 2.00-2.03 s: CLOUD_REPOISON 2.02, HIGH for that build); each Poison lasts its own duration; one live
+# Poison a cloud; two overlapping clouds still gave ONE Poison's damage at a time (the default limit of one, MEDIUM-HIGH).
+# So a cloud living L s makes n = ceil(L / 2.02) applications (at least the one on landing), and covers (n - 1) x
+# min(2.02, d) + d s of Poison (d its duration; no tail past the last application's own Poison: an 8 s cloud at 2 s
+# Poisons covers 8 s, not MECHB66's 10; a default 4 s cloud gives 2, not 2.5: MEDIUM, it turns on hundredths). With the
+# limit 1, the boss holds one Poison while any cloud covers it (covered / the press period, at most 1); a higher limit
+# holds each cloud's applications x d (n x d / the period, at most the limit). Whether the 2 s re-application is a fixed
+# timer or follows the Poison's duration is OPEN (the clip used the default 2 s): with a changed duration both readings
+# are rows ("fixed": every 2.02 s; "duration": every d s) and the LOWER is the headline (unsettled: the lower reading).
+CLOUD_REPOISON = 2.02  # s (R67-1's measured re-application gap)
+
+
+def cloud_poison_cover(alive: float, seconds: float, interval: float) -> tuple[int, float]:
+    """(MECHB70, above) (applications, Poison-seconds held one at a time) of a cloud living `alive` s re-Poisoning every
+    `interval` s with `seconds`-long Poisons."""
+    n = max(1, math.ceil(max(alive, 0.0) / interval - 1e-9))
+    return n, (n - 1) * min(interval, seconds) + seconds
+
+
+def sniper_cloud_poison(cloud: dict, alive: float, every: float, reading: str | None = None
+                        ) -> tuple[float, float, float]:
     """(Poison DPS, Poisons held on the boss on average, one Poison's DPS) from the Sniper's clouds: one cloud every
     `every` s living `alive` s on the boss (see above). PoB's PoisonDPS is one Poison's DPS x its stacks (its stack
-    potential x limit, under the limit), so one Poison's DPS = PoisonDPS / that."""
+    potential x limit, under the limit), so one Poison's DPS = PoisonDPS / that. `reading` (MECHB70, R67-1): "fixed" (a
+    2.02 s timer), "duration" (every Poison duration), None the lower of the two."""
     limit = number(cloud.get("PoisonStacksMax")) or 1.0
     potential = number(cloud.get("PoisonStackPotential"))
     pdps = number(cloud.get("PoisonDPS"))
@@ -14481,11 +14511,27 @@ def sniper_cloud_poison(cloud: dict, alive: float, every: float) -> tuple[float,
     seconds = number(cloud.get("PoisonDuration")) or 2.0
     if every <= 0 or one <= 0:
         return 0.0, 0.0, one
-    if limit <= 1:  # (one at a time: held while a cloud keeps re-applying it, and its duration after)
-        held = min(1.0, (max(alive, 0.0) * min(1.0, seconds / GAS_POISON_EVERY) + seconds) / every)
-    else:
-        held = min(limit, gas_cloud_poisons(alive) * seconds / every)
+
+    def held_by(interval: float) -> float:
+        n, covered = cloud_poison_cover(alive, seconds, interval)
+        if limit <= 1:  # (one at a time: R67-1's two clouds, one Poison)
+            return min(1.0, covered / every)
+        return min(limit, n * seconds / every)
+    fixed, by_duration = held_by(CLOUD_REPOISON), held_by(max(seconds, 0.1))
+    held = {"fixed": fixed, "duration": by_duration}.get(reading or "", min(fixed, by_duration))
     return one * held, held, one
+
+
+def cloud_reading_row(cloud: dict, alive: float, every: float) -> str:
+    """(MECHB70, R67-1) The note's words for the two re-application readings where the Poison's duration isn't 2 s."""
+    seconds = number(cloud.get("PoisonDuration")) or 2.0
+    if abs(seconds - 2.0) < 0.05:
+        return ""
+    fixed = sniper_cloud_poison(cloud, alive, every, "fixed")
+    by_duration = sniper_cloud_poison(cloud, alive, every, "duration")
+    return (f"; its Poisons last {seconds:.2f} s, so whether the cloud re-Poisons on a 2 s timer or once each Poison "
+            f"ends is OPEN (R67-1 used the default): the lower is the headline; rows: a 2 s timer {fixed[0]:,.1f} DPS "
+            f"({fixed[1]:.2f} held), every Poison's duration {by_duration[0]:,.1f} DPS ({by_duration[1]:.2f} held)")
 
 
 def sniper_gas_arrow_model(impact: dict, cloud: dict, blast: dict, explode: float, explode_how: str, no_trigger: bool,
@@ -14528,8 +14574,11 @@ def sniper_gas_arrow_model(impact: dict, cloud: dict, blast: dict, explode: floa
              f"{one:,.1f} DPS, PoB's; {held:.2f} held on average: a cloud lives {life:.1f} s"
              + (f" (its {number(cloud.get('Duration')) or SNIPER_CLOUD_SECONDS:.1f} s + {duration_inc:g}% of 8 s from "
                 "Persistent Ground, which PoB's duration doesn't hold)" if duration_inc > 0 else "")
-             + f", re-Poisoning every 2 s while the boss stands in it (MEDIUM-LOW), up to the Sniper's Poison limit "
-             f"{number(cloud.get('PoisonStacksMax')) or 1:g}); "
+             + f", re-Poisoning on landing and every {CLOUD_REPOISON:g} s while the boss stands in it, no Poison past "
+             f"the last application's own (RESEARCH67 R67-1: THE USER's clip, HIGH for the player's cloud; MEDIUM for the "
+             f"minion's, which carries the same display_fake_attack_hit_poison), up to the Sniper's Poison limit "
+             f"{number(cloud.get('PoisonStacksMax')) or 1:g}: overlapping clouds hold one Poison at the default"
+             + cloud_reading_row(cloud, life * (1.0 - share / 2), every) + "); "
              + ("no cloud explodes (its group's Persistent Ground: ground_effects_cannot_trigger, MEDIUM-HIGH)"
                 if no_trigger else f"{share:.0%} of clouds explode ({explode_how}): +{boom:,.1f} DPS")
              + f"; less {lost:,.1f} DPS for the press ({player_dps:,.0f} main-skill DPS x {SNIPER_COMMAND_CAST:g} s; a "
@@ -26585,6 +26634,13 @@ def pustule_stored(rates: list[dict], poison_dps: float, fuse: float) -> tuple[f
 # every Pustule (the old reading). Boss arenas (MECHB45; RESEARCH35 R35-22, GEM26's routing): the May 2026 reports that
 # Pustules don't burst in boss arenas stop after 31 May and Maxroll's 0.5.5 guide (8 Sep 2026) uses Toxic Growth on
 # bosses, though no patch line names a fix: headline it works (MEDIUM-LOW), a "0 in boss arenas" row.
+# (MECHB70; MECHD9's "boss stands still" survey, the manager's READER RULE 26 Nov 06:30 / 12:14: an OVERCOUNT, the
+# survey's biggest site) A ground Pustule bursts where it fell, a fuse after its cast: on the boss only if the boss is
+# still within its burst then. Headline: the Pustules reaching the boss x bosses.still_there(stats, the burst, the
+# fuse) (the boss's video relocations, lengths exponential, one that left taken not to come back: LOW). Rows: the boss
+# standing still (the old reading), every move its mean length (still_there's "fixed"), and the boss moving within
+# the Pustule field (still_there over the 4.5 m spread: it may walk onto another Pustule, an upper side). Poison Spores'
+# and Toxic Domain's Pustules ride on the enemy (one per enemy): no factor.
 TOXIC_SPREAD, TOXIC_BURST, TOXIC_STORED_BURST = 4.5, 0.8, 1.5  # metres
 
 
@@ -26594,11 +26650,12 @@ def pustules_on_boss(n: float, radius: float, burst: float = TOXIC_BURST) -> flo
 
 
 def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float = 0.0,
-                radius: float = 0.3) -> tuple[list[dict], list[dict]]:
+                radius: float = 0.3, stats: dict | None = None) -> tuple[list[dict], list[dict]]:
     """The Pustule Explosion held to one a fuse (Poison Spores, Toxic Domain: one per enemy) or to its Limit a fuse
     (Toxic Growth) (see above). `rates`: bridge useRates for each group's `name` skill. `poison_dps`: PoB's PoisonDPS
     on the boss, for the stored-Poison harder burst (pustule_stored; scored for Poison Spores / Toxic Domain since MECHB34,
-    R26-79)."""
+    R26-79). `stats` ({"_boss": the scored boss}): Toxic Growth's ground Pustules x the boss still there after the
+    fuse (MECHB70; None: the boss taken to stand still)."""
     speed = sum(number(r.get("speed")) * (number(r.get("repeats")) or 1.0) for r in rates)
     if speed <= 0:
         return [], []
@@ -26631,8 +26688,16 @@ def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float 
     limit = (max(limits) if limits else float(PUSTULE_LIMIT[name])) if ground else 1.0
     reach = pustules_on_boss(limit, radius) if ground else 1.0  # (MECHB44, R35-4: of the Limit, those reaching the boss)
     share = min(1.0, reach / fuse / speed)
-    if share >= 1.0:
+    still, still_how, still_rows = 1.0, "", ""
+    if ground and stats is not None:  # (MECHB70: the reader rule, above)
+        still, still_how = bosses.still_there(stats, TOXIC_BURST, fuse)
+        fixed = bosses.still_there(stats, TOXIC_BURST, fuse, moves="fixed")[0]
+        field = bosses.still_there(stats, TOXIC_SPREAD, fuse)[0]
+        still_rows = (f"; rows: the boss standing still x{share:.3f}, every move its mean length x{share * fixed:.3f}, "
+                      f"the boss moving within the {TOXIC_SPREAD:g} m Pustule field x{share * field:.3f}")
+    if share >= 1.0 and still >= 1.0:
         return stored_mods, stored
+    share *= still
     fuse_text = f"{fuse:.1f} s fuse{'' if fuses else ' (base; PoB gave no Detonation Time)'}"
     if ground:
         return [raw_mod("DPS", "MORE", 100 * (share - 1), name)] + stored_mods, [{
@@ -26640,7 +26705,10 @@ def pustule_cap(rates: list[dict], name: str = PUSTULE_SKILL, poison_dps: float 
             "basis": f"PoB counts {speed:.2f} explosions/s; the game keeps {limit:g} Pustules at a time "
                      f"(Limit{'' if limits else ', base'}: a new one makes the oldest disappear), each bursting after "
                      f"its {fuse_text}, and of them {reach:.2f} burst on a {radius:g} m boss (a {TOXIC_SPREAD:g} m spread, "
-                     f"{TOXIC_BURST:g} m bursts: RESEARCH35 R35-4, MEDIUM-LOW): at most {reach / fuse:.3f}/s. Rows: with "
+                     f"{TOXIC_BURST:g} m bursts: RESEARCH35 R35-4, MEDIUM-LOW): at most {reach / fuse:.3f}/s"
+                     + (f"; each bursts where it fell, a fuse later, on the boss only if it is still there: {still_how} "
+                        f"(MECHD9's reader rule){still_rows}" if still_how else "")
+                     + f". Rows: with "
                      f"full stored Poison's +{TOXIC_STORED_BURST:g} m burst "
                      f"{pustules_on_boss(limit, radius, TOXIC_BURST + TOXIC_STORED_BURST):.2f} a fuse (LOW: ground "
                      f"Pustules don't store the boss's Poisons, R26-79); every Pustule on the boss {limit:g} a fuse "
@@ -27836,18 +27904,211 @@ def fissure_rage_paid(name: str, rage_paid: dict | None) -> tuple[float, str]:
                    f"spenders (cut alike, LOW)")
 
 
+# (MECHB70; MECHD9's survey: example build 12's vines are ~51% of its DPS, an OVERCOUNT where the boss walks off the
+# fissure) The vines attach only while the boss stands on a live fissure. The build recasts Entangle at the boss (its
+# main skill), so the newest fissure under it is replaced every 1 / its uses a second: the vines x bosses.stay_share(the
+# fissure's half-width, T), T the shorter of the fissure's duration (its set's, else 8 s) and that recast interval
+# (MECHD9's reader rule, the manager 26 Nov 06:30); rows: the boss standing still (the old reading), every move its mean
+# length. Older live fissures the boss walks back onto aren't counted (the lower reading).
+FISSURE_SECONDS = 8.0  # s (EntanglePlayer's fissure duration; PoB's set Duration first)
+
+
+# (MECHB70; RESEARCH65 R65-8, MECHD9's survey: example build 7, an OVERCOUNT) Skills that land at the targeted spot
+# after a hidden fall: Comet (CometPlayer comet_fall_time_ms 550: no stat description shows it, nothing modifies it for
+# players: R65-8's search of every Stats id holding comet / fall_time, HIGH on the value) and Siege Cascade
+# (SiegeCascadePlayer siege_cascade_fall_time_ms 500) (checked: every GrantedEffectStatSets row holding a *fall_time*
+# stat, game 26650308: also Skyfall 470 (the player's own leap: not a spot the boss leaves), Hailstorm Rounds 300 (its
+# own model), Stormblast Bolts 150 (GEM47's lodged reading), the Siege Ballista's projectile 800 (a totem's, not wired:
+# named), Firestorm 500 (a window site: not wired, named)). PoB scores the hit as landing (its export drops the stat).
+# The boss is still inside the area when it lands with bosses.still_there(stats, the area's radius, the fall) (the
+# manager's reader rule, 26 Nov 06:30 / 07:00); rows: the boss standing still (PoB's), every move its mean length.
+DELAYED_LANDING = {"Comet": 0.55, "Siege Cascade": 0.5}
+
+
+def delayed_landing_model(main: Skill | None, stats: dict, radius: float) -> tuple[list[dict], list[dict]]:
+    """(MECHB70, above) (mods, notes) for a main skill that lands `DELAYED_LANDING` s after its cast, on an area of
+    `radius` m (PoB's AreaOfEffectRadius / 10) at the boss."""
+    if main is None or main.name not in DELAYED_LANDING or radius <= 0:
+        return [], []
+    fall = DELAYED_LANDING[main.name]
+    still, how = bosses.still_there(stats, radius, fall)
+    fixed = bosses.still_there(stats, radius, fall, moves="fixed")[0]
+    if still >= 1.0 - 1e-9:
+        return [], []
+    return [raw_mod("DPS", "MORE", 100 * (still - 1), main.name)], [{
+        "label": f"{main.name}: the boss still under it when it lands*", "value": f"x{still:.3f}",
+        "confidence": "MEDIUM-LOW (the fall HIGH, game data; the boss's moves LOW)",
+        "basis": (f"{main.name} lands {fall:g} s after the cast at the targeted spot (its hidden fall time: RESEARCH65 "
+                  f"R65-8, HIGH; PoB scores it as landing); its {radius:.2f} m area finds the boss there with {how} "
+                  f"(MECHD9's reader rule): x{still:.3f}. Rows: the boss standing still x1 (PoB's); every move its mean "
+                  f"length x{fixed:.3f}")}]
+
+
+# (MECHB70; THE USER's question, 26 Nov ~09:40; RESEARCH65 R65-21..23, research/vestige-of-darkness-bodach-r65.md: an
+# UNDERCOUNT, scored 0 before: PoB maps "The Bodach haunts your Presence" to nothing, ModCache 9616) Vestige of Darkness
+# (Tenebrous Crown) summons a hidden daemon (MonsterVarieties 609 HauntedWendigoDaemon, UseSkillOnceDaemon: it appears,
+# uses one attack and goes) at enemies in your Presence. Rate (MEDIUM): every X s (the_wendigo_manifests_every_x_seconds:
+# 3 by default; a HIDDEN value, 2 or 4 after a corruption, seen only on the trade site: the item's text never shows it,
+# so 3 unless named, with 2 / 4 as rows), 5% faster per enemy Power in your Presence (the_wendigo_manifests_+%_faster_
+# per_enemy_power_in_your_presence; a Unique boss is 20 Power), read as a rate multiplier, plus the 0.5 s randomisation
+# taken as +0-0.5 s (its form UNVERIFIED: +0.25 s on average): 1 / (X / (1 + 5% x Power) + 0.25). Only with the boss in
+# your Presence (PoB's PresenceRadius against the boss's distance, as conditions.boss_in_presence): outside it, 0.
+# Damage (HIGH on the formula, which reproduces the level-1 tables): its six Physical attacks' base effectiveness 10, 10,
+# 10, 15, 20, 25 (Hand Slam Right / Left, Detached Hand Slam, Detached Lacerate Claw, Darkness Ground Slam, Moth Meteor)
+# x 3.885209 x (1 + 0.1 (L - 1)) x 1.06^(L - 1) (PoB CalcTools 185-193), the 0.8-1.2 roll's mean 1. Which attack it
+# picks is the AI's (not in the client): the six's mean the headline (MEDIUM-LOW), the strongest / weakest rows. NOT
+# scaled by your modifiers (the wiki "cannot be scaled directly"; AbstractDaemon immune_to_auras_from_other_entities:
+# MEDIUM-HIGH); through the boss's Armour (PoB's A / (A + 10 x hit) per attack) and its Physical resistance. Its level
+# (UNVERIFIED): the character's the headline (MEDIUM-LOW), the area's (the boss's level) a row; the daemon's
+# DamageMultiplier 67 (UNVERIFIED that it applies) a lower row. Crits (its AttackCrit 5%) and its Chill / Freeze not
+# counted (small; its hits aren't yours). The play guide: the known bug (Jun 2026 forums 3966971 / 3962975): it stops
+# after a loading screen until the helmet is re-equipped.
+BODACH_LINE = re.compile(r"^the bodach haunts your presence$", re.I)
+BODACH_EVERY, BODACH_PER_POWER, BODACH_RANDOM = 3.0, 0.05, 0.25
+BODACH_ATTACKS = (("Hand Slam Right", 10.0), ("Hand Slam Left", 10.0), ("Detached Hand Slam Right", 10.0),
+                  ("Detached Lacerate Claw Right", 15.0), ("Darkness Ground Slam", 20.0), ("Moth Meteor", 25.0))
+BODACH_DAMAGE_MULT = 0.67  # (MonsterVarieties 609 DamageMultiplier 67: a row, UNVERIFIED that it applies)
+SKILL_BASE_EFFECTIVENESS = 3.885209  # (PoB Data/Misc.lua 34 SkillDamageBaseEffectiveness)
+
+
+def bodach_rate(power: float, every: float = BODACH_EVERY) -> float:
+    """(MECHB70, above) The Bodach's manifestations a second against `power` enemy Power in your Presence."""
+    return 1.0 / (every / (1.0 + BODACH_PER_POWER * max(power, 0.0)) + BODACH_RANDOM)
+
+
+def bodach_hit(level: int, effectiveness: float) -> float:
+    """(MECHB70, above) One Bodach attack's mean base hit at daemon `level` (the 0.8-1.2 roll's mean)."""
+    lv = max(int(level or 1), 1)
+    return SKILL_BASE_EFFECTIVENESS * effectiveness * (1 + 0.1 * (lv - 1)) * 1.06 ** (lv - 1)
+
+
+def bodach_model(texts: list[str], power: float, level: int, area_level: int, armour: float, phys_resist: float,
+                 inside: bool, where: str) -> tuple[float, list[dict], list[dict]]:
+    """(MECHB70, above) (added DPS, mods, notes) for Vestige of Darkness's Bodach: `power` the boss's Power in your
+    Presence, `level` / `area_level` the character's / the boss's level, `armour` / `phys_resist` the boss's, `inside`
+    whether the boss stands in your Presence (`where` how)."""
+    if not any(BODACH_LINE.match(t.strip()) for t in texts):
+        return 0.0, [], []
+    label = "Vestige of Darkness: the Bodach's attacks on the boss (added to the boss DPS)*"
+
+    def taken(hit: float) -> float:
+        cut = armour / (armour + 10 * hit) if armour > 0 and hit > 0 else 0.0
+        return hit * (1 - cut) * (1 - phys_resist / 100)
+
+    def mean(lv: int, mult: float = 1.0, pick=None) -> float:
+        hits = [taken(bodach_hit(lv, be) * mult) for _, be in (pick or BODACH_ATTACKS)]
+        return sum(hits) / len(hits)
+
+    rate = bodach_rate(power)
+    each = mean(level)
+    dps = rate * each if inside else 0.0
+    rows = [f"a '2' helmet (corrupted, faster): {bodach_rate(power, 2.0) * each:,.0f}",
+            f"a '4' helmet (corrupted, slower): {bodach_rate(power, 4.0) * each:,.0f}",
+            f"the area's level {area_level} instead of yours: {rate * mean(area_level):,.0f}",
+            f"x{BODACH_DAMAGE_MULT:g} (its DamageMultiplier, UNVERIFIED): {rate * mean(level, BODACH_DAMAGE_MULT):,.0f}",
+            f"always Moth Meteor (the strongest): {rate * mean(level, pick=BODACH_ATTACKS[-1:]):,.0f}",
+            f"always a hand slam (the weakest): {rate * mean(level, pick=BODACH_ATTACKS[:1]):,.0f}"]
+    base = sum(bodach_hit(level, be) for _, be in BODACH_ATTACKS) / len(BODACH_ATTACKS)
+    basis = (f"the Bodach appears at enemies in your Presence every {1 / rate:.2f} s ({BODACH_EVERY:g} s, its hidden "
+             f"value's default (2 or 4 after a corruption; the item's text never shows it), {BODACH_PER_POWER:.0%} "
+             f"faster per enemy Power: the boss's {power:g}, +{BODACH_RANDOM:g} s for its 0.5 s randomisation, UNVERIFIED "
+             f"form; RESEARCH65 R65-22, MEDIUM) and uses one of six Physical attacks: at level {level} their mean "
+             f"{base:,.0f} a hit (base effectiveness 10-25 on the monster table, R65-23, HIGH; which attack it picks "
+             f"UNVERIFIED), not scaled by your modifiers, through the boss's {armour:,.0f} Armour and {phys_resist:g}% "
+             f"Physical resistance: {each:,.0f} a hit; {where}"
+             + ("" if inside else f": the boss outside your Presence, so none (0; row, inside it: {rate * each:,.0f})")
+             + f": {dps:,.1f} DPS. Rows: " + "; ".join(rows)
+             + ". Not counted: its 5% crits, its Chill / Freeze (its hits aren't yours)")
+    note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM-LOW",
+            "play": ("Vestige of Darkness: the Bodach attacks enemies in your Presence on its own"
+                     + (f" (+{dps:,.0f} DPS here)" if dps > 0 else " (the boss stands outside your Presence here: +0)")
+                     + ". Known bug (June 2026 forums): it stops after a loading screen until you re-equip the helmet, "
+                       "so swap it off and on after entering the boss's area.")}
+    return dps, ([added_input("Bodach", dps)] if dps > 0 else []), [note]
+
+
+# (MECHB70; AUDIT40 A40-29, an UNDERCOUNT on main: MECH88's pact_model scored 0 even where one cast out-damages the main
+# skill, its presses not modelled) Dark Pact / Abyssal Pact: no cooldown and no cost (game 26650308 GrantedEffectsPerLevel
+# DarkPactPlayer / AbyssalPactPlayer: Cooldown 0, CostAmounts 0, CastTime 700), so the build's own sources set how often:
+# each cast takes 0.7 s of the main skill's time (cast speed not read: PoB has no skill, the base; the lower reading)
+# and Sacrifices share x a minion's maximum Life (13% / its level %), so a minion dies every k = ceil(1 / share) casts
+# ("can lead to their death", KeywordPopups Sacrifice) and revives after models.revive_seconds. The player picks the
+# minion (CLAUDE.md: a source picked on purpose): the one whose cast gains most once its own lost damage while dead is
+# taken off (its share of PoB's Full DPS entry for its skill x its dead time a cast, T / k). Presses a second: at most
+# 1 / 0.7, at most count x k / T (the minions' supply). A net gain a cast (hit - the main skill's DPS x 0.7 - that loss)
+# above 0 is pressed at that most, else 0 ("without it / with it" rows). Its hit unscaled (pact_model's note: an
+# undercount). Not fed back: the deaths it causes to on-minion-death lines (an UNDERCOUNT, named), your own Life
+# variant (pact_model's row).
+def pact_press_model(name: str, level: int, minions: list[tuple[str, float, float, float, float]], main_dps: float
+                     ) -> tuple[float, list[dict], list[dict]]:
+    """(MECHB70, above) (added DPS, mods, notes) for a granted Pact: `minions` [(skill, maximum Life, count, revive s,
+    the skill's Full DPS)] of the build's Reviving minions; `main_dps` the main skill's."""
+    level = max(1, min(20, int(level or 20)))
+    lo, hi = PACT_DAMAGE[name][level]
+    share = PACT_DARK_SHARE if name == "Dark Pact" else level / 100
+    k = max(1, math.ceil(1 / share - 1e-9))
+    lost_main = main_dps * PACT_CAST
+    best = None
+    for skill, life, count, revive, dps in minions:
+        if life <= 0 or count <= 0:
+            continue
+        hit = ((lo + hi) / 2 + share * life) * (1 + PACT_CRIT)
+        dead = dps / count * revive / k  # (its damage lost while dead, a cast)
+        gain = hit - lost_main - dead
+        supply = count * k / revive if revive > 0 else 1 / PACT_CAST
+        if best is None or gain > best[0]:
+            best = (gain, skill, life, count, revive, hit, dead, min(1 / PACT_CAST, supply), supply)
+    label = f"{name}: presses on the boss (added to the boss DPS)*"
+    if best is None:
+        return 0.0, [], []
+    gain, skill, life, count, revive, hit, dead, rate, supply = best
+    added = rate * gain if gain > 0 else 0.0
+    basis = (f"no cooldown or cost (game files): the build's minions set the rate. Your {skill} ({count:g}, {life:,.0f} "
+             f"Life each): {share:.0%} of its Life a cast, so it dies every {k} casts and revives in {revive:.3g} s "
+             f"(revive_seconds): at most {supply:.2f} casts a second ({1 / PACT_CAST:.2f} by the {PACT_CAST:g} s cast). A "
+             f"cast: level {level}'s {lo}-{hi} {PACTS[name]} + {share:.0%} of {life:,.0f}, {hit:,.0f} UNSCALED (no PoB "
+             f"skill: an undercount), less {lost_main:,.0f} of the main skill's damage in its {PACT_CAST:g} s and "
+             f"{dead:,.0f} of the minion's own while dead (PoB's Full DPS entry): {gain:+,.0f} a cast; "
+             + (f"pressed {rate:.2f} times a second: +{added:,.1f} DPS" if added > 0 else "a loss, so not pressed: 0")
+             + ". Not fed back: the deaths it causes to on-minion-death lines (an UNDERCOUNT, named)")
+    note = {"label": label, "value": round(added, 1), "basis": basis, "confidence": "MEDIUM-LOW",
+            "uses": rate if added > 0 else 0.0,
+            "play": (f"Press {name} on your {skill} {rate:.2f} times a second (every {1 / rate:.2f} s): without it +0; "
+                     f"with it +{added:,.0f} DPS" if added > 0 else
+                     f"Don't press {name}: each cast costs more of your main skill's and the minion's damage than it "
+                     f"deals ({gain:+,.0f} a cast)")}
+    return added, ([added_input(name.replace(" ", ""), added)] if added > 0 else []), [note]
+
+
+def fissure_vine_stay(stats: dict | None, uses: float, sets: list[dict], name: str = "Entangle"
+                      ) -> tuple[float, float, str] | None:
+    """(MECHB70, above) (the vines' stay share: headline, every-move-its-mean row, how) for `name`'s fissures used
+    `uses` times a second at the boss; None without a boss reading (stats None)."""
+    if stats is None or name not in FISSURE_VINES:
+        return None
+    labels, _ = FISSURE_SETS[name]
+    life = number(next((x for x in sets if x.get("label") in labels), {}).get("Duration")) or FISSURE_SECONDS
+    window = min(life, 1.0 / uses) if uses > 0 else life
+    share, how = bosses.stay_share(stats, FISSURE_HALF_WIDTH, window)
+    fixed = bosses.stay_share(stats, FISSURE_HALF_WIDTH, window, moves="fixed")[0]
+    return share, fixed, (f"the vines attach only while the boss stands on the fissure: the newest one under it every "
+                          f"{window:.2f} s (" + (f"your {uses:.2f} uses a second" if uses > 0 and 1 / uses < life
+                                                  else f"its {life:g} s") + f"), {how}")
+
+
 def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict], level_stats: dict,
                         support_stats: dict, texts: list[str], boss_radius: float,
                         det_share: float | None = None, forbidden: set[str] = frozenset(),
                         previous: list[dict] | None = None,
                         rage_paid: dict | None = None, cap: float | None = None,
-                        overgrown: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
+                        overgrown: tuple[float, str] | None = None,
+                        stay: tuple[float, float, str] | None = None) -> tuple[list[dict], list[dict]]:
     """A Fissure skill's Fissures a use at the boss against PoB's one (see above). `cap`: the build's Fissure Limit
     (Assumptions.fissure_limit, GEM41), else FISSURE_MAX_A_USE's base. `level_stats` / `support_stats` the
     activeSkills row's, `texts` the build's lines, `det_share` the share of a DETONATED_SETS skill's set-off part the
     detonated model counts (Earthshatter's spikes, Forge Hammer's hammers), None for the others; `rage_spent` MECH-C's
     build.rage_paid (Molten Crash's Rage Fissure); `overgrown` (MECHB65): (share of the build's plants Overgrown, how)
-    from overgrown_share, for Entangle's vines."""
+    from overgrown_share, for Entangle's vines; `stay` (MECHB70): fissure_vine_stay's (headline, row, how) on the vines."""
     if main is None or main.name not in FISSURE_SETS or FISSURE_ENTRY in forbidden:
         return [], []
     labels, layout = FISSURE_SETS[main.name]
@@ -27891,7 +28152,8 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
         vine_hit = number(next((x for x in sets if x.get("label") == vine_label), {}).get("AverageDamage"))
         grown = min(1.0, max(0.0, number((overgrown or (0.0, ""))[0])))  # (MECHB65: the Overgrown share's +3)
         vine_rate = vine_rate + (vine_over - vine_rate) * grown
-        beside = vine_rate * vine_hit
+        still = stay[0] if stay is not None else 1.0  # (MECHB70: the boss on the fissure, fissure_vine_stay)
+        beside = vine_rate * vine_hit * still
         fissure, total = dps.get(labels[0], 0.0), dps.get(scored or "", 0.0)
     elif main.name in FISSURE_BESIDE and scored in FISSURE_BESIDE[main.name] + labels:
         beside = max((dps.get(k, 0.0) for k in FISSURE_BESIDE[main.name]), default=0.0)
@@ -27973,7 +28235,12 @@ def fissure_count_model(main: Skill | None, scored: str | None, sets: list[dict]
                       + (f"; 3 more on its Overgrown share {grown:.0%}: {overgrown[1]}" if grown > 0 else
                          "; none of its plants Overgrown") +
                       f"), {beside:,.1f} DPS, beside its Fissures ({fissure:,.1f} DPS each), PoB scoring the {scored} "
-                      f"set alone ({total:,.1f}; an UNDERCOUNT); every fissure Overgrown (3 more each) a row: "
+                      f"set alone ({total:,.1f}; an UNDERCOUNT)"
+                      + (f"; {stay[2]} (MECHD9's reader rule): x{still:.2f} on the vines; rows: the boss standing "
+                         f"still x{(beside / still + count * share * fissure) / total:.3f}, every move its mean length "
+                         f"x{(beside / still * stay[1] + count * share * fissure) / total:.3f}"
+                         if stay is not None and still > 0 else "")
+                      + f"; every fissure Overgrown (3 more each) a row: "
                       f"x{(beside * FISSURE_VINES[main.name][2] / vine_rate + count * share * fissure) / total:.3f}; "
                       "Overgrown fissures expire 25% slower: the cover is already taken as full, no change"
                       if main.name in FISSURE_VINES else
