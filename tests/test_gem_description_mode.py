@@ -1254,9 +1254,10 @@ def test_earthshatter_more_damage_for_each_spike_standing():
 
 
 def test_gas_arrow_cloud_poisons_every_two_seconds():
-    # (GEM20, RESEARCH30 R30-5 (3)) a full 4 s cloud: 2.5 applications (2-3); one that explodes on landing: 0.5
-    assert models.gas_cloud_poisons(4.0) == pytest.approx(2.5)
-    assert models.gas_cloud_poisons(0.0) == pytest.approx(0.5)
+    # (GEM20's 2.5 midpoint retired, GEM50: R67-1's count, a full 4 s cloud 2, one that explodes on landing 1)
+    assert models.cloud_applications(4.0) == pytest.approx(2.0)
+    assert models.cloud_applications(4.0, up=1.0) == pytest.approx(1.0)
+    assert models.cloud_count(4.0, 2.0) == 2 and models.cloud_count(4.04, 2.02) == 2 and models.cloud_count(0.0) == 1
     sets = [{"label": "Arrow", "TotalDPS": 38.0}, {"label": "Poison Cloud", "TotalDPS": 88.6},
             {"label": "Explosion", "TotalDPS": 162.4}]
     ga = Skill("Gas Arrow", 1, attack=True)
@@ -1890,7 +1891,7 @@ def test_mirror_of_refraction_copies_from_every_projectile():
     stats = {"ProjectileCount": 9, "Speed": 2.0}
     mods, notes = models.mirror_of_refraction_model([mirror, spark], spark, stats, {"enemyDistance": 50})
     radius = models.bosses.hit_radius(stats)[0]
-    p = min(1.0, models.nova_unaimed_hits(9, radius, 5.0))
+    p = models.mirror_out_share(radius, 5.0, 0.0, 9)  # (GEM50: MECHB69's geometry, item 3)
     assert mods[0]["value"] == pytest.approx(100 * min(0.5, 2.0 * 9) * p / 2.0, abs=1e-3) and notes[0]["confidence"] == "LOW"
     assert f"x{1 + 2 * 0.5 * p / 2.0:.3f}" in notes[0]["basis"]  # the one-chain-step row
     one = models.mirror_of_refraction_model([mirror, spark], spark, {"ProjectileCount": 1, "Speed": 2.0}, {"enemyDistance": 50})

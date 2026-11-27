@@ -77,3 +77,18 @@ def test_firestorm_counts_only_the_time_the_boss_stays_in_the_storm():
     # no Duration read: no stay cut (the landing share alone)
     mods, _ = models.firestorm_infusion_model(storm, "Firestorm", sets, {}, boss=(0.5, "t"))
     assert 1 + [m for m in mods if m["name"] == "DPS"][0]["value"] / 100 == pytest.approx(0.25)
+
+
+def test_mirror_out_share_is_mechb69s_geometry():
+    """GEM50 item 3: GEM's Mirror model and the return model share mirror_out_share (MECHB69's geometry)."""
+    for r, d in ((0.4, 0.9), (0.4, 2.0), (0.4, 6.0)):
+        assert models.mirror_out_share(r, d) == pytest.approx(models.mirror_nova_geometry(r, d, models.MIRROR_PRESENCE, 7)[0])
+    # at the boss's feet the old angle count read 1.0, the geometry 0.39 (R64-10; an OVERCOUNT fixed)
+    assert models.mirror_out_share(0.4, 0.9) == pytest.approx(0.39, abs=0.01)
+    assert models.mirror_out_share(0.4, 0.9) < models.nova_unaimed_hits(7, 0.4, 0.9)
+
+
+def test_one_cloud_count_for_gem_and_mech_b():
+    assert models.cloud_poison_cover(4.0, 2.0, 2.02)[0] == models.cloud_count(4.0, 2.02) == 2
+    assert models.cloud_applications(4.0, step=4.0) == 1.0  # (a cloud ending as its first Poison ends: no second)
+    assert models.cloud_applications(7.02) == 4.0

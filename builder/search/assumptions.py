@@ -4432,7 +4432,7 @@ class Assumptions:
                 mir_every = bosses_mod.benefit_skill_time(mir_boss)
                 mir_dodges = dodge_share()[0] / mir_every if mir_every > 0 else 0.0
             mir_mods, mir_notes = models.mirror_of_refraction_model(
-                found, main, {**stats, **build.call("stats", fields=["ProjectileCount", "Speed"])},
+                found, main, {**stats, **build.call("stats", fields=["ProjectileCount", "Speed", "PresenceRadius"])},
                 build.call("getConfig")["input"], forbidden, loop=mir_loop, moves=mir_moves, dodges=mir_dodges)
             stat_mods, stat_notes = stat_mods + mir_mods, stat_notes + mir_notes  # (GEM35: the loop, R47-2)
             mirror_more = sum(m["value"] for m in mir_mods if m.get("name") == "DPS")  # (MECHB69: the copies' returns)

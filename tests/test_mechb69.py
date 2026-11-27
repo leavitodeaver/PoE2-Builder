@@ -15,7 +15,7 @@ def test_mirror_geometry_matches_r64_10s_table(radius, metres, out, back, share)
 def test_mirror_returns_replace_the_outgoing_count():
     """The copies' returns counted at q (the returns' own crossing chance) in place of p (the outgoing one)."""
     frost = models.Skill("Frostbolt", group=1, spell=True)
-    p = min(1.0, models.nova_unaimed_hits(7, 0.4, 0.9))
+    p = models.mirror_out_share(0.4, 0.9, 4.0, 7)  # (GEM50, item 3: GEM's p is now the geometry's outgoing share)
     big_m, r = 1.5, 1.0  # a mirror more of +150%, a return more of +100%
     mods, notes = models.mirror_return_model(frost, 100.0, 150.0, 7, (0.4, "test"), 0.8, 0.9, "test")
     q = models.mirror_nova_geometry(0.4, 0.9, 4.0, 7)[1]

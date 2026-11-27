@@ -7212,12 +7212,28 @@ def mirror_loop_up(casts: float, moves: float) -> float:
     return (1.0 - math.exp(-x)) / x
 
 
+# (GEM50; the manager's item 3, MECHB69's R64-3 / R64-10 geometry) The chance one of a nova's outgoing copies hits the
+# boss: mirror_nova_geometry's (mirrors spread over your Presence disc outside the boss, the copies evenly spaced at a
+# random turn, each flying MIRROR_FLIGHT m), in place of the angle count k x 2 asin(r / d) / 360 from a mirror d from the
+# boss (nova_unaimed_hits: every mirror taken at the boss's distance from you), which stays a row. One helper for this
+# model and mirror_return_model (its S = M / p must use the same p). An OVERCOUNT fixed: the angle count put every mirror
+# at the boss's distance from you and read 1.0 at the boss's feet (0.9 m, r 0.4: MECHB69), where R64-10's geometry gives
+# 0.39 (most mirrors stand away from the boss, on all sides of you); 0.45 -> 0.36 at 2 m; at a ranged 12 m the copies
+# (8 m flight from a mirror within 4 m of you) almost never reach it (0.056 -> 0.0006).
+def mirror_out_share(radius: float, metres: float, presence: float = 0.0, copies: float = 7) -> float:
+    """(GEM50) The chance one of a nova's outgoing copies hits a boss of `radius` m whose centre is `metres` from you,
+    mirrors over your `presence` m Presence (0: MIRROR_PRESENCE); see above."""
+    return min(1.0, mirror_nova_geometry(radius, max(metres, radius + 0.05), presence if presence > 0 else MIRROR_PRESENCE,
+                                         copies)[0])
+
+
 def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: dict, config: dict | None = None,
                                forbidden: set[str] = frozenset(), loop: str = "",
                                moves: tuple[float, str] = (0.0, ""), dodges: float = 0.0) -> tuple[list[dict], list[dict]]:
     """Mirror of Refraction's copies on the boss from the main Spell's projectiles, which pierce the mirror (see above).
     `loop`: mirror_loop_source's words (the copies return and shatter every mirror). `moves`: (the boss's forced moves a
-    second, how) that break the loop (GEM44, R60-9); `dodges`: the player's dodge rolls a second (a row only)."""
+    second, how) that break the loop (GEM44, R60-9); `dodges`: the player's dodge rolls a second (a row only). (GEM50)
+    stats["PresenceRadius"] (tenths of a metre): the mirrors' disc."""
     from builder.search.conditions import MELEE_DISTANCE, RANGED_DISTANCE  # (conditions imports models)
 
     mirror = next((s for s in skills if s.name == MIRROR_OF_REFRACTION), None)
@@ -7246,8 +7262,10 @@ def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: d
     move_rate, move_how = max(number(moves[0]), 0.0), moves[1]
     up = mirror_loop_up(casts, move_rate) if loop else 0.0
     shatters = up / interval + (1 - up) * fed
-    p = min(1.0, nova_unaimed_hits(copies, radius, metres))
-    p_near = min(1.0, nova_unaimed_hits(copies, radius, MELEE_DISTANCE))
+    presence = number(stats.get("PresenceRadius")) / 10 or MIRROR_PRESENCE
+    p = mirror_out_share(radius, metres, presence, copies)  # (GEM50: MECHB69's geometry)
+    p_near = mirror_out_share(radius, MELEE_DISTANCE, presence, copies)
+    p_angle = min(1.0, nova_unaimed_hits(copies, radius, metres))  # (the old count: a row)
     factor = 1 + shatters * p / casts
     near = 1 + shatters * p_near / casts
     chain = 1 + 2 * shatters * p / casts
@@ -7272,9 +7290,11 @@ def mirror_of_refraction_model(skills: list[Skill], main: Skill | None, stats: d
                   f"projectile pierce it (R44-2, MEDIUM-HIGH), so the one that shatters it still hits the boss: "
                   f"{shatters:.2f} shatters a second" + loop_words + ". Each copies the "
                   f"projectile {copies:g} times in a nova, of which at most one can hit the boss (one source, one time: "
-                  f"R35-15, MEDIUM); a mirror {metres:g} m from the boss ({where}; mirrors appear in your Presence, LOW), "
-                  f"radius {radius:g} m: one hits {p:.0%} of the time (k x 2 asin(r / d) / 360). +{shatters * p:.2f} hits a "
-                  f"second on {casts:.2f}: x{factor:.3f}. Rows: fighting at {MELEE_DISTANCE:g} m x{near:.3f}; "
+                  f"R35-15, MEDIUM); mirrors spread over your {presence:g} m Presence (LOW), the boss {metres:g} m from you "
+                  f"({where}), radius {radius:g} m: one hits {p:.0%} of the time (MECHB69's geometry, R64-3 / R64-10, "
+                  f"MEDIUM-LOW). +{shatters * p:.2f} hits a second on {casts:.2f}: x{factor:.3f}. Rows: fighting at "
+                  f"{MELEE_DISTANCE:g} m x{near:.3f}; every mirror at the boss's distance from you (the old angle count "
+                  f"k x 2 asin(r / d) / 360, {p_angle:.0%}) x{1 + shatters * p_angle / casts:.3f}; "
                   + loop_rows + ("" if loop else f"each nova's copies chaining into one more mirror (the game's text; the rate "
                      f"LOW, R44-2) x{chain:.3f}; ") + "mirrors not fed x1"),
         "play": (f"{MIRROR_OF_REFRACTION}: fire {main.name} through the mirrors that appear around "
@@ -11429,19 +11449,13 @@ def cloud_poison_scale(cloud_set: dict, poisons: float) -> float:
 # Arrow cloud ~1.5 m, 4 s window", 0.78 against the default boss; the manager's reader rule, 26 Nov 06:30). A Gas Arrow /
 # Gas Grenade cloud stays where it landed ("leaving behind a growing Poison cloud": ActiveSkills toxic_grenade; Gas
 # Arrow's "a cloud of flammable poisonous gas" where the arrow lands), so: its Poisons come only while the boss is
-# inside: applications = gas_cloud_poisons(alive x stay_share(R, alive)); a Detonator's explosion (a uniform wait over
+# inside: applications = cloud_applications(...) (GEM50: the old midpoint gas_cloud_poisons, t / 2 + 0.5, deleted: x1.25
+# on a 4 s cloud against R67-1's count, its last caller gone in TRAIN 155); a Detonator's explosion (a uniform wait over
 # detonated_wait, as Earthshatter's spikes) hits it only if still inside: x stay_share(R, that wait); an Ignite- or
 # Burning-made explosion needs the boss inside when it comes, at any moment of the cloud's life: x stay_share(R, life).
 # R: PoB's Poison Cloud set radius (its AreaOfEffectRadius, tenths of a metre; CLOUD_STAY_RADIUS where PoB gives none);
 # the cloud's growth (+20% area a second, to +80%) not read (the lower reading). Rows: the boss standing still (before).
 CLOUD_STAY_RADIUS = 1.5  # (metres: MECHD9's survey estimate for Gas Arrow's cloud, used only without PoB's radius)
-
-
-def gas_cloud_poisons(alive: float) -> float:
-    """Poison applications a Gas Arrow cloud makes on the boss in `alive` seconds (see above). (GEM48: GEM's own sites
-    now count with cloud_applications, R67-1's measured rule; this midpoint stays for MECH-B's sniper_cloud_poison, whose
-    owner decides: routed.)"""
-    return max(alive, 0.0) / GAS_POISON_EVERY + 0.5
 
 
 # (GEM48; RESEARCH67 R67-1, research/poison-cloud-measured-r67.md: THE USER's own Gas Arrow clip, 5 clouds, 13 intervals)
@@ -11476,13 +11490,21 @@ def cloud_poison_step(poison_seconds: float = 0.0) -> float:
     return max(GAS_POISON_STEP, number(poison_seconds))
 
 
+def cloud_count(alive: float, step: float = GAS_POISON_STEP) -> int:
+    """(GEM50; one count for GEM's cloud_applications and MECH-B's cloud_poison_cover) Poison applications a cloud living
+    `alive` s makes on a target inside it, one on landing and one each `step` s while it lives: ceil(alive / step), at
+    least 1 (R67-1: a 4.0 s cloud gives 2, its third would come at ~4.03-4.07 s; a cloud ending exactly on a step makes no
+    Poison then: the lower reading, as MECHB70's count; GEM's old 1 + floor counted one there)."""
+    return max(1, math.ceil(max(alive, 0.0) / step - 1e-9)) if step > 0 else 1
+
+
 def cloud_applications(life: float, ends: float = 0.0, up: float = 0.0, leave: float = 0.0,
                        step: float = GAS_POISON_STEP) -> float:
     """Expected Poison applications on the boss from one cloud of `life` seconds (see above): the landing one plus each
     later one the cloud lives, and the boss stays inside (`leave` a second: its moves out of it), for."""
     if life <= 0:
         return 0.0
-    later = int(life / step + 1e-9)
+    later = cloud_count(life, step) - 1  # (GEM50: the shared count)
     keep = max(0.0, 1.0 - min(max(up, 0.0), 1.0))
     rate = max(ends, 0.0) + max(leave, 0.0)
     return 1.0 + keep * sum(math.exp(-rate * k * step) for k in range(1, later + 1))
@@ -11798,7 +11820,7 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
                     time_share: float = 1.0) -> tuple[list[dict], list[dict]]:
     """Gas Arrow's use as the game makes it (see above): `sets` the bridge's setRates for its group, `share` the share of
     its clouds that explode (Assumptions.gas_arrow_share), `how` its basis, `poisons` a cloud's Poison applications on
-    the boss (gas_cloud_poisons over its average life), `time_share` Gas Arrow's share of the fight (its press scale x
+    the boss (cloud_applications over its life, GEM48), `time_share` Gas Arrow's share of the fight (its press scale x
     the time other presses leave it: the cloud's added Poison follows its uses)."""
     if main is None or main.name != GAS_ARROW or GAS_ARROW_ENTRY in forbidden or scored not in GAS_ARROW_SETS:
         return [], []
@@ -14756,7 +14778,7 @@ CLOUD_REPOISON = 2.02  # s (R67-1's measured re-application gap)
 def cloud_poison_cover(alive: float, seconds: float, interval: float) -> tuple[int, float]:
     """(MECHB70, above) (applications, Poison-seconds held one at a time) of a cloud living `alive` s re-Poisoning every
     `interval` s with `seconds`-long Poisons."""
-    n = max(1, math.ceil(max(alive, 0.0) / interval - 1e-9))
+    n = cloud_count(alive, interval)  # (GEM50: the shared count, the same numbers)
     return n, (n - 1) * min(interval, seconds) + seconds
 
 
@@ -22719,7 +22741,7 @@ def mirror_return_model(main: Skill | None, return_more: float, mirror_more: flo
     if main is None or r <= 0 or big_m <= 0 or copies < 1:
         return [], []
     rad, rad_how = radius
-    p = min(1.0, nova_unaimed_hits(copies, rad, metres))  # GEM's outgoing chance a nova (its model's own p)
+    p = mirror_out_share(rad, metres, presence, copies)  # GEM's outgoing chance a nova (its model's own p; GEM50)
     if p <= 0:
         return [], []
     novas = big_m / p  # S: novas a cast
