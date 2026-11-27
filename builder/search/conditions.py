@@ -2792,6 +2792,71 @@ def charges_reaching(build, kind: str, name: str) -> tuple[float, str]:
     return rate, f"{name}: {rate:.2f} of the {asks:.2f}/s it asks find a {kind} Charge ({flow[1]})"
 
 
+# Charges lapsing while a NAMED boss is off the field (MECHC69; MECHC68's leftover, the manager's brief: low, an
+# OVERCOUNT for those bosses only). "Charges last for 15 seconds by default, refreshing whenever you gain another charge
+# of the same type" (KeywordPopups Charges): the build's charge sources are its hits and uses on the boss, so an
+# off-field phase (bosses.absent's table, MECH-D's ABSENT: Zarokh's Trial of Time 14.5 s, the King in the Mists' maze
+# 38 s, the Fell Serpent's ascension 10 s, the Bodach's scripted phase 45 s) at least as long as the build's charge
+# duration drops them all, and they rebuild after it. DPS is a rate over the on-field fight, so the loss is the
+# rebuild's: from 0 to the held count at the climb rate (the gains a second left after spends), count^2 / (2 x climb)
+# charge-seconds each lapse (a linear climb, MEDIUM-LOW), spread over the on-field fight T (stats["_fight_on"]: the
+# boss's pool / the build's Full DPS, a round behind). How often: a phase the boss's Life brings (the King's second form,
+# the Bodach's phase, the Fell Serpent's at 3-5% Life) once a fight; Zarokh's Trial "about once per 50-70 s of fight"
+# (the table's words): the k-th taken to come between 50 k and 70 k s of the on-field fight, uniformly (LAPSE_EVERY;
+# a fight shorter than 50 s sees none). An event of A s shorter than the duration
+# D still drops them when the last gain before it came more than D - A s earlier: chance e^(-gains x (D - A)) (gains
+# random, as charges_with_refresh; Zarokh's 14.5 s against 15 s: e^(-0.5 x gains)). An event of unknown length
+# (Kulemak's breaks) drops nothing (said). Not read: charges gained from adds or the player's own uses while the boss is gone (an overcount of
+# the loss, UNVERIFIED which builds have them); Rage, Glory and other build-ups (not modelled here). The default boss
+# (the worst case) has no ABSENT entry: no change. POE2_CHARGE_LAPSE=0 is the old reading.
+CHARGE_LAPSE = os.environ.get("POE2_CHARGE_LAPSE", "1") != "0"
+LAPSE_EVERY = {"Zarokh, the Temporal": (50.0, 70.0)}  # s of fight per event (the table's "about once per 50-70 s")
+
+
+def events_by(fight: float, every: tuple[float, float]) -> float:
+    """The events expected in `fight` s when the k-th comes between every[0] x k and every[1] x k s, uniformly."""
+    low, high = every
+    total, k = 0.0, 1
+    while low * k <= fight:
+        total += min(1.0, (fight - low * k) / ((high - low) * k))
+        k += 1
+    return total
+
+
+def charge_lapse(stats: dict, count: float, climb: float, duration: float, gains: float | None = None
+                 ) -> tuple[float, str]:
+    """(charges held on average over the on-field fight, how; "" when nothing changes): see CHARGE_LAPSE's note.
+    `climb` the charges a second the count rebuilds at; `gains` the gains a second that refresh it (default `climb`)."""
+    if not CHARGE_LAPSE or count <= 0 or climb <= 0 or duration <= 0:
+        return count, ""
+    name = bosses.of(stats).name
+    entry = bosses.ABSENT.get(name)
+    if not entry:
+        return count, ""
+    fight = number(stats.get("_fight_on"))
+    refresh = gains if gains and gains > 0 else climb
+    chance = {t: (1.0 if t >= duration else math.exp(-refresh * (duration - t))) for t, _ in entry[0] if t}
+    long = [t for t, c in chance.items() if c >= 1e-3]
+    short = [t for t, _ in entry[0] if not t or t not in long]
+    kept = (f"; {name}'s other off-field phases ("
+            + ", ".join(f"{t:g} s" if t else "length unknown" for t in short)
+            + f") drop nothing: of unknown length, or too short against the {duration:g} s charge duration") if short else ""
+    if not long:
+        return count, f"no lapse against {name}{kept}"
+    if fight <= 0:
+        return count, f"no lapse read against {name}: no fight length yet (the build's Full DPS not read)"
+    every = LAPSE_EVERY.get(name)
+    lapses = sum(chance[t] for t in long) * (events_by(fight, every) if every else 1.0)
+    lost = lapses * count * count / (2 * climb) / fight
+    after = max(0.0, count - lost)
+    return after, (f"{name} leaves the field " + ", ".join(
+        f"{t:g} s" + ("" if chance[t] >= 1 else f" ({chance[t]:.0%} chance the last gain came {duration - t:g} s+ before)")
+        for t in long) + f" (bosses.absent), against the {duration:g} s charge duration: all drop and rebuild at {climb:.2f}/s, {count * count / (2 * climb):.2f} "
+                   f"charge-seconds lost each time, {lapses:.2f} time(s) in its {fight:.1f} s on the field"
+                   + (f" (one per {every[0]:g}-{every[1]:g} s of fight)" if every else " (once a fight)")
+                   + f": {after:.2f} held on average (MEDIUM-LOW); the boss never leaving: {count:.2f}{kept}")
+
+
 def _charges_held(kind: str):
     def held(lines: list[str], stats: dict) -> tuple[float, str]:
         kinds, redirected = _charge_sources(lines, kind)
@@ -2868,6 +2933,7 @@ def _charges_held(kind: str):
                           for n, u in wanted.items() if n != REGULATION) + tick_removes
             net = max(rate - removed, 0.0)
             count = min(most, net * duration)
+            climb = net  # (MECHC69: the rebuild after an off-field lapse, charge_lapse)
             share = min(1.0, rate / removed) if removed > 0 else 1.0
             if tick > 0:
                 count, tick_text = regulation_held(stats, kind, gains, extra, removed - tick_removes, tick, most, duration,
@@ -2898,6 +2964,7 @@ def _charges_held(kind: str):
                                      net - (most / duration if duration > 0 else net), False)
         else:
             count = charges_with_refresh(gains, duration, most, extra, fill)
+            climb = rate  # (MECHC69: the rebuild after an off-field lapse, charge_lapse)
             basis = (f"{gains:.2f} gains/s{extra_text}, all dropping after {duration:g} s without a gain (gains taken as "
                      f"random arrivals)" + (f"; {fill:.0%} chance a gain fills to the maximum" if fill else ""))
             if (stats.get("_bypass") or {}).get(kind) and most > 0 and duration > 0:
@@ -2919,6 +2986,9 @@ def _charges_held(kind: str):
         # (MECHC44: R33-17's per-line-sum row is gone: disproved in game for a skill without the flag, the user's
         # Ice Nova test, 20 Nov; the manager 04:05: keep it out of the play guide)
         other = ""
+        count, lapse_how = charge_lapse(stats, count, climb, duration, rate)  # (MECHC69: a named boss's off-field phases)
+        if lapse_how:
+            basis += "; " + lapse_how
         return round(count, 1), ((redirected + "; ") if redirected else "") + (
             f"{basis} = {count:.1f} held, at most {most:g}: " + "; ".join(how[:3]) + shared_note + other)
     return held
@@ -12564,6 +12634,10 @@ class Conditions:
                         profusion[line["text"]] = more
         if profusion:
             stats["_profusion"] = profusion
+        if CHARGE_LAPSE and bosses.of(stats).name in bosses.ABSENT:  # (MECHC69: the on-field fight, charge_lapse)
+            full = number((getattr(self.build, "stats", None) or {}).get("FullDPS")) or number(
+                (getattr(self.build, "stats", None) or {}).get("CombinedDPS"))
+            stats["_fight_on"] = boss_pool(bosses.of(stats).name) / full if full > 0 else 0.0
         main_group = next((g for g in self.build.groups() if g.get("main")), None)  # (MECHC53: ENDURANCE_SUPPORTS' note)
         if main_group is not None:
             found_supports = {}

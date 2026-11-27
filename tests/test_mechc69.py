@@ -48,3 +48,40 @@ def test_a_side_orb_makes_fewer_remnants_when_the_boss_walks_out_of_its_reach(mo
     monkeypatch.setattr(assumptions, "ORB_STAY", False)
     assert assumptions.orb_remnants(_Build(orbs), skill)[0] == orbs
 
+
+def test_charges_lapse_and_rebuild_while_a_named_boss_is_off_the_field(monkeypatch):
+    """MECHC69 (MECHC68's leftover, low; an OVERCOUNT against those bosses): an off-field phase at least as long as the
+    charge duration drops every charge, and they rebuild at the climb rate: count^2 / (2 climb) charge-seconds lost a
+    lapse over the on-field fight; once a fight for a Life-gated phase, one per 60 s of fight for Zarokh's Trial."""
+    from builder.search import conditions
+
+    king = {"_boss": "The King in the Mists", "_fight_on": 30.0}
+    held, how = conditions.charge_lapse(king, 3.0, 1.5, 15.0)
+    assert held == pytest.approx(3.0 - 3.0 * 3.0 / (2 * 1.5) / 30.0)
+    assert "38 s" in how and "the boss never leaving: 3.00" in how and "once a fight" in how
+    # Zarokh: the k-th Trial between 50 k and 70 k s; none in a fight under 50 s
+    assert conditions.events_by(40.0, (50.0, 70.0)) == 0.0
+    assert conditions.events_by(60.0, (50.0, 70.0)) == pytest.approx(0.5)
+    assert conditions.events_by(130.0, (50.0, 70.0)) == pytest.approx(1.0 + 0.75)
+    assert conditions.charge_lapse({"_boss": "Zarokh, the Temporal", "_fight_on": 40.0}, 3.0, 1.5, 15.0)[0] == 3.0
+    z, how = conditions.charge_lapse({"_boss": "Zarokh, the Temporal", "_fight_on": 120.0}, 3.0, 1.5, 15.0)
+    # (14.5 s against 15 s: it lapses when the last gain came 0.5 s+ before it left, e^(-0.5 x gains))
+    lapses = math.exp(-0.5 * 1.5) * conditions.events_by(120.0, (50.0, 70.0))
+    assert z == pytest.approx(3.0 - lapses * 3.0 * 3.0 / (2 * 1.5) / 120.0) and "one per 50-70 s" in how
+    # more gains a second: the last one more often within 0.5 s of leaving, a lapse less often
+    assert conditions.charge_lapse({"_boss": "Zarokh, the Temporal", "_fight_on": 120.0}, 3.0, 1.5, 15.0, 6.0)[0] > z
+    # the Fell Serpent's 10 s against a 15 s duration: e^(-5 x 1.5), under 0.1%: nothing lapses; an 8 s duration lapses
+    fell = {"_boss": "Atziri, the Fell Serpent", "_fight_on": 30.0}
+    assert conditions.charge_lapse(fell, 3.0, 1.5, 15.0)[0] == 3.0
+    assert conditions.charge_lapse(fell, 3.0, 1.5, 8.0)[0] < 3.0
+    # Kulemak's breaks have no length: nothing lapses (said)
+    k, how = conditions.charge_lapse({"_boss": "Vessel of Kulemak", "_fight_on": 30.0}, 3.0, 1.5, 15.0)
+    assert k == 3.0 and "unknown length" in how
+    # the default boss (the worst case) and a boss with no off-field data: unchanged, nothing said
+    assert conditions.charge_lapse({"_fight_on": 30.0}, 3.0, 1.5, 15.0) == (3.0, "")
+    assert conditions.charge_lapse({"_boss": "Arbiter of Ash", "_fight_on": 30.0}, 3.0, 1.5, 15.0) == (3.0, "")
+    # never below 0; no fight length: unchanged
+    assert conditions.charge_lapse({**king, "_fight_on": 0.5}, 3.0, 1.5, 15.0)[0] == 0.0
+    assert conditions.charge_lapse({**king, "_fight_on": 0.0}, 3.0, 1.5, 15.0)[0] == 3.0
+    monkeypatch.setattr(conditions, "CHARGE_LAPSE", False)
+    assert conditions.charge_lapse(king, 3.0, 1.5, 15.0) == (3.0, "")
