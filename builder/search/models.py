@@ -11276,6 +11276,8 @@ def herald_of_plague_model(found: list[Skill], stats: dict,
     mods = [added_input("HeraldOfPlague", added)] if added > 0 else []
     return mods, [{
         "label": label, "value": f"{added:,.0f} DPS", "confidence": "LOW", "entry": HERALD_OF_PLAGUE_ENTRY,
+        # (MECH115, R68-7: the spread Poisons, one of the main skill's each, for poison_pool_model)
+        "poison_pool": ("AddedHeraldOfPlague", dps / min(limit, stacks), added / (dps / min(limit, stacks))),
         "basis": (f"the boss preset's {kills:.3f} add kills a second (AddKillsPerSecond, MECH-D's), each Poisoned at "
                   f"your main skill's {chance:.0%} a hit (the lower reading) and spreading one Poison onto the boss "
                   f"with half its {duration:.2f} s left (MEDIUM-LOW): {spread:.3f} Poisons on the boss at a time, beside "
@@ -11487,6 +11489,9 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     cloud_set = next((x for x in sets if x.get("label") == "Poison Cloud"), {})
     applied = poisons
     poisons = cloud_poison_scale(cloud_set, poisons)  # (MECH109, R60-12: up to the Poison limit)
+    cloud_stacks = min(number(cloud_set.get("PoisonStackPotential")) * number(cloud_set.get("PoisonStacksMax")),
+                       number(cloud_set.get("PoisonStacksMax")))
+    cloud_one = number(cloud_set.get("PoisonDPS")) / (cloud_stacks if cloud_stacks > 0 else 1.0)  # (MECH115: one Poison)
     cloud_poison = (number(cloud_set.get("PoisonDPS")) * poisons * min(max(time_share, 0.0), 1.0)
                     if scored != "Poison Cloud" else 0.0)
     factor = total / dps[scored]
@@ -11503,6 +11508,8 @@ def gas_arrow_model(main: Skill | None, scored: str | None, sets: list[dict], sh
     return mods, [{
         "label": f"{main.name}: its clouds explode only on an Ignited boss or a Detonation*", "value": f"x{factor:.3f}",
         "confidence": "MEDIUM", "entry": GAS_ARROW_ENTRY,
+        # (MECH115, R68-7: the cloud's Poisons on the boss, for poison_pool_model's shared limit)
+        "poison_pool": ("AddedGasArrowCloud", cloud_one, cloud_poison / cloud_one if cloud_one > 0 else 0.0),
         "set_damage": set_damage(mods, main.name),  # (GEM42: strongest_ailment_model divides it out)
         "set_shares": {GAS_ARROW_SETS[0]: 1.0, GAS_ARROW_SETS[2]: share},  # (GEM22: strongest_ailment_model)
         "basis": (f"PoB scored the {scored} set alone ({dps[scored]:,.0f} DPS; Arrow {arrow:,.0f}, Poison Cloud "
@@ -14407,6 +14414,7 @@ def sniper_gas_arrow_model(impact: dict, cloud: dict, blast: dict, explode: floa
     if gross - lost <= 0:
         basis += "; a net loss, so not pressed (0)"
     note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM-LOW", "uses": 1.0 / every,
+            "poison_pool": ("AddedSniperGasArrow", one, held),  # (MECH115, R68-7 / R68-10: shared with yours)
             "play": (f"Command the Skeletal Sniper's Gas Arrow on the boss each time it's ready (every {every:.3g} s): "
                      f"with it +{dps:,.1f} DPS; without it +0.")}
     return dps, ([added_input("SniperGasArrow", dps)] if dps > 0 else []), [note]
@@ -16104,6 +16112,8 @@ def block_poison_model(texts: list[str], stats: dict, chaos_resist: float, own_p
     return gain, [{
         "label": "Lycosidae: your Blocks Poison the boss*", "value": f"+{gain:,.1f} DPS",
         "confidence": "MEDIUM-LOW",
+        # (MECH115, R68-7: its Poisons on the boss before the shared limit, for poison_pool_model)
+        "poison_pool": ("AddedBlockPoison", poison, up if slots <= 0 else min(blocks * POISON_SECONDS, slots)),
         "basis": (f"{blocks:.3f} Blocks a second (the boss's blockable hits at its benefit cadence x your Block chance); "
                   f"each Poisons as though dealing {base:g} Chaos: 20% of it a second (KeywordPopups Poison), through the "
                   f"boss's {chaos_resist:g}% Chaos resistance = {poison:,.1f} DPS for 2 s (Poison Duration and Magnitude "
@@ -16118,6 +16128,107 @@ def block_poison_model(texts: list[str], stats: dict, chaos_resist: float, own_p
                   + ". PoB leaves the line unparsed (0)"),
         "play": (f"Block the boss's hits with Lycosidae (raise your shield into them): without blocks +0 DPS; at "
                  f"{blocks:.2f} blocks a second +{gain:,.1f} DPS.")}]
+
+
+# The Poison limit across sources (MECH115; RESEARCH68 R68-7, research/poison-limit-which-stays-r68.md, MEDIUM-HIGH; a
+# DPS OVERCOUNT). At the limit only your STRONGEST Poisons deal damage: KeywordPopups Debuff "only the copy with the
+# strongest effect applies" (a Poison is an Ailment, a Debuff); every limit line reads "Targets can be affected by +N of
+# your Poisons at the same time"; patch 0.2.0 fixed "more poisons than should be active"; a weaker new Poison doesn't
+# replace a stronger one, and at a raised limit the N strongest act. Poisons from DIFFERENT sources share that limit.
+# PoB's Full DPS keeps the best single group's Poison (Calcs.lua 165, PoisonDPS mode "max"; a code reading: probe
+# POE2T6746's b11 has one Poison group only), but the Poison our models add beside it (each model's note "poison_pool":
+# Gas Arrow's cloud, Lycosidae's Block Poison, Herald of Plague's spread, the Skeletal Sniper's cloud) was capped against
+# its own source's count only, so a cloud's Poison counted whole on a boss whose limit the headline's Poison had filled.
+# Now poison_fill fills the limit strongest first from every pool on the boss (one Poison's DPS, Poisons of it held on
+# average): the headline's own and each added source's; each added source keeps what the fill gives it (the headline's
+# Poisons a stronger source pushes out come off that source), so the weakest loses first; never raised (a model's own
+# reading stands where the fill would give it more); the old sum is a row. Mean counts stand in for the fluctuating ones (MEDIUM; exact at
+# limit 1 when the sources come and go independently). A MINION's Poison (the Sniper's cloud): its count stays on the
+# minion's own limit (RESEARCH68 R68-10 (1), MEDIUM: the player's "+N" lines don't raise it); whether it and yours share
+# a slot on one boss is UNVERIFIED (R68-10 (2)): THE MANAGER'S RULING (26 Nov 20:22, the lower reading the headline):
+# SHARED, the separate sum the row. Not counted: a raised limit where two Full DPS groups each hold fewer than N (PoB's
+# max then undercounts; named only).
+POISON_POOL_ENTRY = "model-mech115-poison-limit-pool"
+POISON_POOL_NAMES = {"AddedGasArrowCloud": "Gas Arrow's cloud", "AddedBlockPoison": "Lycosidae's Block Poison",
+                     "AddedHeraldOfPlague": "Herald of Plague's spread", "AddedSniperGasArrow": "the Skeletal Sniper's cloud"}
+POISON_POOL_MINIONS = {"AddedSniperGasArrow"}
+
+
+def poison_fill(limit: float, pools: list[tuple[float, float]]) -> float:
+    """The Poison DPS the boss takes from `pools` [(one Poison's DPS, Poisons of it held on average)] when at most `limit`
+    of your Poisons act at once, the strongest first (see above)."""
+    room, total = max(number(limit), 0.0), 0.0
+    for one, held in sorted(pools, key=lambda p: -number(p[0])):
+        if room <= 0:
+            break
+        take = min(max(number(held), 0.0), room)
+        total, room = total + max(number(one), 0.0) * take, room - take
+    return total
+
+
+def poison_pool_model(mods: list[dict], notes: list[dict], base: tuple[float, float, str], limit: float,
+                      forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): `mods` with the added Poison sources cut to what the shared Poison limit leaves them (see above).
+    `notes`: the models' notes (their "poison_pool": (added mod name, one Poison's DPS, held)); `base`: the headline's
+    own Poison (one Poison's DPS, held, how); `limit`: your Poison limit (PoB's PoisonStacksMax)."""
+    values = {m["name"]: number(m.get("value")) / 100 for m in mods
+              if m.get("kind") == "Derived" and m.get("name") in POISON_POOL_NAMES and number(m.get("value")) > 0}
+    pools: dict[str, tuple[float, float]] = {}
+    for note in notes:
+        pool = note.get("poison_pool")
+        if pool and pool[0] in values and number(pool[1]) > 0 and number(pool[2]) > 0:
+            pools[pool[0]] = (number(pool[1]), number(pool[2]))
+    if POISON_POOL_ENTRY in forbidden or not pools:
+        return mods, []
+    one, held, how = base
+    own = max(number(one), 0.0) * max(number(held), 0.0)
+    # (each source's Poison as added today: Lycosidae's gain already takes the headline's out at limit 1, so its
+    # added value, not its raw Poison, is what it holds; the others add their Poison whole)
+    portion = {n: min(values[n], p[0] * p[1]) for n, p in pools.items()}
+    old = sum(portion.values())
+    net = max(poison_fill(limit, [(one, held)] + list(pools.values())) - own, 0.0)
+    if old <= 0 or net >= old - 1e-6:
+        return mods, []
+    # (each source keeps what the strongest-first fill gives it; the headline's Poisons a stronger source pushes out
+    # come off those stronger sources, in proportion to what they keep: so the weakest source loses first)
+    room, kept, base_kept = max(number(limit), 0.0), {}, 0.0
+    for name, (o, h) in sorted([("", (one, held))] + list(pools.items()), key=lambda x: (-x[1][0], x[0] != "")):
+        take = min(max(h, 0.0), room)
+        room -= take
+        if name:
+            kept[name] = o * take
+        else:
+            base_kept = o * take
+    pushed = max(own - base_kept, 0.0)
+    above = {n: kept[n] for n in pools if pools[n][0] > one}
+    lift = {n: kept[n] - (pushed * kept[n] / sum(above.values()) if n in above and sum(above.values()) > 0 else 0.0)
+            for n in pools}
+    cut = {n: max(portion[n] - lift[n], 0.0) for n in pools}
+    out = []
+    for m in mods:
+        if m.get("name") in cut and m.get("kind") == "Derived":
+            value = max(values[m["name"]] - cut[m["name"]], 0.0)
+            args = dict(m.get("args") or {})
+            if "fixed" in args:
+                args["fixed"] = value
+            m = {**m, "value": int(round(value * 100)), "args": args}
+        out.append(m)
+    names = "; ".join(f"{POISON_POOL_NAMES[n]} {portion[n]:,.1f} ({pools[n][1]:.2f} of {pools[n][0]:,.1f} each)"
+                      for n in pools)
+    minion = any(n in POISON_POOL_MINIONS for n in pools)
+    return out, [{
+        "label": "Your Poison limit: only the strongest Poisons on the boss act, whatever their source*",
+        "value": f"-{old - net:,.1f} DPS", "confidence": "MEDIUM", "entry": POISON_POOL_ENTRY,
+        "basis": (f"the boss carries at most {number(limit):g} of your Poisons at once (PoB's PoisonStacksMax) and only "
+                  f"the strongest act (KeywordPopups Debuff; RESEARCH68 R68-7, MEDIUM-HIGH); Poisons from different "
+                  f"sources share it. The headline's own: {number(held):.2f} held of {number(one):,.1f} DPS each "
+                  f"({how}); added beside it: {names}, {old:,.1f} in all. Filled strongest first, the added sources "
+                  f"keep {net:,.1f} DPS"
+                  + ("; a minion's Poison taken to share the slots with yours (UNVERIFIED, RESEARCH68 R68-10: the "
+                     "manager's ruling, the lower reading)" if minion else "")
+                  + f". Row: every source's Poison added whole (before) +{old:,.1f}"),
+        "play": (f"Your Poisons from different skills and items share one limit of {number(limit):g}: the extra sources "
+                 f"add {net:,.1f} DPS here, not {old:,.1f}; Poison-limit lines (+N of your Poisons) let them stack.")}]
 
 
 # Engineered Blaze (MECH90; the catalog's damaging-ailments passive row, an UNDERCOUNT: PoB parses "4% increased Area of

@@ -6612,6 +6612,10 @@ class Assumptions:
             presses = getattr(build, models.ITEM_PRESSES, None)
             if isinstance(presses, dict):
                 presses[models.INEVITABLE_AGONY] = (agony_rate, agony_notes[0]["play"])
+        # (MECH115, R68-7: Poisons from different sources share your Poison limit, the strongest acting)
+        hand_mods, pool_notes = models.poison_pool_model(hand_mods, hand_notes, self.poison_base(main, stats),
+                                                         number(stats.get("PoisonStacksMax")) or 1.0, forbidden)
+        hand_notes += pool_notes
         build.objective.set_added({"Melting Maelstrom": pulse, "Eternal Hunt": hunt, "Mirror Breaker": raven,
                                    "Runic Tempering": tempering, "Thorns": thorn, "Riven Armour": riven,
                                    "Elemental Discharge": discharge, "Broken Stance": stance, "Grisly Pyre": pyre,
@@ -8078,6 +8082,35 @@ class Assumptions:
         from builder.search import boss_hits  # (MECHC6: how hard it hits, per damage type)
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         return mods, [bosses.note(boss), boss_pool_note(boss), boss_hits.hits_note(boss)] + notes + condition_notes + self.unbuilt_grants(skills, notes)  # (the boss first)
+
+    def poison_base(self, main: models.Skill | None, stats: dict) -> tuple[float, float, str]:
+        """(MECH115, R68-7) The headline's own Poison on the boss for models.poison_pool_model: (one Poison's DPS, Poisons
+        held, how). In Full DPS PoB's 'Best Poison DPS' entry (x its press scale): at the main skill's one-Poison DPS
+        (PoisonDPS / min(PoisonStackPotential x limit, limit)) when the main skill is its source, else one Poison of the
+        whole entry (LOW: that group's stack count isn't read). Outside Full DPS, or with PoB's FullDPS 0 (Objective.dps then
+        scores the main skill), the main skill's own PoisonDPS."""
+        build = self.build
+        limit = number(stats.get("PoisonStacksMax")) or 1.0
+        potential = number(stats.get("PoisonStackPotential"))
+        held = min(potential * limit, limit) if potential > 0 else 0.0
+        own = number(stats.get("PoisonDPS"))
+        one = own / held if held > 0 else 0.0
+        objective = getattr(build, "objective", None)
+        full = (build.call("stats", fields=["SkillDPS", "FullDPS"])
+                if objective is not None and getattr(objective, "full", False) else {})
+        if models.number(full.get("FullDPS")) <= 0:  # (Objective.dps scores the main skill then, its Poison included)
+            return (one, held, "the main skill's own Poison") if one > 0 else (0.0, 0.0, "none")
+        rows = full.get("SkillDPS") or []
+        best = next((e for e in rows if e.get("name") == "Best Poison DPS"), None)
+        if best is None or number(best.get("dps")) <= 0:
+            return 0.0, 0.0, "no Poison in PoB's Full DPS"
+        scale = number((getattr(objective, "press_scales", None) or {}).get(
+            models.press_key("Best Poison DPS", best.get("source")), 1.0))
+        dps = number(best.get("dps")) * scale
+        if main is not None and one > 0 and models.named(best.get("source"), {main.name}):
+            return one, dps / one, f"PoB's Best Poison DPS from {main.name}, at its own one-Poison DPS"
+        return dps, 1.0, (f"PoB's Best Poison DPS from {best.get('source')}, taken as one Poison (LOW: its stack count "
+                          "isn't read)")
 
     def zero_use_ailments(self, mods: list[dict]) -> list[dict]:
         """MECH88 (models.zero_use_ailment_scales): a "Best <ailment> DPS" row whose source the models use 0 times a second

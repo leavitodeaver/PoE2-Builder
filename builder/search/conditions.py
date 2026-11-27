@@ -94,6 +94,9 @@ WITHER_ON_HIT_SKILLS = ("Wither", "Chaos Bolt")  # the main skill's own Withered
 # duration (WITHER_SKILL_STATS), Withering Touch's chance per 100% of the boss's Ailment Threshold dealt as Chaos x that
 # row's Chaos hit ("chaos", PoB's <hand>ChaosHitAverage) x its duration (WITHER_SUPPORT_STATS), as the main skill's.
 # A group with no hits on the boss (a DoT, a curse, a skill not pressed) adds none (named in the note).
+# (MECH115, AUDIT41 A41-28: MECH110's commit said "No other example build holds a side Wither source with hits"; b06's
+# group 12 holds Doedre's Undoing beside Withering Touch on Despair, and the Witchtoad pairing hits, as 9a2b6630 showed
+# for b10's identical group: so b06 does; its number waits on A41-4's probe, MECH-B's.)
 WITHERING_PRESENCE = "Withering Presence"
 WITHER_SKILL_STATS = ("active_skill_withered_base_duration_ms", "apply_x_wither_on_hit")
 WITHERING_PRESENCE_STATS = ("skill_withering_presence_frequency_ms", "base_skill_effect_duration")
@@ -11141,7 +11144,10 @@ class Conditions:
                                     for n in names):
             return 0.0, ""
         found, main, stats = self._minion_inputs()
-        share, how = model(found, main, stats)
+        # (MECH115, MECHB69's OVERCOUNT: the persistent minions' Ignited share held at 1.0 with no Flammability gate;
+        # MECHB70's infernal_legion_model publishes its 50% gate share as build.legion_gate, read here when it is set)
+        gate = getattr(getattr(self, "build", None), "legion_gate", None)  # (a stub Conditions may hold no build)
+        share, how = model(found, main, stats, gate=gate) if gate is not None else model(found, main, stats)
         return min(max(float(share), 0.0), 1.0), (f"Infernal Legion's minions ({how})" if how else "")
 
     def _legion_burn(self) -> float:
