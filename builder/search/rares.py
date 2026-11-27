@@ -1025,7 +1025,7 @@ class RuneCatalog:
         price = self.prices.get(name)
         return price if price is not None and price <= self.ctx.price_cap else None
 
-    def candidates(self, base: dict, unique: bool, raw: str | None = None) -> list[str]:
+    def candidates(self, base: dict, unique: bool, raw: str | None = None, priced: bool = True) -> list[str]:
         """Augments for the item's sockets. `raw`, the item's text, carries a unique's socket rules (only_augment,
         augment_types); jewellery takes only augments marked canSocketInJewellery (ItemsTab.lua 2303)."""
         override, cores = augment_types(raw)
@@ -1052,7 +1052,7 @@ class RuneCatalog:
                 continue
             if any((e.get("levelReq") or 0) > self.ctx.level for e in entries):
                 continue
-            if self.price(rune["name"]) is not None:
+            if not priced or self.price(rune["name"]) is not None:  # (SEARCHD3: a required augment, priced or not)
                 names.append(rune["name"])
         return names
 

@@ -510,6 +510,15 @@ def compile_request(request: BuildRequest, data: GameData) -> CompiledRequest:
     # (SEARCHD3) a required item class was never checked (nor searched for): a build without one now shows it unmet
     presence_check("Required item classes", required["item_classes"], classes_present, True)
     presence_check("Banned item classes", forbidden["item_classes"], classes_present, False)
+    if required["mechanics"]:  # (SEARCHD3: never checked before; a gem the build uses that carries it, by tag or type)
+        carriers = {g["name"]: {t.lower() for t in g["tags"] + g["skillTypes"]} for g in data.gems}
+
+        def mechanics_check(f: dict) -> CheckResult:
+            used = [g["name"] for g in enabled_gems(f)]
+            found = {m for m in required["mechanics"] if any(m.lower() in carriers.get(n, ()) for n in used)}
+            return CheckResult("Required mechanics", "all of: " + listing(required["mechanics"]), listing(found),
+                               found == set(required["mechanics"]))
+        checks.append(mechanics_check)
     if forbidden["mechanics"]:
         checks.append(lambda f: (lambda hit: CheckResult(
             "Banned mechanics", "none of: " + listing(forbidden["mechanics"]), listing(hit), not hit))(

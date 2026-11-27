@@ -34,10 +34,13 @@ from builder.search.context import GEM_LEVEL, GEM_QUALITY, Context, ItemOption, 
 from builder.search.gear import CHARM_SLOTS, Gear, SlotSpec, extra_ring_passive, is_flask_slot, owned_option
 from builder.search.gems import META_LABEL, Gems
 from builder.search.jewels import Jewels
+from builder.search.rares import socket_count, unique_text, with_runes  # (SEARCHD3: required augments)
+from builder.search.context import SUPPORT_SLOTS  # (SEARCHD3: required mechanics)
 
 # (SEARCHD3) how far (passive points) the tree may go for a socket to hold a required unique Jewel when none is allocated: a
 # search reach, not a game number (jewels.SOCKET_REACH, 4, is the score-driven socket trial's)
 REQUIRED_SOCKET_REACH = 40
+MECHANIC_TRIALS = 6  # (SEARCHD3) supports / active skills tried for a required mechanic (a search budget)
 from builder.search import flasks, play_guide
 from builder.search import gems as gems_module
 from builder.search.models import GLORY_SKILLS, MARK_CARRIERS, MODEL_FIELDS, PRESS_CHOICES, press_choices, press_use_rate
@@ -316,6 +319,8 @@ class Search:
         self.build.after_load.append(self.conditions.sync)
         self.build.snapshot_state = (self._scoring_state, self._put_scoring_state)
         self.problems: list[str] = []
+        self.put_back: list[str] = []  # (SEARCHD3) required items / mechanics a round took out and ensure_required_items put back
+        self.mechanic_notes: dict[str, str] = {}  # (SEARCHD3) required mechanic -> the gem chosen to carry it
         self.seed_notes: list[str] = []  # what setup_seed took out of the PoB code, and why
         self.kicks = 0
         self.kicks_kept = 0
@@ -418,6 +423,7 @@ class Search:
         worn = {o.name for o in build.equipped.values() if o is not None}
         names = list(ctx.compiled.request.require.uniques) + ([ctx.request.weapon_unique] if ctx.request.weapon_unique else [])
         back = False
+        put = []  # (what went back, for the problem line)
         for name in dict.fromkeys(names):
             option = ctx.unique_option(name)
             if name in worn or option is None or name in ctx.compiled.filters.forbidden_uniques:
@@ -431,13 +437,97 @@ class Search:
                 if placed:
                     self.gear.put(slot, option)
                     build.locked_slots.add(slot)
-            back = back or (placed and after_search)
+            if placed and after_search:
+                back, put = True, put + [name]
+        worn_runes = {r for o in build.equipped.values() if o is not None for r in o.runes}
+        for name in ctx.compiled.request.require.augments:
+            if name not in worn_runes and name not in ctx.compiled.filters.forbidden_augments:
+                if self.place_required_augment(name, report=after_search) and after_search:
+                    back, put = True, put + [name]
+        for mechanic in required_items.mechanics_missing(ctx, build.groups()):
+            if self.add_required_mechanic(mechanic) and after_search:
+                back, put = True, put + [f"the {mechanic} mechanic"]
         if back:
-            lost = "a required unique had gone during the search; it was put back"
-            if lost not in self.problems:
-                self.problems.append(lost)
+            self.put_back += [p for p in put if p not in self.put_back]
+            lost = f"required {', '.join(self.put_back)} had gone during the search and went back in"
+            self.problems[:] = [p for p in self.problems if not (p.startswith("required ") and "went back in" in p)]
+            self.problems.append(lost)
             self.gear.settle()
         return back
+
+    def place_required_augment(self, name: str, report: bool = True) -> bool:
+        """(SEARCHD3) A required augment (rune, Soul Core, Idol, Ancient Augment) in the equipped item whose socket takes it
+        and where it scores best: a free socket, else in place of a rune that isn't socket-bound or required. It stays
+        through socket refills (Gear.kept_runes) and goes back after a round that replaced its item. False, with the
+        reason, when no worn item's sockets can take it (RuneCatalog.candidates' rules: categories, jewellery, uniques,
+        level)."""
+        gear, build, ctx = self.gear, self.build, self.ctx
+        cases = []
+        for slot, option in build.equipped.items():
+            if option is None or slot.startswith("Jewel") or is_flask_slot(slot) or slot in CHARM_SLOTS:
+                continue
+            base = ctx.bases_by_name.get(option.base)
+            if base is None:
+                continue
+            count = option.sockets or socket_count(base, option.unique, unique_text(ctx, option))
+            keep = list(option.bound) + [r for r in option.runes if r in gear.kept_runes and r not in option.bound]
+            if count <= len(keep) or name not in gear.runes.candidates(base, option.unique, option.raw, priced=False):
+                continue
+            free = [r for r in option.runes if r not in keep]
+            runes = keep + [name] + free[:count - len(keep) - 1]
+            price = None if option.price is None or gear.runes.price(name) is None else option.price + gear.runes.price(name)
+            cases.append((slot, replace(option, raw=with_runes(option.raw, runes), runes=tuple(runes),
+                                                    filler_runes=tuple(f for f in option.filler_runes if f[0] in runes),
+                                                    price=price)))
+        if not cases:  # (at setup the gear isn't chosen yet: said only after a search, `report`)
+            why = (f"required augment {name}: no worn item has a socket that takes it (its kinds, the jewellery and "
+                   "unique-item rules, its level)")
+            if report and why not in self.problems:
+                self.problems.append(why)
+            return False
+        scored = build.item_deltas([{"slot": s, "raw": o.raw} for s, o in cases])
+        _, slot, option = max(((score, s, o) for (score, _), (s, o) in zip(scored, cases)), key=lambda x: x[0])
+        gear.put(slot, option)
+        return True
+
+    def add_required_mechanic(self, mechanic: str) -> bool:
+        """(SEARCHD3) A required mechanic (a gem tag or PoB skill type) the build doesn't use yet: the support that carries
+        it in the main group (a free socket, else in place of its last support) or an active skill that carries it in a
+        group of its own, whichever scores best of up to MECHANIC_TRIALS of each; a support is then a required support
+        (Gems.required_supports keeps it). False, with the reason, when no allowed gem carries it."""
+        build, gems = self.build, self.gems
+        actives, supports = required_items.mechanic_gems(self.ctx, mechanic)
+        main = build.main_group()
+        trials: list[tuple[float, str, str]] = []
+        if main is not None and not main["fromItem"]:
+            names = [g["name"] for g in main["gems"]]
+            fit = [s for s in supports if s in set(gems.candidates(main["index"], build.groups()))][:MECHANIC_TRIALS]
+            for support in fit:
+                trial = names + [support] if len(names) - 1 < SUPPORT_SLOTS else names[:-1] + [support]
+                build.set_group(index=main["index"], gems=gems.gem_list(trial))
+                trials.append((build.score, "support", support))
+            if fit:
+                build.set_group(index=main["index"], gems=gems.gem_list(names))
+        for active in actives[:MECHANIC_TRIALS]:
+            group = build.set_group(gems=[{"name": active, "level": GEM_LEVEL, "quality": GEM_QUALITY}], label="required")
+            trials.append((build.score, "active", active))
+            build.remove_group(group["index"])
+        if not trials:
+            self.problems.append(f"required mechanic {mechanic}: no gem a level {self.ctx.level} character may use "
+                                 f"carries it (tags and skill types), allowed by the request" if not (actives or supports)
+                                 else f"required mechanic {mechanic}: its supports ({', '.join(supports[:4])}) can't "
+                                 f"support {self.skeleton.main_skill}, and no active skill carries it")
+            return False
+        _, kind, name = max(trials, key=lambda t: (t[0], t[2]))
+        if kind == "support":
+            names = [g["name"] for g in main["gems"]]
+            names = names + [name] if len(names) - 1 < SUPPORT_SLOTS else names[:-1] + [name]
+            build.set_group(index=main["index"], gems=gems.gem_list(names))
+            gems.required_supports.add(name)
+        else:
+            build.set_group(gems=[{"name": name, "level": GEM_LEVEL, "quality": GEM_QUALITY}], label="required")
+        self.mechanic_notes[mechanic] = f"{name} ({kind}, the best-scoring of {len(trials)} tried)"
+        return True
 
     def place_required_jewel(self, name: str, option: ItemOption) -> bool:
         """A required unique Jewel in the allocated socket (one that takes uniques) where it scores best, else in the
@@ -463,6 +553,27 @@ class Search:
         build.locked_slots.add(slot)
         self.tree.required.add(sockets[0])
         return True
+
+    def swap_notes(self) -> None:
+        """(SEARCHD3; the manager, 27 Nov 15:38: a required item worn on weapon set 2 MEETS the requirement, and the result
+        says what it adds) For each required unique in a set 2 slot: the skills the build uses from set 2, or plainly that
+        it adds nothing to the damage because no skill the build uses is on set 2 (the search doesn't yet plan swap play
+        around it)."""
+        build = self.build
+        names = set(self.ctx.compiled.request.require.uniques) | ({self.ctx.request.weapon_unique} - {None})
+        for slot in ("Weapon 1 Swap", "Weapon 2 Swap"):
+            option = build.equipped.get(slot)
+            if option is None or option.name not in names:
+                continue
+            on_two = [g["gems"][0]["name"] for g in build.groups() if g.get("enabled", True) and g["gems"]
+                      and g.get("set2", True) and not g.get("set1", True)]
+            note = (f"{option.name} is worn on weapon set 2 ({slot}); the build uses {', '.join(on_two)} from that set"
+                    if on_two else
+                    f"{option.name} is worn on weapon set 2 ({slot}): it adds nothing to this build's damage, because no "
+                    "skill the build uses is on weapon set 2 (the main skill needs set 1's weapons; the search doesn't "
+                    "plan swap play around it yet)")
+            if note not in self.problems:
+                self.problems.append(note)
 
     def require_ring_passive(self) -> None:
         """(SEARCHD3) A required unique locked in Ring 3 needs the passive that adds the slot (PoB ignores the slot until it
@@ -2898,6 +3009,12 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
         search.weigh_uptimes()
         trace.append(["infused", round(build.score, 4)])
 
+    # (SEARCHD3) the regrows, presses and fillers after the polish run gear rounds too: anything required they took out goes
+    # back here, so the headline below is scored with every required item worn
+    if search.ensure_required_items(after_search=True):
+        search.weigh_uptimes()
+        trace.append(["required put back", round(build.score, 4)])
+    search.swap_notes()  # (SEARCHD3: what a required item on weapon set 2 adds, said plainly)
     search.gear.sync_flasks()
     search.gems.meta_candidates()  # the Meta gems the search can't propose yet, with why, for the result
     play = play_guide.guide(search)  # "How to play it": the DPS without each condition the player or fight decides

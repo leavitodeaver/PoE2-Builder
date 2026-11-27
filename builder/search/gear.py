@@ -475,6 +475,8 @@ class Gear:
         self.shortlist: dict[str, list[str]] = {}
         self.pools = AffixPools(self.ctx)
         self.runes = RuneCatalog(self.ctx, self.ctx.augment_prices)
+        # (SEARCHD3) required augments: a socket refill keeps one the item holds, as a socket-bound rune (Gear.socketed)
+        self.kept_runes = frozenset(self.ctx.compiled.request.require.augments)
         self.rares: dict[str, ItemOption] = {}  # the last rare built for each slot
         self.rare_tried: set[str] = set()  # empty slots a partial round built a rare for since the last full round
         self.variant_failed: dict[tuple[str, str, str], float] = {}  # (slot, base, variant line) -> score its trial failed at
@@ -2072,7 +2074,7 @@ class Gear:
                                          filler_runes=(), price=None if option.price is None else option.price - cost)
         base = self.ctx.bases_by_name.get(option.base)
         count = option.sockets or (socket_count(base, option.unique, unique_text(self.ctx, option)) if base else 0)
-        bound = list(option.bound)
+        bound = list(option.bound) + [r for r in option.runes if r in self.kept_runes and r not in option.bound]
         if count <= len(bound) or clock.now() > deadline:
             return given
         raw = with_runes(option.raw, bound)

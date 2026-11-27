@@ -7,7 +7,10 @@ import faulthandler
 
 import pytest
 
+from dataclasses import replace
+
 from builder import clock
+from builder.search.rares import with_runes
 from builder.request.schema import BuildRequest
 from builder.search.context import Context, make_payload
 from builder.search.skeletons import enumerate_skeletons
@@ -73,7 +76,7 @@ def test_a_required_jewel_goes_into_a_socket_and_stays(engine):
     search.build.equip(slot, None)
     assert search.ensure_required_items(after_search=True)
     assert worn(search).get("Controlled Metamorphosis", "").startswith("Jewel ")
-    assert any("put back" in p for p in search.problems)
+    assert any("went back in" in p and "Controlled Metamorphosis" in p for p in search.problems)
 
 
 def test_a_short_search_keeps_every_required_unique(engine):
@@ -82,3 +85,36 @@ def test_a_short_search_keeps_every_required_unique(engine):
     held = worn(search)
     print(held, search.problems)
     assert {"Liminal Coil", "Shankgonne", "Crown of Eyes"} <= set(held)
+
+
+def test_a_required_augment_is_socketed_kept_and_put_back(engine):
+    search = search_for(engine, require={"uniques": ["Liminal Coil"], "augments": ["Adept Rune"]})
+    search.run(clock.now() + 10.0)
+    runes = {s: o.runes for s, o in search.build.equipped.items() if o is not None and "Adept Rune" in o.runes}
+    print(runes, search.problems)
+    assert runes
+    slot = next(iter(runes))
+    option = search.build.equipped[slot]
+    search.gear.put(slot, replace(option, runes=(), raw=with_runes(option.raw, [])))  # (a round that dropped it)
+    assert search.ensure_required_items(after_search=True)
+    assert any("Adept Rune" in o.runes for o in search.build.equipped.values() if o is not None)
+    assert any("went back in" in p and "Adept Rune" in p for p in search.problems)
+    facts = search.build.call("facts", fields=[])
+    assert any("Adept Rune" in (i.get("runes") or []) for i in facts["items"])  # (PoB holds it)
+
+
+def test_a_required_mechanic_puts_a_gem_that_carries_it_in_the_build(engine):
+    from builder.search import required_items
+
+    search = search_for(engine, require={"mechanics": ["minion"]})
+    print(search.mechanic_notes, search.problems)
+    assert not required_items.mechanics_missing(search.ctx, search.build.groups())
+    assert "minion" in search.mechanic_notes
+
+
+def test_a_required_wand_on_weapon_set_2_says_what_it_adds(engine):
+    search = search_for(engine, main_skill="Lightning Arrow", require={"uniques": ["Liminal Coil"]})
+    assert search.skeleton.swap and search.build.equipped["Weapon 1 Swap"].name == "Liminal Coil"
+    search.swap_notes()
+    print(search.problems)
+    assert any("Liminal Coil is worn on weapon set 2" in p for p in search.problems)

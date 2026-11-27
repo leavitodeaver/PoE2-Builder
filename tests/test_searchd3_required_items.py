@@ -143,3 +143,26 @@ def test_a_seed_on_an_ascendancy_without_a_third_ring_slot_keeps_its_weapons_and
     print(skeleton.label, notes)
     assert (skeleton.weapon, skeleton.offhand) == ("Sceptre", "Focus")
     assert any("3 required rings need 3 ring slots" in n for n in notes)
+
+
+def run_checks(compiled, facts, label):
+    rows = []
+    for check in compiled.checks:  # (the other checks read more of a real build's facts than these need)
+        try:
+            rows.append(check(facts))
+        except (KeyError, TypeError):
+            continue
+    return next(c for c in rows if c.label == label)
+
+
+def test_a_required_mechanic_is_checked_on_the_build_and_has_carriers():
+    ctx = ctx_for(require={"mechanics": ["minion"]})
+    compiled = compile_request(ctx.request, ctx.data)
+    facts = {"className": "Ranger", "ascendClassName": "Pathfinder", "passives": [], "stats": {}, "items": [],
+             "skillGroups": [{"enabled": True, "gems": [{"name": "Spark", "enabled": True, "support": False}]}]}
+    assert not run_checks(compiled, facts, "Required mechanics").ok
+    actives, supports = required_items.mechanic_gems(ctx, "minion")
+    assert actives and supports
+    facts["skillGroups"].append({"enabled": True, "gems": [{"name": actives[0], "enabled": True, "support": False}]})
+    assert run_checks(compiled, facts, "Required mechanics").ok
+    assert required_items.mechanics_missing(ctx, [{"enabled": True, "gems": [{"name": "Spark"}]}]) == ["minion"]

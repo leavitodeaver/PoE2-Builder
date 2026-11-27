@@ -259,6 +259,29 @@ def choose(ctx, skeletons: list) -> tuple[list, list[str]]:
             [no_arrangement(ctx, skeletons, items)])
 
 
+def carries(gem: dict | None, mechanic: str) -> bool:
+    """Whether a gem carries a mechanic: one of its tags or PoB skill types, case-insensitive (the same reading as the
+    request's banned mechanics, constraints.compile_request)."""
+    return bool(gem) and mechanic.lower() in {t.lower() for t in (gem.get("tags") or []) + (gem.get("skillTypes") or [])}
+
+
+def mechanics_missing(ctx, groups: list[dict]) -> list[str]:
+    """The required mechanics no enabled gem of the build carries."""
+    used = [ctx.gems.get(g["name"]) or ctx.all_gems.get(g["name"]) for group in groups if group.get("enabled", True)
+            for g in group["gems"] if g.get("enabled", True)]
+    return [m for m in ctx.compiled.request.require.mechanics if not any(carries(gem, m) for gem in used)]
+
+
+def mechanic_gems(ctx, mechanic: str) -> tuple[list[str], list[str]]:
+    """(active skills, supports) a level-N character may socket that carry the mechanic, allowed by the request."""
+    actives, supports = [], []
+    for name, gem in ctx.gems.items():
+        if not carries(gem, mechanic) or not ctx.allowed_gem(name):
+            continue
+        (supports if gem["support"] else actives).append(name)
+    return sorted(actives), sorted(supports)
+
+
 def no_slot(gear, name: str, option) -> str:
     """Why a required unique has no slot in this skeleton's gear (Gear.slot_for found none), in the game's terms."""
     if option is None:
