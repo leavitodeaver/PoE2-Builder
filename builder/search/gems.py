@@ -245,6 +245,29 @@ USED_ITEM_SKILLS = "used_item_skills"
 ITEM_PRESSES = "item_presses"  # (models.ITEM_PRESSES, MECHC21: {skill: (uses a second, how)}, set by Assumptions)
 
 
+# (SEARCH44; THE USER, 27 Nov ~10:45: "melting maelstrom should probably count as an active button press since it directly
+# contributes to damage ... if there are any [other flasks], they should count toward the number of buttons as well";
+# memory poe2-build-priorities: damage flasks are buttons, flasks drunk only for recovery stay free) A flask whose DAMAGE
+# the build counts is one button, named "Flask: <name>", in Gems.buttons (the search's cap) and in the result's
+# constraints.player_buttons (facts "damageFlasks"). Found by the damage model's derived input with a value above 0 in the
+# build's assumptions: Melting Maelstrom's pulses (models.maelstrom_inputs, fn "maelstrom"; its model reads only a flask
+# slot that is switched on, the bridge's flaskOff). Which other flasks add damage is MECH-C's list (MECHC70), to be added
+# here as it lands: until then only Maelstrom is matched (UNVERIFIED that no other flask adds damage: MECH-C's search)
+DAMAGE_FLASK_INPUTS = {"maelstrom": "Melting Maelstrom"}  # (a derived input's fn: the flask it is the damage of)
+DAMAGE_FLASK_PREFIX = "Flask: "
+
+
+def damage_flask_buttons(mods: list[dict] | None) -> list[str]:
+    """The damage flasks the build's assumptions count (DAMAGE_FLASK_INPUTS' derived inputs above 0), as buttons."""
+    names = []
+    for mod in mods or ():
+        if mod.get("kind") == "Derived" and mod.get("fn") in DAMAGE_FLASK_INPUTS and (mod.get("value") or 0) > 0:
+            name = DAMAGE_FLASK_PREFIX + DAMAGE_FLASK_INPUTS[mod["fn"]]
+            if name not in names:
+                names.append(name)
+    return names
+
+
 def pressed_item_skills(build) -> set[str]:
     """The skills the build presses for their effect, by name, for the button cap's item-granted skills
     (constraints.item_skill_used): the search's chosen press rates above 0, build.item_presses' rates above 0 (Bastion of
@@ -2559,7 +2582,9 @@ class Gems:
                     continue
                 if presses(gem) and not (by_meta and "Meta" not in gem["skillTypes"]) and gem["name"] not in names:
                     names.append(gem["name"])
-        return names
+        # (SEARCH44, THE USER 27 Nov: a flask the build drinks for its damage is a button: damage_flask_buttons)
+        assumptions = getattr(self, "assumptions", None)
+        return names + damage_flask_buttons(getattr(assumptions, "mods", None))
 
     def trial_meta(self, gems: list[dict]) -> float | None:
         """Score a meta group for real: commit, resolve, read, undo. None when PoB doesn't let the meta trigger the spell

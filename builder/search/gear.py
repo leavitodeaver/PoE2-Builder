@@ -102,6 +102,9 @@ def affix_limits(base: dict, limits: dict[str, int] = AFFIX_LIMIT) -> dict[str, 
     return limits
 
 
+CAPPED_FLASKS = "capped_flasks"  # (SEARCH44: build attribute {slot: raw}: a damage flask switched off for the button cap)
+
+
 @dataclass(frozen=True)
 class SlotSpec:
     type: str
@@ -762,8 +765,32 @@ class Gear:
     def counts(self, slot: str, info: dict, raw: str) -> bool:
         """Whether the slot is switched on: its effect is up at least FLASK_ON (7%) of a boss fight. Up from FLASK_WHOLE
         (99.5%) it counts whole; between the two it counts at its share of the fight (part_time, Search.weigh_uptimes:
-        MECHC5's spec; AUDIT19's A19-1 / A19-7)."""
+        MECHC5's spec; AUDIT19's A19-1 / A19-7). A damage flask the button cap switched off stays off (CAPPED_FLASKS)."""
+        if (getattr(self.build, CAPPED_FLASKS, None) or {}).get(slot) == raw:
+            return False
         return self.share(slot, info, raw) >= FLASK_ON
+
+    def damage_flask_slots(self) -> list[str]:
+        """(SEARCH44, THE USER 27 Nov: a damage flask is a button) The switched-on flask slots holding a flask the build
+        drinks for its damage: a Melting Maelstrom (models.MAELSTROM's line; gems.DAMAGE_FLASK_INPUTS)."""
+        from builder.search.models import MAELSTROM
+
+        data = self.build.call("chargeGain")
+        return [slot for slot in FLASK_SLOTS if (option := self.build.equipped.get(slot)) is not None
+                and data["active"].get(slot) and any(MAELSTROM.match(re.sub(r"^(\{[^}]*\})+", "", line.strip()))
+                                                     for line in option.raw.splitlines())]
+
+    def cap_flask(self, slot: str, off: bool) -> None:
+        """(SEARCH44) Switch a damage flask's slot off for the button cap and keep it off (CAPPED_FLASKS), or let it back
+        on; then the flasks are synced (sync_flasks)."""
+        capped = dict(getattr(self.build, CAPPED_FLASKS, None) or {})
+        option = self.build.equipped.get(slot)
+        if off and option is not None:
+            capped[slot] = option.raw
+        else:
+            capped.pop(slot, None)
+        setattr(self.build, CAPPED_FLASKS, capped)
+        self.sync_flasks()
 
     def part_time(self) -> dict[str, tuple[float, str]]:
         """Equipped flask and charm slots switched on whose effect is up only part of the fight: slot -> (share, name)."""

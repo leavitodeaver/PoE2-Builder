@@ -997,8 +997,10 @@ class Search:
         known = getattr(build.ctx, "any_gems", None) or {}
         cap = getattr(getattr(build.ctx, "request", None), "max_buttons", None)
         objective = build.objective
-        if not any(g.get("fromItem") for g in build.groups()):
-            return False  # (no item-granted group: nothing to probe or drop)
+        # (SEARCH44, THE USER 27 Nov: a flask drunk for its damage is a button: gems.damage_flask_buttons)
+        damage_flasks = gems_module.damage_flask_buttons(getattr(getattr(self, "assumptions", None), "mods", None))
+        if not any(g.get("fromItem") for g in build.groups()) and not (cap is not None and damage_flasks):
+            return False  # (no item-granted group and no damage flask over a cap: nothing to probe or drop)
         before = build.score
         changed = False
 
@@ -1029,6 +1031,11 @@ class Search:
         # 2. over the cap: the cheapest way out, tried for real, until it fits or nothing is left to drop
         def ways() -> list[tuple[str, Any, Any]]:
             out = []
+            # (SEARCH44, THE USER 27 Nov: a damage flask is a button) a capped build may drop the flask's damage use: its
+            # slot switched off and kept off (gear.CAPPED_FLASKS, Gear.counts), tried for real like every other way
+            for slot in self.gear.damage_flask_slots() if damage_flasks else ():
+                out.append((f"{slot} off (button cap)", lambda s=slot: self.gear.cap_flask(s, True),
+                            lambda s=slot: self.gear.cap_flask(s, False)))
             if getattr(objective, "raised_taps", True) is not False and "Raise Shield" in {
                     n for n, e in (getattr(build, gems_module.ITEM_PRESSES, None) or {}).items()}:
                 out.append(("Raise Shield taps off", lambda: setattr(objective, "raised_taps", False),
@@ -2778,6 +2785,8 @@ def finalize_task(engine: Any, report: Any, payload: dict, skeleton: dict, state
     facts["warnings"] = list(dict.fromkeys([*facts["warnings"], *reloaded["warnings"], *plain]))
     # the item-granted skills the build presses, for the button cap (constraints.item_skill_used; Search.fit_buttons)
     facts["pressedSkills"] = sorted(gems_module.pressed_item_skills(build))
+    # (SEARCH44, THE USER 27 Nov) and the flasks it drinks for their damage (Melting Maelstrom's pulses): buttons too
+    facts["damageFlasks"] = gems_module.damage_flask_buttons(getattr(search.assumptions, "mods", None))
     # Life / Mana recovery from kills, Remnants, charms and events (MECHC12), flask recovery, for the sustain and
     # recovery checks, and the request's boss (boss_hits.boss_name)
     facts["stats"].update(build.added_stats())

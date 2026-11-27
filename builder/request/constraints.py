@@ -196,7 +196,7 @@ def player_buttons(facts: dict, pressed: set[str] | None = None) -> list[str]:
     """Skills the player presses: Invocations, and active skills that aren't persistent, meta or
     triggered (also by a meta skill in their group). An item-granted skill is one when the build uses it
     (item_skill_used; `pressed` defaults to the facts' "pressedSkills", which the search fills); a pressed meta a
-    passive or item grants (Hollow Form, channelled) is one."""
+    passive or item grants (Hollow Form, channelled) is one; so is a damage flask (facts "damageFlasks")."""
     pressed = set(facts.get("pressedSkills") or ()) if pressed is None else set(pressed)
     names: list[str] = []
     for group in facts["skillGroups"]:
@@ -212,7 +212,9 @@ def player_buttons(facts: dict, pressed: set[str] | None = None) -> list[str]:
                 continue
             if gem["name"] not in names:
                 names.append(gem["name"])
-    return names
+    # (SEARCH44, THE USER 27 Nov ~10:45) a flask the build drinks for its damage, e.g. "Flask: Melting Maelstrom" (the
+    # search fills "damageFlasks": gems.damage_flask_buttons)
+    return names + [n for n in facts.get("damageFlasks") or () if n not in names]
 
 
 def enabled_gems(facts: dict) -> list[dict]:
