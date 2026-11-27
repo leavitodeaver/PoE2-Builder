@@ -120,3 +120,11 @@ def test_the_best_and_worst_rows_bracket_the_expected_reading(engine):
 def test_a_build_without_a_timeless_jewel_is_untouched(engine):
     load(engine, "2b75b")
     assert engine.call("setTimeless")["nodes"] == []
+
+
+def test_the_result_names_how_each_conquered_notable_is_scored(engine):
+    load(engine, "2b75e")  # Undying Hate 7232 (Amanamu): 8 conquered notables allocated
+    jewel = next(j for j in engine.call("radiusJewels")["jewels"] if j["name"] == "Undying Hate")
+    scored = jewel["timeless"]
+    assert scored["on"] and "seed effects unproven" in scored["label"]
+    assert len(scored["notables"]) == 8 and {n["mode"] for n in scored["notables"]} == {"expected"}

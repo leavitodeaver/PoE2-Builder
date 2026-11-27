@@ -4649,7 +4649,22 @@ function bridge.radiusJewels()
 					extra = extra,
 				}
 			end
+			-- (TIMELESS1) its allocated conquered notables and how each is scored: "known" (the game showed it) or
+			-- "expected" (LOW: the average over the possible notables; bridge.timelessRange gives the best / worst rows)
+			local timeless
+			if traits.conquers then
+				local scored = { }
+				for _, id in ipairs(affected) do
+					local node = spec.nodes[id]
+					if node and node.timeless then
+						scored[#scored + 1] = { id = id, mode = node.timeless, name = node.dn }
+					end
+				end
+				timeless = { on = bridge.timelessState.on, notables = scored,
+					label = "seed effects unproven: the average over the possible replacement notables (TIMELESS1-2, LOW)" }
+			end
 			list[#list + 1] = {
+				timeless = timeless,
 				socket = socket.id, name = item.title or item.name, base = item.baseName,
 				radius = traits.radius, centres = centres, inRadius = inRadius, affected = affected,
 				unconnected = through, allowsUnconnected = traits.unconnected or (traits.keystones and true) or nil,
