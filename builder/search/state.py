@@ -555,6 +555,8 @@ class Build:
                 whatif = scored[i][0]
                 row: dict = {"gem": support[i], "remove": bool(case.get("remove")), "model": i in model,
                              "whatif": round(whatif - before, 4)}
+                if judge:  # (JUDGE: the inputs this case moved, for calibrating judge_inputs_moved on real trials)
+                    row["moved"] = flagged.get(i, [])
                 try:
                     self.call("setGroup", index=group["index"], gems=self._trial_gems(group, case), fields=[])
                     self.gem_settle()
