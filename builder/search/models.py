@@ -3790,9 +3790,18 @@ def energy_gain(meta: str, stats: dict, main: str, skill: Skill | None = None) -
         threshold = number(stats.get("EnemyAilmentThreshold"))
         share = min(1.0, crit_hit / threshold) if threshold > 0 else 1.0
         per = power * share
+        # (MECHB71; POBR1's pobr study, the manager 27 Nov 03:10: pobr has no cap) the game's text, skill_stat_descriptions
+        # cast_on_crit_gain_X_centienergy_per_monster_power_on_crit: "Gains {0} Energy per Power of enemies you Critically
+        # Hit with Skills, modified by the percentage of the enemy's Ailment Threshold the Critical Hit will deal": no cap
+        # stated (checked: that line, ActiveSkills cast_on_critical_strike, the patch notes' Cast on Crit / Energy +
+        # Ailment Threshold lines: 0.1.0d's "now also cares about the Damage of the hit" only). Whether a hit past the
+        # threshold gives more than its Power is UNVERIFIED: the lower (capped at 1) stays the headline, uncapped a row
+        uncapped = crit_hit / threshold if threshold > 0 else 1.0
+        row = (f"; row, uncapped (the text states no cap; pobr's reading, UNVERIFIED): {crits * power * uncapped:.2f} "
+               f"Energy a second (x{uncapped:.2f})" if uncapped > 1.0 + 1e-9 else "")
         return crits * per, (f"{main} crits {crits:.2f} times per second (one hit per use) for {per:.2f} Energy each (Power {power:g}"
                              f" × {share:.0%}: a {crit_hit:,.0f} critical hit against the boss's {threshold:,.0f} "
-                             "Ailment Threshold)")
+                             "Ailment Threshold, capped at its Power: UNVERIFIED)" + row)
     shock = (number(stats.get("ShockChanceOnHit")) * (1 - crit) + number(stats.get("ShockChanceOnCrit")) * crit) / 100
     ignite = (number(stats.get("IgniteChanceOnHit")) * (1 - crit) + number(stats.get("IgniteChanceOnCrit")) * crit) / 100
     hits = hits_per_second(stats)
