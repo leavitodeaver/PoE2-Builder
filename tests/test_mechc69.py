@@ -77,9 +77,11 @@ def test_charges_lapse_and_rebuild_while_a_named_boss_is_off_the_field(monkeypat
     # Kulemak's breaks have no length: nothing lapses (said)
     k, how = conditions.charge_lapse({"_boss": "Vessel of Kulemak", "_fight_on": 30.0}, 3.0, 1.5, 15.0)
     assert k == 3.0 and "unknown length" in how
-    # the default boss (the worst case) and a boss with no off-field data: unchanged, nothing said
-    assert conditions.charge_lapse({"_fight_on": 30.0}, 3.0, 1.5, 15.0) == (3.0, "")
+    # a named boss with no off-field data: unchanged, nothing said (the default boss: MECHC70's test below)
     assert conditions.charge_lapse({"_boss": "Arbiter of Ash", "_fight_on": 30.0}, 3.0, 1.5, 15.0) == (3.0, "")
+    monkeypatch.setattr(conditions, "WORST_LAPSE", False)  # (MECHC69's reading of the worst case: no lapse)
+    assert conditions.charge_lapse({"_fight_on": 30.0}, 3.0, 1.5, 15.0) == (3.0, "")
+    monkeypatch.setattr(conditions, "WORST_LAPSE", True)
     # never below 0; no fight length: unchanged
     assert conditions.charge_lapse({**king, "_fight_on": 0.5}, 3.0, 1.5, 15.0)[0] == 0.0
     assert conditions.charge_lapse({**king, "_fight_on": 0.0}, 3.0, 1.5, 15.0)[0] == 3.0

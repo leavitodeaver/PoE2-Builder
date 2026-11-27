@@ -2807,9 +2807,17 @@ def charges_reaching(build, kind: str, name: str) -> tuple[float, str]:
 # D still drops them when the last gain before it came more than D - A s earlier: chance e^(-gains x (D - A)) (gains
 # random, as charges_with_refresh; Zarokh's 14.5 s against 15 s: e^(-0.5 x gains)). An event of unknown length
 # (Kulemak's breaks) drops nothing (said). Not read: charges gained from adds or the player's own uses while the boss is gone (an overcount of
-# the loss, UNVERIFIED which builds have them); Rage, Glory and other build-ups (not modelled here). The default boss
-# (the worst case) has no ABSENT entry: no change. POE2_CHARGE_LAPSE=0 is the old reading.
+# the loss, UNVERIFIED which builds have them); Rage, Glory and other build-ups (not modelled here). POE2_CHARGE_LAPSE=0
+# is the old reading.
+# The default boss (MECHC70; AUDIT41 A41-43, the manager 27 Nov 08:13, a small OVERCOUNT on every gate and calibration
+# build): the worst case has no ABSENT entry of its own, and MECHC69 read that as no lapse; but a lapse is a HARM, and
+# the worst case takes each harm at its worst (bosses.WORST's rule), so it reads the HARSHEST named preset's off-field
+# phase: each ABSENT preset's lapse at the build's own charge count, climb, gains and on-field fight, the lowest count
+# held (at a 15 s duration: the King's 38 s maze or the Bodach's 45 s phase, once a fight; Zarokh's Trial in a long
+# fight), labelled, with the boss never leaving the field as its row. A stand-in until MECH-B's per-preset phase
+# transitions (RESEARCH69 R69-8) give the worst case its own off-field time. POE2_WORST_LAPSE=0 is MECHC69's reading.
 CHARGE_LAPSE = os.environ.get("POE2_CHARGE_LAPSE", "1") != "0"
+WORST_LAPSE = os.environ.get("POE2_WORST_LAPSE", "1") != "0"
 LAPSE_EVERY = {"Zarokh, the Temporal": (50.0, 70.0)}  # s of fight per event (the table's "about once per 50-70 s")
 
 
@@ -2830,6 +2838,28 @@ def charge_lapse(stats: dict, count: float, climb: float, duration: float, gains
     if not CHARGE_LAPSE or count <= 0 or climb <= 0 or duration <= 0:
         return count, ""
     name = bosses.of(stats).name
+    if name == bosses.WORST and not bosses.ABSENT.get(name) and WORST_LAPSE:
+        return _worst_lapse(stats, count, climb, duration, gains)
+    return _lapse_against(name, stats, count, climb, duration, gains)
+
+
+def _worst_lapse(stats: dict, count: float, climb: float, duration: float, gains: float | None
+                 ) -> tuple[float, str]:
+    """(A41-43, CHARGE_LAPSE's note) the worst case: the harshest named preset's lapse (the lowest count held)."""
+    if number(stats.get("_fight_on")) <= 0:
+        return count, ""
+    readings = [(*_lapse_against(name, stats, count, climb, duration, gains), name) for name in bosses.ABSENT]
+    after, how, name = min(readings, key=lambda r: r[0])
+    if after >= count:
+        return count, ""
+    return after, (f"the worst case has no off-field data of its own, so it reads the harshest preset's (AUDIT41 "
+                   f"A41-43: a harm at its worst; a stand-in until per-preset phase transitions, RESEARCH69 R69-8): "
+                   f"{how}")
+
+
+def _lapse_against(name: str, stats: dict, count: float, climb: float, duration: float, gains: float | None
+                   ) -> tuple[float, str]:
+    """charge_lapse against the named preset `name` (its bosses.ABSENT entry)."""
     entry = bosses.ABSENT.get(name)
     if not entry:
         return count, ""
