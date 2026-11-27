@@ -16,14 +16,16 @@ def _sniper(own: float):
     return models.sniper_gas_arrow_model(impact, cloud, {}, 0, "", False, 0, 0, 0, own)
 
 
-def test_sniper_cloud_shared_limit_is_a_row_not_the_headline():
-    """R68-7: the Sniper's cloud Poison stays its own (headline 100 hit + 100 Poison DPS); the row where a minion's
-    Poison shares your limit of one keeps only the stronger: your own 150 beats the cloud's 100, so the hit alone."""
+def test_sniper_cloud_shared_is_the_headline_the_separate_sum_a_row():
+    """R68-10 (the manager's ruling): with your own Poison on the boss, the cloud's Poison SHARES the slot (headline):
+    your own 150 beats the cloud's 100, so the hit alone (100); against your own 40 it adds 60 (160); the separate sum
+    (200) a row. Without your own Poison: 200 as before."""
     dps, _, notes = _sniper(150.0)
-    assert abs(dps - 200.0) < 1e-6
-    assert "R68-7" in notes[0]["basis"] and "100.0 DPS" in notes[0]["basis"].split("R68-7")[1]
+    assert abs(dps - 100.0) < 1e-6
+    assert "SHARED" in notes[0]["basis"] and "200.0 DPS" in notes[0]["basis"].split("SHARED")[1]
+    assert abs(_sniper(40.0)[0] - 160.0) < 1e-6
     dps0, _, notes0 = _sniper(0.0)
-    assert abs(dps0 - 200.0) < 1e-6 and "R68-7" not in notes0[0]["basis"]
+    assert abs(dps0 - 200.0) < 1e-6 and "SHARED" not in notes0[0]["basis"]
 
 
 def test_untallied_named_boss_moves_fall_back_never_zero():

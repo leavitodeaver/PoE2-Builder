@@ -14571,12 +14571,21 @@ def sniper_gas_arrow_model(impact: dict, cloud: dict, blast: dict, explode: floa
         other = max(total(open_share)[0] - lost, 0.0)
         row = (f"; without Persistent Ground's protection {open_share:.0%} of clouds would explode ({explode_how}): "
                f"{other:,.1f} DPS")
-    if own_poison > 0 and poison > 0:  # (MECHB71; RESEARCH68 R68-7: Poisons from two sources share one limit)
-        limit = number(cloud.get("PoisonStacksMax")) or 1.0
-        shared = max(gross - poison + (held * max(0.0, one - own_poison) if limit <= 1 else poison) - lost, 0.0)
-        row += (f"; if a minion's Poison counted against YOUR Poison limit (UNVERIFIED, a RESEARCH question; the headline "
-                f"reads the Sniper's Poisons as its own, under its own limit {limit:g}), at a limit of one only the "
-                f"stronger of the cloud's Poison and your own {own_poison:,.1f} would act (R68-7): {shared:,.1f} DPS")
+    shared_how = ""
+    if own_poison > 0 and poison > 0:
+        # (MECHB71; RESEARCH68 R68-7 / R68-10 and the manager's ruling, 26 Nov 20:22: a minion's Poisons follow its own
+        # limit (MEDIUM), but whether yours and the Sniper's both deal damage on the boss or share one slot is UNVERIFIED;
+        # the unsettled pair's LOWER reading is the headline: SHARED, the stronger one per slot, so the cloud adds only
+        # what its Poison beats your own by while it is held; the separate sum a labelled row. Your own Poison (PoB's
+        # PoisonDPS of the main skill, all its stacks) against one cloud Poison: the lower side at a raised limit)
+        separate = dps
+        added = held * max(0.0, one - own_poison)
+        dps = max(gross - poison + added - lost, 0.0)
+        shared_how = (f"; HEADLINE, SHARED with your own Poison (R68-10, the manager's ruling: the lower reading of an "
+                      f"unsettled pair, UNVERIFIED): your Poison {own_poison:,.1f} DPS against one cloud Poison "
+                      f"{one:,.1f}: the cloud adds {added:,.1f} while held, so {dps:,.1f} DPS; row, the two counted "
+                      f"separately (the Sniper's own limit {number(cloud.get('PoisonStacksMax')) or 1:g}): "
+                      f"{separate:,.1f} DPS")
     basis = (f"one arrow a Command press (KeywordPopups Command: one minion carries it out), every {every:.3g} s (PoB's "
              f"minion cooldown, the Command's {SNIPER_COMMAND_CAST:g} s cast the floor: a press under the button cap): "
              f"the Impact hit {hit:,.0f} = {hit / every:,.1f} DPS; the cloud's Poison {poison:,.1f} DPS (one Poison "
@@ -14592,8 +14601,8 @@ def sniper_gas_arrow_model(impact: dict, cloud: dict, blast: dict, explode: floa
                 if no_trigger else f"{share:.0%} of clouds explode ({explode_how}): +{boom:,.1f} DPS")
              + f"; less {lost:,.1f} DPS for the press ({player_dps:,.0f} main-skill DPS x {SNIPER_COMMAND_CAST:g} s; a "
              f"minion main loses none) and the Sniper's {acting:.2f} s arrow off its Basic Attack ({sniper_dps:,.0f} DPS "
-             f"where the score counts it): {dps:,.1f} DPS" + row)
-    if gross - lost <= 0:
+             f"where the score counts it)" + (shared_how or f": {dps:,.1f} DPS") + row)
+    if dps <= 0 < gross:
         basis += "; a net loss, so not pressed (0)"
     note = {"label": label, "value": round(dps, 1), "basis": basis, "confidence": "MEDIUM-LOW", "uses": 1.0 / every,
             "poison_pool": ("AddedSniperGasArrow", one, held),  # (MECH115, R68-7 / R68-10: shared with yours)
@@ -27983,17 +27992,28 @@ def delayed_landing_model(main: Skill | None, stats: dict, radius: float) -> tup
 # DamageMultiplier 67 (UNVERIFIED that it applies) a lower row. Crits (its AttackCrit 5%) and its Chill / Freeze not
 # counted (small; its hits aren't yours). The play guide: the known bug (Jun 2026 forums 3966971 / 3962975): it stops
 # after a loading screen until the helmet is re-equipped.
+# (MECHB71; RESEARCH68 R68-9, research/bodach-vestige-readings-r68.md: a 0.5 video read off the boss bar's damage counter,
+# ~27 Bodach hits of 8,700-16,500, mean ~11,500, at 0.60-0.65 a second on a level-64 map boss; an OVERCOUNT before, up to
+# ~x2.4 at a pinnacle with a level-95 character) (a) its LEVEL is the AREA's (the boss's level, MEDIUM-LOW): the
+# headline; the character's level a row. (b) not an equal pick of the six (the video's hits spread 1.9x, an equal pick
+# 3.75x): the MIDDLE attack (base 15, Detached Lacerate Claw) the headline, base 10 / base 20 rows, nothing leaning on
+# Moth Meteor (base 25) (MEDIUM-LOW). (c) x0.67: a LOWER row (PoB applies a monster's DamageMultiplier only to its
+# attacks, and these six are spells; UNVERIFIED). (d) its 0.5 s randomisation shortens as well as lengthens (hits came
+# under 1.5 s apart against one boss; LOW-MEDIUM): symmetric around the base, mean unchanged, the headline; the
+# added-only +0.25 s a row (the measured 0.60-0.65 a second sits between the two).
 BODACH_LINE = re.compile(r"^the bodach haunts your presence$", re.I)
 BODACH_EVERY, BODACH_PER_POWER, BODACH_RANDOM = 3.0, 0.05, 0.25
 BODACH_ATTACKS = (("Hand Slam Right", 10.0), ("Hand Slam Left", 10.0), ("Detached Hand Slam Right", 10.0),
                   ("Detached Lacerate Claw Right", 15.0), ("Darkness Ground Slam", 20.0), ("Moth Meteor", 25.0))
 BODACH_DAMAGE_MULT = 0.67  # (MonsterVarieties 609 DamageMultiplier 67: a row, UNVERIFIED that it applies)
+BODACH_MIDDLE = BODACH_ATTACKS[3:4]  # (MECHB71, R68-9 (b): base 15, the headline)
 SKILL_BASE_EFFECTIVENESS = 3.885209  # (PoB Data/Misc.lua 34 SkillDamageBaseEffectiveness)
 
 
-def bodach_rate(power: float, every: float = BODACH_EVERY) -> float:
-    """(MECHB70, above) The Bodach's manifestations a second against `power` enemy Power in your Presence."""
-    return 1.0 / (every / (1.0 + BODACH_PER_POWER * max(power, 0.0)) + BODACH_RANDOM)
+def bodach_rate(power: float, every: float = BODACH_EVERY, random: float = 0.0) -> float:
+    """(MECHB70, above) The Bodach's manifestations a second against `power` enemy Power in your Presence; `random` the
+    randomisation's mean added seconds (MECHB71, R68-9 (d): 0, symmetric, the headline; BODACH_RANDOM the row)."""
+    return 1.0 / (every / (1.0 + BODACH_PER_POWER * max(power, 0.0)) + random)
 
 
 def bodach_hit(level: int, effectiveness: float) -> float:
@@ -28019,22 +28039,28 @@ def bodach_model(texts: list[str], power: float, level: int, area_level: int, ar
         hits = [taken(bodach_hit(lv, be) * mult) for _, be in (pick or BODACH_ATTACKS)]
         return sum(hits) / len(hits)
 
+    # (MECHB71, R68-9: the area's level, the middle attack, a symmetric delay)
+    lv = int(area_level or 0) or level
     rate = bodach_rate(power)
-    each = mean(level)
+    each = mean(lv, pick=BODACH_MIDDLE)
     dps = rate * each if inside else 0.0
-    rows = [f"a '2' helmet (corrupted, faster): {bodach_rate(power, 2.0) * each:,.0f}",
-            f"a '4' helmet (corrupted, slower): {bodach_rate(power, 4.0) * each:,.0f}",
-            f"the area's level {area_level} instead of yours: {rate * mean(area_level):,.0f}",
-            f"x{BODACH_DAMAGE_MULT:g} (its DamageMultiplier, UNVERIFIED): {rate * mean(level, BODACH_DAMAGE_MULT):,.0f}",
-            f"always Moth Meteor (the strongest): {rate * mean(level, pick=BODACH_ATTACKS[-1:]):,.0f}",
-            f"always a hand slam (the weakest): {rate * mean(level, pick=BODACH_ATTACKS[:1]):,.0f}"]
-    base = sum(bodach_hit(level, be) for _, be in BODACH_ATTACKS) / len(BODACH_ATTACKS)
+    rows = [f"your level {level} instead of the area's (R68-9 (a)): {rate * mean(level, pick=BODACH_MIDDLE):,.0f}",
+            f"a hand slam (base 10) every time: {rate * mean(lv, pick=BODACH_ATTACKS[:1]):,.0f}",
+            f"Darkness Ground Slam (base 20) every time: {rate * mean(lv, pick=BODACH_ATTACKS[4:5]):,.0f}",
+            f"x{BODACH_DAMAGE_MULT:g} (its DamageMultiplier, a lower row, UNVERIFIED: R68-9 (c)): "
+            f"{rate * mean(lv, BODACH_DAMAGE_MULT, BODACH_MIDDLE):,.0f}",
+            f"the randomisation only adding (+{BODACH_RANDOM:g} s, R68-9 (d)): "
+            f"{bodach_rate(power, random=BODACH_RANDOM) * each:,.0f}",
+            f"a '2' helmet (corrupted, faster): {bodach_rate(power, 2.0) * each:,.0f}",
+            f"a '4' helmet (corrupted, slower): {bodach_rate(power, 4.0) * each:,.0f}"]
+    base = bodach_hit(lv, BODACH_MIDDLE[0][1])
     basis = (f"the Bodach appears at enemies in your Presence every {1 / rate:.2f} s ({BODACH_EVERY:g} s, its hidden "
              f"value's default (2 or 4 after a corruption; the item's text never shows it), {BODACH_PER_POWER:.0%} "
-             f"faster per enemy Power: the boss's {power:g}, +{BODACH_RANDOM:g} s for its 0.5 s randomisation, UNVERIFIED "
-             f"form; RESEARCH65 R65-22, MEDIUM) and uses one of six Physical attacks: at level {level} their mean "
-             f"{base:,.0f} a hit (base effectiveness 10-25 on the monster table, R65-23, HIGH; which attack it picks "
-             f"UNVERIFIED), not scaled by your modifiers, through the boss's {armour:,.0f} Armour and {phys_resist:g}% "
+             f"faster per enemy Power: the boss's {power:g}, its 0.5 s randomisation taken symmetric (mean unchanged, "
+             f"R68-9 (d), LOW-MEDIUM); RESEARCH65 R65-22, MEDIUM) and uses one of six Physical attacks: at the area's "
+             f"level {lv} (R68-9 (a), MEDIUM-LOW: a 0.5 video's hits fit the area level) the middle one, base 15 "
+             f"(R68-9 (b), MEDIUM-LOW: the video's spread fits no equal pick of the six), {base:,.0f} a hit (the "
+             f"monster table, R65-23, HIGH), not scaled by your modifiers, through the boss's {armour:,.0f} Armour and {phys_resist:g}% "
              f"Physical resistance: {each:,.0f} a hit; {where}"
              + ("" if inside else f": the boss outside your Presence, so none (0; row, inside it: {rate * each:,.0f})")
              + f": {dps:,.1f} DPS. Rows: " + "; ".join(rows)

@@ -80,10 +80,13 @@ def test_the_bodach_attacks_the_boss_in_your_presence_unscaled():
     character's level, through the boss's Armour; 0 outside your Presence; rows for the hidden 2 / 4, the area level,
     x0.67 and the strongest / weakest pick; the re-equip bug in the play line."""
     texts = ["The Bodach haunts your Presence"]
-    assert models.bodach_rate(20) == pytest.approx(1 / 1.75)
+    assert models.bodach_rate(20) == pytest.approx(1 / 1.5)  # (MECHB71, R68-9 (d): symmetric randomisation)
+    assert models.bodach_rate(20, random=models.BODACH_RANDOM) == pytest.approx(1 / 1.75)
     assert models.bodach_hit(90, 15) == pytest.approx(103125, rel=0.01)  # (R65-23's table: the mean of six at 90)
     dps, mods, notes = models.bodach_model(texts, 20, 90, 82, 0.0, 0.0, True, "inside")
-    assert dps == pytest.approx(models.bodach_rate(20) * 103125, rel=0.01) and mods
+    # (MECHB71, R68-9: the AREA level 82 and the middle attack, base 15, the headline)
+    assert dps == pytest.approx(models.bodach_rate(20) * models.bodach_hit(82, 15)) and mods
+    assert "your level 90" in notes[0]["basis"] and "Moth Meteor" not in notes[0]["basis"]
     assert "a '2' helmet" in notes[0]["basis"] and "x0.67" in notes[0]["basis"] and "re-equip" in notes[0]["play"]
     armoured, _, _ = models.bodach_model(texts, 20, 90, 82, 50000.0, 0.0, True, "inside")
     assert 0 < armoured < dps

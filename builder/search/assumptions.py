@@ -4233,6 +4233,19 @@ class Assumptions:
         energy_mods, energy_notes = energy_mods + cap_mods, energy_notes + full_mana_notes + cap_notes
         # (the meta gems' trigger rates, for the curses and Marks they trigger: MECH46, FLAT_RATES A5)
         build.trigger_rates = models.rates_by_name(energy_mods)  # (MECHB62: summed over a spell's meta groups)
+        # (MECHB71; AUDIT41 A41-31, for MECH115's curse uptime: a curse a meta gem triggers was counted at a flat 100%
+        # where no trigger rate was modelled) Cast on Minion Death's triggered skills, {skill: (casts a second, how)}: the
+        # energy model's rate (build.trigger_rates; 0.0 is a MEASURED 0, not "no rate") from the build's own minion
+        # deaths (models.minion_deaths, the "_minion_deaths" stat above: (deaths a second, how)). Empty without the gem.
+        build.minion_death_triggers = {}
+        comd_groups = {s.group for s in found if s.name == "Cast on Minion Death" and s.group is not None}
+        if comd_groups:
+            deaths, deaths_how = stats.get("_minion_deaths") or (0.0, "no minion deaths read")
+            build.minion_death_triggers = {
+                s.name: (number(build.trigger_rates.get(s.name)),
+                         f"Cast on Minion Death in group {s.group}, fed by {number(deaths):.3f} minion deaths a second "
+                         f"({deaths_how})")
+                for s in found if s.group in comd_groups and s.name != "Cast on Minion Death"}
         # (MECH102: a triggered Mark alone in its group, models.mark_use: PoB's trigger rate for its group, the bridge's
         # useRates row; none read: models.mark_use counts it never applied, not "applied when needed")
         lone = {s.group: s.name for s in found if s.name in models.MARKS and s.triggered and s.group is not None
