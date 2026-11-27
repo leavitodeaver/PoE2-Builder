@@ -57,3 +57,32 @@ def test_a_life_flask_is_drunk_at_most_once_a_dip_below_full_life():
     # Enduring Elixirs (drinkable at full): every use the charges pay for
     kept = replace(gain, life_effect_kept=True)
     assert flasks.recovery_per_second(life, kept, "Life", "20% of Recovery applied Instantly", own=True) == pytest.approx(old)
+
+
+FURY_SKILLS = [{"name": "Savage Fury", "skillId": "SavageFuryPlayer", "group": 3,
+                "levelStats": {"wild_beast_maximum_energy": 20, "wild_beast_energy_per_hit": 1}},
+               {"name": "Savage Fury", "skillId": "SavageFuryActivePlayer", "group": 3,
+                "levelStats": {"wild_beast_damage_+%_final": 29}}]
+
+
+def test_savage_fury_reads_every_attacks_fury_and_a_form_switch_ends_it():
+    """MECHC68: AUDIT41 A41-22 (Fury from every Attack: the side attacks' hitting uses add) and RESEARCH68 R68-5 (the
+    headline: another form's skill ends the frenzy at its first use; "kept across forms" the row)."""
+    from builder.search import models
+
+    stats = {"Speed": 1.0, "HitChance": 100}
+    form = {"Attack", "Shapeshift", "Bear"}
+    alone = models.savage_fury_model(FURY_SKILLS, stats, form, True, False, None)[1][0]
+    side = models.savage_fury_model(FURY_SKILLS, stats, form, True, False, None, side=(1.0, "Maul 1.00/s"))[1][0]
+    assert alone["value"] == f"{10 / 30.6:.0%}" and side["value"] == f"{10 / 20.6:.0%}"
+    assert "Maul 1.00/s" in side["basis"]
+    # a non-Attack main skill reads its side attacks' Fury, not 0
+    spell = models.savage_fury_model(FURY_SKILLS, stats, {"Spell", "UsableWhileShapeshifted"}, False, False, None,
+                                     side=(2.0, "x"))[1][0]
+    assert spell["value"] == f"{10 / 20.6:.0%}"
+    # a Wolf skill pressed 0.5 a second ends a Bear main skill's frenzy at its first use
+    up = (1 - math.exp(-0.5 * 10)) / 0.5
+    switched = models.savage_fury_model(FURY_SKILLS, stats, form, True, False, None, side=(1.0, "x"),
+                                        switch=(0.5, "Wolf skill"))[1][0]
+    assert switched["value"] == f"{up / (up + 10 + 0.6):.0%}"
+    assert f"kept across forms: up {10 / 20.6:.0%}" in switched["basis"]

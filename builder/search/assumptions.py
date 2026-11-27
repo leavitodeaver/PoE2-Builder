@@ -5114,10 +5114,12 @@ class Assumptions:
             fury_rate = next((r for r in build.call("useRates", indices=[fury_group])["rates"]
                               if number(r.get("duration")) > 0), {}) if fury_group else {}
             fury_types = set(skill_types_of(build.ctx, name)) if name else set()
+            fury_side, fury_switch = self.savage_fury_sources(skills, name, fury_types)  # (MECHC68: A41-22, R68-5)
             fury_mods, fury_notes = models.savage_fury_model(
                 fury_skills, stats, fury_types, "Attack" in fury_types,
                 bool(build.call("getConfig")["input"].get("buffOnslaught")), number(fury_rate.get("duration")) or None,
-                number(build.call("stats", fields=["Life"]).get("Life")))  # (MECHC67: its Life loss, R66-2)
+                number(build.call("stats", fields=["Life"]).get("Life")),  # (MECHC67: its Life loss, R66-2)
+                side=fury_side, switch=fury_switch)
             hand_mods, hand_notes = hand_mods + fury_mods, hand_notes + fury_notes
         if (target := self.target_collection(skills)) is not None:  # (MECHC67: TARGET_REMNANTS' note)
             if target["walk"] > 0:
@@ -7746,6 +7748,59 @@ class Assumptions:
     def orb_remnants(self, skill: dict) -> tuple[float, str]:
         """(Orbs of Storms a second, how): orb_remnants for this build."""
         return orb_remnants(self.build, skill)
+
+    def savage_fury_sources(self, skills: list[dict], main_name: str | None,
+                            main_types: set) -> tuple[tuple[float, str], tuple[float, str]]:
+        """(MECHC68; models.SAVAGE_FURY_FORMS' note) ((the build's other Attack hitting uses a second, how), (its uses
+        a second of skills of another animal form than the main skill's, how)): the other groups' rows (PoB's trigger
+        rate for a triggered one, else conditions.skill_use_rate at the press choices, x hit chance for the Fury) and
+        the main group's other Attack skills (_skill_hits)."""
+        build = self.build
+        ctx = getattr(build, "ctx", None)
+        forms = set(models.SAVAGE_FURY_FORMS)
+        own_form = set(main_types) & forms
+        found = [models.Skill.of(s) for s in skills if not s["disabled"]]
+        main = (build.main_group() or {}).get("index")
+        groups = sorted({s.group for s in found if s.group is not None and s.group != main
+                         and s.name != models.SAVAGE_FURY})
+        choices = models.press_choices(build) if groups else {}
+        hits, switch, parts, moves = 0.0, 0.0, [], []
+        names = {s.name for s in found}
+        for row in (build.call("useRates", indices=groups)["rates"] if groups else []):
+            label = str(row.get("name") or "")
+            skill = next((n for n in sorted(names, key=len, reverse=True) if label.startswith(n)), None)
+            if not skill or skill == models.SAVAGE_FURY:
+                continue
+            types = set(skill_types_of(ctx, skill)) if ctx is not None else set()
+            if row.get("triggered"):
+                uses, why = number(row.get("speed")), "PoB's trigger rate"
+            else:
+                uses, why, _ = conditions_mod.skill_use_rate(row, choices)
+            if uses <= 0:
+                continue
+            if "Attack" in types:
+                landed = uses * min(number(row.get("HitChance")) or 100.0, 100.0) / 100.0
+                hits += landed
+                parts.append(f"{skill} {landed:.2f} hitting uses/s ({why})")
+            if len(own_form) == 1 and types & forms and not types & own_form:
+                switch += uses
+                moves.append(f"{skill} ({'/'.join(sorted(types & forms))}) {uses:.2f}/s")
+        group = build.main_group() or {}
+        press = getattr(getattr(build, "objective", None), "press_scales", None) or {}
+        for position, skill in enumerate(group.get("skills") or [], start=1):
+            name = skill.get("name") if isinstance(skill, dict) else str(skill)
+            if not name or name == main_name or name == models.SAVAGE_FURY or (
+                    isinstance(skill, dict) and skill.get("disabled")):
+                continue
+            if "Attack" not in set(skill_types_of(ctx, name) if ctx is not None else ()):
+                continue
+            landed, _ = _skill_hits(build, group, position, press)
+            if landed > 0:
+                hits += landed
+                parts.append(f"{name} {landed:.2f} hitting uses/s (its group's)")
+        return ((hits, ", ".join(parts)),
+                (switch, (f"the main skill's {'/'.join(sorted(own_form))} form; another form's skills: "
+                          + ", ".join(moves)) if moves else ""))
 
     def heat_spenders(self, found: list) -> list[tuple[str, float, str]]:
         """The build's Heat spenders (models.HEAT_SPENDERS) other than the main skill, at their pressed use rate

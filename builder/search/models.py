@@ -18494,22 +18494,42 @@ SAVAGE_FURY_ONSLAUGHT_SPEED = 20.0
 # On a UsableWhileShapeshifted main skill PoB's Life loss is all fight: its unearned (1 - u) comes off too.
 SAVAGE_FURY_LIFE_STAT = "wild_beast_life_lost_%_per_minute_nonlethal"
 SAVAGE_FURY_LIFE_PER_MINUTE = 180.0
+# (MECHC68; AUDIT41 A41-22, an UNDERCOUNT: "Gain 1 Fury on Attack Hit, no more than once per Skill use" names no one
+# skill) Fury comes from EVERY Attack the build uses on the boss, not the main skill alone: the other groups' and the
+# main group's other Attack skills add their hitting uses a second (Assumptions.savage_fury_sources: each one's use rate
+# as the press model has it, PoB's trigger rate for a triggered one, x its hit chance; one Fury a use at most). A
+# non-Attack main skill whose side groups attack now reads their Fury, not 0.
+# (MECHC68; RESEARCH68 R68-5, UNVERIFIED: the text ends the frenzy "if you return to human form"; one older guide says
+# any form switch ends it; the manager's ruling 26 Nov 18:53: the LOWER reading is the headline, "kept across forms" a
+# labelled row) The animal forms are PoB's skill types Bear, Wolf and Wyvern. Where the main skill has one form and the
+# build uses skills of ANOTHER form at r uses a second (the other groups', at their rates), the first such use ends the
+# frenzy: of its F x d s it lasts E[min(F x d, X)] = (1 - e^(-r F d)) / r (X the wait for that use, exponential: LOW).
+# A main skill of no single form, or no other-form skill: no switch. The main group's own other skills aren't read for
+# switches (named).
+SAVAGE_FURY_FORMS = ("Bear", "Wolf", "Wyvern")
 
 
-def savage_fury_uptime(fury_rate: float, fury_max: float, per_fury: float) -> tuple[float, str]:
-    """(the frenzy's share of the fight, how) for `fury_rate` Fury a second outside it (the note above)."""
+def savage_fury_uptime(fury_rate: float, fury_max: float, per_fury: float,
+                       switch: float = 0.0) -> tuple[float, str]:
+    """(the frenzy's share of the fight, how) for `fury_rate` Fury a second outside it (the note above); `switch`
+    (MECHC68, R68-5): other-form skill uses a second, the first of which ends the frenzy."""
     if fury_rate <= 0 or fury_max <= 0 or per_fury <= 0:
         return 0.0, "no Attack hits build Fury: the frenzy never comes"
-    up_time, build_time = fury_max * per_fury, fury_max / fury_rate
+    full, build_time = fury_max * per_fury, fury_max / fury_rate
+    up_time = (1 - math.exp(-switch * full)) / switch if switch > 0 else full
     share = up_time / (up_time + build_time + SAVAGE_FURY_CAST)
+    ended = (f" (of its {full:.1f} s: another form's skill, {switch:.2f} uses/s, ends it sooner)" if switch > 0 else "")
     return share, (f"{fury_max:g} Fury in {build_time:.1f} s ({fury_rate:.2f} Fury/s from your attacks), then a "
-                   f"{up_time:.1f} s frenzy and its {SAVAGE_FURY_CAST:g} s release: up {share:.0%} of the fight")
+                   f"{up_time:.1f} s frenzy{ended} and its {SAVAGE_FURY_CAST:g} s release: up {share:.0%} of the fight")
 
 
 def savage_fury_model(skills: list[dict], stats: dict, main_types: set, main_attack: bool, onslaught_box: bool,
-                      duration: float | None, life: float = 0.0) -> tuple[list[dict], list[dict]]:
+                      duration: float | None, life: float = 0.0, side: tuple[float, str] = (0.0, ""),
+                      switch: tuple[float, str] = (0.0, "")) -> tuple[list[dict], list[dict]]:
     """Savage Fury's negating mods and row (the note above). `skills`: bridge activeSkills rows with levelStats for
-    Savage Fury; `duration`: PoB's frenzy duration a Fury (useRates), None for the base 0.5 s."""
+    Savage Fury; `duration`: PoB's frenzy duration a Fury (useRates), None for the base 0.5 s. (MECHC68) `side`: the
+    build's other Attack hitting uses a second and how (A41-22); `switch`: other-form skill uses a second and how
+    (R68-5)."""
     frenzy = next((s for s in skills if s.get("skillId") == "SavageFuryActivePlayer" and not s.get("disabled")), None)
     if frenzy is None:
         return [], []
@@ -18518,8 +18538,10 @@ def savage_fury_model(skills: list[dict], stats: dict, main_types: set, main_att
     fury_max = number((builder.get("levelStats") or {}).get("wild_beast_maximum_energy")) or SAVAGE_FURY_MAX
     per_hit = number((builder.get("levelStats") or {}).get("wild_beast_energy_per_hit")) or 1.0
     per_fury = duration if duration and duration > 0 else SAVAGE_FURY_PER_FURY
-    rate = hits_per_second(stats) * per_hit if main_attack else 0.0
-    up, how = savage_fury_uptime(rate, fury_max, per_fury)
+    own = hits_per_second(stats) * per_hit if main_attack else 0.0
+    rate = own + max(number(side[0]), 0.0) * per_hit  # (MECHC68, A41-22: every Attack's Fury)
+    up, how = savage_fury_uptime(rate, fury_max, per_fury, max(number(switch[0]), 0.0))
+    kept = savage_fury_uptime(rate, fury_max, per_fury)[0] if number(switch[0]) > 0 else up  # (R68-5's row)
     mods, cut = [], []
     shifted = "UsableWhileShapeshifted" in main_types
     form = "Shapeshift" in main_types and not shifted  # (MECHC67, R66-2: PoB leaves these out; the model adds them)
@@ -18554,8 +18576,12 @@ def savage_fury_model(skills: list[dict], stats: dict, main_types: set, main_att
            if form else '; '.join(cut))
     row = {"label": "Savage Fury: the frenzy's share of the fight*",
            "value": f"{up:.0%}",
-           "basis": (f"{how}; {pob}. Fury from the main skill's hitting uses only (other attacks not read: the lower "
-                     "reading)"),
+           "basis": (f"{how}; {pob}. Fury from the main skill's hitting uses"
+                     + (f" ({own:.2f}/s)" if main_attack else " (none: not an Attack)")
+                     + (f" and the build's other attacks ({side[1]})" if number(side[0]) > 0 else
+                        "; no other Attack in the build adds any")
+                     + (f". A form switch ends the frenzy ({switch[1]}; R68-5, UNVERIFIED: the lower reading, the "
+                        f"manager's ruling); kept across forms: up {kept:.0%}" if number(switch[0]) > 0 else "")),
            "confidence": "MEDIUM (the game's own Fury and duration numbers; the main skill's rate)",
            "play": (f"Build Fury with your attacks, release Savage Fury at {fury_max:g} Fury and stay in animal form: "
                     f"with it up {up:.0%} of the fight; without it (never released): its damage and Onslaught 0%")}
