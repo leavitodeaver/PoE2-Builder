@@ -814,19 +814,54 @@ def stock_note(build, gain: Charges) -> list[dict]:
     return rows
 
 
+# The no-flask PoB calculation's cache (MECHC69; SPEED6, research/speed-regression-train152.md: keyed on
+# state.Build.commits it missed on 118 of 123 Assumptions passes of example build 3's finished-build scoring, since every
+# set_config / refresh counts a commit even when nothing changed: +16% PoB work). The calculation reads PoB's build as it
+# stands (tree, items, gems, configuration; every flask and charm switched off), so it is now kept per PoB state, read
+# from the stats PoB returned for that state: every DPS figure and the per-skill DPS rows, the speed, hit and crit
+# figures (FIGHT_KEY_FIELDS; any change to the build that moves its damage moves one of them). The Python share below
+# (the objective's own DPS) is still read every time, so no number moves. POE2_FIGHT_KEY=0 is the old per-commit key.
+FIGHT_KEY = os.environ.get("POE2_FIGHT_KEY", "1") != "0"
+# (inner.weigh_uptimes / follow_uptimes switch a condition off and back on, so the build's state alternates: several
+# states are kept, the oldest dropped first; b3's finished-build scoring: 136 calculations per commit, 96 with one state
+# kept, fewer with several)
+FIGHT_CACHE_SIZE = 16
+FIGHT_KEY_FIELDS = ("Speed", "HitChance", "CritChance", "CritMultiplier", "AverageDamage", "AverageHit", "ShowAverage",
+                    "CullMultiplier", "ReservationDpsMultiplier", "PowerCharges", "FrenzyCharges", "EnduranceCharges")
+
+
+def fight_key(build) -> tuple | None:
+    """The PoB state's fingerprint for the no-flask calculation's cache (FIGHT_KEY's note); None: no stats to read."""
+    stats = getattr(build, "stats", None)
+    if not stats:
+        return None
+    return tuple((k, repr(v)) for k, v in sorted(stats.items(), key=lambda kv: kv[0])
+                 if k in FIGHT_KEY_FIELDS or "DPS" in k)
+
+
 def fight_length(build, boss: str | None = None) -> tuple[float, str]:
-    """(seconds, how): the boss preset's pool / the build's Full DPS with its flasks and charms off (STOCK's note), kept
-    per committed build (state.Build.commits)."""
-    key = (getattr(build, "commits", None), boss)
-    cached = getattr(build, "_stock_fight", None)
-    if cached is not None and key[0] is not None and cached[0] == key:
-        return cached[1]
+    """(seconds, how): the boss preset's pool / the build's Full DPS with its flasks and charms off (STOCK's note); PoB's
+    no-flask calculation kept per PoB state (FIGHT_KEY's note; POE2_FIGHT_KEY=0: per committed build)."""
     from builder.search import bosses
     from builder.search import conditions as conditions_mod
 
     name = boss or bosses.DEFAULT
     pool = conditions_mod.boss_pool(bosses.of({"_boss": name}).name)
-    got = build.call("noFlaskDps", fields=["FullDPS", "CombinedDPS"])
+    key = (fight_key(build) if FIGHT_KEY else getattr(build, "commits", None), boss)
+    cache = getattr(build, "_stock_fights", None)
+    if not isinstance(cache, dict):
+        cache = {}
+        try:
+            build._stock_fights = cache
+        except AttributeError:
+            pass
+    got = cache.get(key) if key[0] is not None else None
+    if got is None:
+        got = build.call("noFlaskDps", fields=["FullDPS", "CombinedDPS"])
+        if key[0] is not None:
+            if len(cache) >= FIGHT_CACHE_SIZE:  # (oldest first: dicts keep their order)
+                cache.pop(next(iter(cache)))
+            cache[key] = got
     dps = float(got.get("FullDPS") or 0.0) or float(got.get("CombinedDPS") or 0.0)
     # the build's own reading of its DPS where the objective sets it below PoB's Full DPS (its uptime and life factors,
     # the whole-fight scales): the same share taken off the DPS without flasks (only ever lower: the longer fight)
@@ -847,10 +882,6 @@ def fight_length(build, boss: str | None = None) -> tuple[float, str]:
         fight = min(pool / dps, FIGHT_CAP)
         out = (fight, f"the boss's {pool:,.0f} Life and Energy Shield / {dps:,.0f} DPS with every flask and charm off"
                       f"{scale_how}: {fight:,.1f} s" + (" (the 30-minute cap)" if fight >= FIGHT_CAP else ""))
-    try:
-        build._stock_fight = (key, out)
-    except AttributeError:
-        pass
     return out
 
 

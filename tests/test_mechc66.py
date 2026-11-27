@@ -54,10 +54,28 @@ def test_the_stock_switch_and_the_fight_length(monkeypatch):
     fight, how = flasks.fight_length(build)
     assert fight == pytest.approx(min(pool / 1_000_000.0, flasks.FIGHT_CAP)) and "every flask and charm off" in how
     flasks.fight_length(build)
-    assert build.asked == 1  # (kept per commit)
-    build.commits = 4
+    assert build.asked == 2  # (MECHC69: no PoB stats read yet: nothing to key the state on, asked again)
+    build.stats = {"FullDPS": 1_100_000.0, "Speed": 2.0, "Life": 5000.0}
     flasks.fight_length(build)
-    assert build.asked == 2
+    flasks.fight_length(build)
+    assert build.asked == 3  # (kept per PoB state, FIGHT_KEY)
+    build.commits = 4  # (a commit that changes nothing PoB returns: still kept)
+    build.stats = {**build.stats, "Life": 5100.0}  # (a stat outside the key)
+    flasks.fight_length(build)
+    assert build.asked == 3
+    build.stats = {**build.stats, "FullDPS": 1_200_000.0}  # (the build's damage moved: asked again)
+    flasks.fight_length(build)
+    assert build.asked == 4
+    build.stats = {**build.stats, "FullDPS": 1_100_000.0}  # (back to an earlier state: kept, FIGHT_CACHE_SIZE)
+    flasks.fight_length(build)
+    assert build.asked == 4
+    monkeypatch.setattr(flasks, "FIGHT_KEY", False)  # (the old key: per commit)
+    flasks.fight_length(build)
+    flasks.fight_length(build)
+    assert build.asked == 5
+    build.commits = 5
+    flasks.fight_length(build)
+    assert build.asked == 6
     zero = Fake()
     zero.call = lambda method, **kw: {"FullDPS": 0.0, "CombinedDPS": 0.0}
     assert flasks.fight_length(zero)[0] == 0.0
