@@ -1,0 +1,110 @@
+# COV62 (27 Nov 2026; the manager's COV62 brief, item 3): TRAIN 153 / 154 / 155's new stat readers, each checked
+# against the landed code on origin/main 71a414e2 (COV43's rule: the stat's value is used in the scored number, as a named
+# constant or a read of the stat id). Method: the audit's open rows on 71a414e2 (scratch/cov62/a0.json) crossed with the
+# lines TRAINs 153-155 added under builder/ and engine/ (`git diff 1c17e077 71a414e2`, scratch/cov62/t153_155_added.txt
+# -> t155_candidates.txt), plus COV61's held list (MECHB70 / 71's readers), each read in the code.
+# Left OPEN on purpose (checked at 71a414e2):
+# - Syzygy's crushing_blow_vs_ignited_and_fully_armour_broken and Hollow Focus's crushing_blow: named in MECH114's
+#   comments (conditions._primed_stun, models.py ~18213) as NOT counted (an UNDERCOUNT, named there).
+# - pillar_of_flame_creation_radius (Flame Pillar, 10): a comment only (models.py ~16290); no code uses the 1 m.
+# - rip_support_life_remnant_creation_radius (Rip, 15): its 1.5 m is assumptions.TARGET_SPREAD, read for OTHER Remnants
+#   made at the target (Life / Mana Remnants, Kalguur, Sanguine Revelry) as the game's convention; Rip's own Remnants
+#   come on a kill (create_life_remnant_on_melee_kill_bleeding_enemy_%), which that walk doesn't model: left open.
+# - siege_cascade_fall_time_ms on Hailstorm Rounds / Stormblast Bolts and comet_fall_time_ms on Skyfall: MECHB70's
+#   DELAYED_LANDING holds Comet and Siege Cascade only (its comment names the others as other models' or not wired).
+# - permafrost_shard_damage_+%_final_after_#_second (Ice Shards' armed bonus): rows only, x1 in the headline.
+# - Pyromantic Pact's Infernal Flame decay lines: readers date from 12 Nov (MECHC8), not these trains; unchanged here.
+
+- id: model-read-cov62-firestorm-grown-storm
+  title: "Firestorm's Fire-Infused larger storm (firestorm_secondary_radius_+_if_consumed_fire_infusion) held by GEM50's landing model"
+  kind: model
+  model: skill_models
+  stats: ["firestorm_secondary_radius_+_if_consumed_fire_infusion"]
+  skill: [Firestorm]
+  confidence: LOW
+  notes: >-
+    Checked in the code (GEM50, TRAIN 155): models.FIRESTORM_GROW 15 (tenths of a metre, models.py 8972) in
+    firestorm_infusion_model (models.py 9033: grown = storm x (30 + 15) / 30, the Fire-Infused storm's radius the build's
+    area scales), which spreads a Fire-Infused storm's bolts over the larger disc (fewer land on the boss), called from
+    Assumptions (assumptions.py ~5896); the +1.5 m unscaled is a row. The radius reading is GEM50's (LOW-MEDIUM,
+    UNVERIFIED which of the two). A link only.
+  sources: ["builder/search/models.py (FIRESTORM_GROW, firestorm_infusion_model)"]
+  status: proposed
+
+- id: model-read-cov62-savage-fury-fury
+  title: "Savage Fury's Fury a hit and maximum Fury held by the frenzy uptime model"
+  kind: model
+  model: skill_models
+  stats: ["wild_beast_energy_per_hit", "wild_beast_maximum_energy"]
+  skill: ["Savage Fury"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code (MECHC66 / 67 / 68, TRAINs 153-154): models.savage_fury_model (models.py ~18700) reads both from
+    SavageFuryPlayer's levelStats (wild_beast_maximum_energy, else SAVAGE_FURY_MAX; wild_beast_energy_per_hit, else 1)
+    into savage_fury_uptime: Fury a second = the build's Attack hits a second x Fury a hit, the frenzy up F x d of each
+    cycle; the unearned share comes off the frenzy's Damage MORE, Onslaught and Life loss (called from Assumptions,
+    assumptions.py ~5178). A link only.
+  sources: ["builder/search/models.py (savage_fury_model, savage_fury_uptime)"]
+  status: proposed
+
+- id: model-read-cov62-delayed-landing
+  title: "Comet's and Siege Cascade's hidden fall time held by the delayed-landing model (the boss still inside on landing)"
+  kind: model
+  model: skill_models
+  stats: ["comet_fall_time_ms", "siege_cascade_fall_time_ms"]
+  skill: [Comet, "Siege Cascade"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code (MECHB70, TRAIN 154/155; RESEARCH65 R65-8): models.DELAYED_LANDING {"Comet": 0.55,
+    "Siege Cascade": 0.5} (models.py ~28149) in delayed_landing_model: the hit lands only while the boss is still in the
+    area after the fall (bosses.still_there; rows: standing still, every move its mean length), called from Assumptions
+    (assumptions.py ~6092). Skyfall's comet_fall_time_ms and Hailstorm Rounds' / Stormblast Bolts'
+    siege_cascade_fall_time_ms are NOT held by this entry (other models or not wired, per MECHB70's comment). A link only.
+  sources: ["builder/search/models.py (DELAYED_LANDING, delayed_landing_model)"]
+  status: proposed
+
+- id: model-read-cov62-explosive-demise-threshold
+  title: "Explosive Demise's Life threshold for an eligible minion held by its model"
+  kind: model
+  model: skill_models
+  stats: ["command_minion_target_ally_below_x_life"]
+  skill: ["Explosive Demise"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code (MECHB70, TRAIN 154; RESEARCH65 R65-1): models.EXPLOSIVE_DEMISE_THRESHOLD (the stat by gem level,
+    models.py ~1152; 989 at 19, 1,096 at 20) through models.demise_threshold, read by Assumptions (assumptions.py
+    ~14490): the headline detonates the build's eligible minion (maximum Life at or below the threshold) with the most
+    Life; none eligible: 0, said. A link only.
+  sources: ["builder/search/models.py (EXPLOSIVE_DEMISE_THRESHOLD, demise_threshold)", "builder/search/assumptions.py"]
+  status: proposed
+
+- id: model-read-cov62-ice-shards-limit
+  title: "Ice Shards' 16-shard limit held by ice_shards_limit_mods in the headline"
+  kind: model
+  model: skill_models
+  stats: ["permafrost_shard_limit"]
+  skill: ["Ice Shards"]
+  confidence: MEDIUM
+  notes: >-
+    Checked in the code (MECHB69, RESEARCH64 R64-8, MEDIUM-HIGH): models.ICE_SHARDS_LIMIT 16 (models.py ~29958) in
+    ice_shards_limit_mods: past 16 / 1.5 s = 10.7 attacks a second the oldest shard disappears without exploding, so the
+    shards' hits take x(10.7 / rate); called from Assumptions (assumptions.py ~5476) into the headline's hand mods (a
+    row only before MECHB69: COV55 left it open then). A link only.
+  sources: ["builder/search/models.py (ICE_SHARDS_LIMIT, ice_shards_limit_mods)"]
+  status: proposed
+
+- id: model-read-cov62-bodach
+  title: 'Vestige of Darkness, "The Bodach haunts your Presence" (models.bodach_model)'
+  kind: pob_gap
+  model: skill_models
+  match: '^The Bodach haunts your Presence$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Checked in the code (MECHB70 / MECHB71, TRAINs 154-155; RESEARCH65 R65-21..23, R68-9): models.BODACH_LINE over the
+    build's lines (assumptions.py ~6390): the hidden daemon's attack at 1 / (3 s / (1 + 5% x the boss's Power)) a
+    second (the hidden 2 / 4 s corruptions and the randomisation rows), only with the boss in your Presence; its hit from
+    models.bodach_hit into the hand mods. PoB maps the line to nothing (ModCache). This entry only says a model reads
+    the line.
+  sources: ["builder/search/models.py (BODACH_LINE, bodach_rate, bodach_hit, bodach_model)"]
+  status: proposed

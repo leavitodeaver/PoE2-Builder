@@ -53,8 +53,9 @@ def test_cov60b_two_entries_name_the_audited_skills():
 
 def test_cov60b_rows_left_open_stay_open():
     covered = coverage.stat_entries()
-    for stat, skill in (("permafrost_shard_limit", "Ice Shards"),  # (a play row only: COV55's ruling)
-                        ("unleash_static_field_time_till_final_strike_ms", "Crash Lightning"),
+    # (COV62: permafrost_shard_limit left this list: MECHB69's ice_shards_limit_mods put it in the headline, marked in
+    # items-cov62.yaml / test_cov62)
+    for stat, skill in (("unleash_static_field_time_till_final_strike_ms", "Crash Lightning"),
                         ("wyvern_devour_empowered_flame_breath_rage_consumption_+%", "Flame Breath"),
                         ("number_of_triskelion_cascades_for_next_skill", "Triskelion Cascade"),
                         ("number_of_poison_cloud_allowed", "Decompose")):
