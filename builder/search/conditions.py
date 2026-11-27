@@ -11846,6 +11846,33 @@ class Conditions:
             return None
         return rates, f"{' + '.join(said)}, each taken to reach the boss (MEDIUM)"
 
+    def _primed_stun(self, stats: dict) -> tuple[float, str] | None:
+        """(MECH114; AUDIT40 A40-1) (the uses a second of the build's OTHER skills whose hits are Crushing Blows, how), for
+        models.heavy_stun_rate's primed_refill: each of models.CRUSHING_BLOW_SKILLS (checked: every GrantedEffectStatSets
+        row holding crushing_blow, game 26650308: SeismicCryPlayer, BoneshatterPlayer, StaggeringPalmPlayer,
+        WingBlastPlayer, HollowFocusNovaPlayer (no PoB skill: not read), and monster / minion rows; Syzygy's conditional
+        crushing_blow_vs_ignited_and_fully_armour_broken not counted, as MECH85) in an enabled group, other than the main
+        skill (its own Crushing Blows are crushing_source's), at its group's rate, else the search's chosen rate (no rate:
+        0, CLAUDE.md), summed (uses spread evenly, MEDIUM); each use taken to reach the boss (Seismic Cry's warcry area
+        around you, Boneshatter's / Staggering Palm's strike, Wing Blast's wingbeat: a play where you fight near it,
+        MEDIUM). None at 0. The skills' descriptions (ActiveSkills, 26650308): Seismic Cry "Heavy Stunning enemies that
+        are Primed for Stun", Boneshatter "will cause a Heavy Stun on enemies that are Primed", Staggering Palm
+        "instantly Heavily Stunning enemies which are Primed", Wing Blast "Enemies Primed for Heavy Stun will be
+        stunned"."""
+        groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
+        rates, said = 0.0, []
+        for name in models.CRUSHING_BLOW_SKILLS:
+            if name == self.main_skill or not any(
+                    n.get("name") == name and n.get("enabled", True) for g in groups for n in g.get("gems") or []):
+                continue
+            rate = self._group_uses(groups, {name}).get(name, self._chosen_use(name))
+            if rate > 0:
+                rates += rate
+                said.append(f"{name} {rate:.3f} uses/s")
+        if rates <= 0:
+            return None
+        return rates, f"{' + '.join(said)} (Crushing Blows), each taken to reach the boss (MEDIUM)"
+
     def _uruk_taken(self, rate: float) -> tuple[float, str]:
         """(the fight-average % increased Physical Damage taken, how) from Uruk's Smelting on the main skill (MECH80,
         uruk_taken): its stat at the gem's level, the Full Break rate, the fight's length from the boss's pool over the
@@ -12922,6 +12949,9 @@ class Conditions:
         stats["_crushing"] = models.crushing_source(texts, self.main_skill)  # (MECH85: Crushing Blows, heavy_stun_rate)
         stats["_pin_primed"] = any(models.PIN_PRIMED_LINE.match(t.strip()) for t in texts)  # (MECH85: Primed Pins)
         self.build.crushing, self.build.pin_primed = stats["_crushing"], stats["_pin_primed"]
+        # (MECH114, AUDIT40 A40-1: a side Crushing Blow skill Heavy Stuns the Primed boss at its own uses, heavy_stun_rate)
+        stats["_primed_stun"] = self._primed_stun(stats)
+        self.build.primed_stun = stats["_primed_stun"]
         main_group = self.build.main_group()  # (MECH100: Neural Overload / Voltaic Mark Electrocute the Primed boss)
         stats["_electrocute_primed"] = models.electrocute_primer(
             self.build.groups(), main_group["index"] if main_group else None, self.main_skill)

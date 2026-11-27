@@ -15816,7 +15816,8 @@ def dazed_stats(build) -> dict:
             # (MECH85: Crushing Blows and Primed-for-Pin Pins, published by Conditions.evidence)
             "_crushing": tuple(getattr(build, "crushing", None) or (False, "")),
             "_pin_primed": bool(getattr(build, "pin_primed", False)),
-            "_electrocute_primed": str(getattr(build, "electrocute_primed", "") or "")}  # (MECH100)
+            "_electrocute_primed": str(getattr(build, "electrocute_primed", "") or ""),  # (MECH100)
+            "_primed_stun": getattr(build, "primed_stun", None)}  # (MECH114: A40-1, a side Crushing Blow skill)
 
 
 # His Winnowing Flame's Grisly Pyres (MECH71; GEM5's verdict 14 Nov: The Unborn Lich is league-obtainable, an Abyss core
@@ -17608,7 +17609,9 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
     others = others_fill(stats, "HeavyStun")  # (MECH95: the other hitting groups' buildup, conditions.buildup_others)
     if (per_hit <= 0 or hits <= 0) and thorns <= 0 and blood <= 0 and others <= 0:
         return 0.0, "the main skill's hits build no Heavy Stun"
-    if brink and thorns <= 0 and blood <= 0 and others <= 0:
+    side_primed = stats.get("_primed_stun") or None  # (MECH114, A40-1: Conditions._primed_stun)
+    side_rate = number(side_primed[0]) if side_primed else 0.0
+    if brink and thorns <= 0 and blood <= 0 and others <= 0 and side_rate <= 0:
         return 0.0, ("Brink: the main skill's Stun buildup can't reach 100% and nothing else in the build finishes the "
                      "bar: no Heavy Stuns")
     crit = min(number(stats.get("CritChance")), 100) / 100
@@ -17638,6 +17641,19 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
         # comes when the bar reaches 70%; MECH85's "on the next hit" stays as a row)
         next_every = d + primed_hit_refill(refill, hits)
         refill = primed_hit_refill(refill, hits, same_hit=True)
+    side_how = ""
+    if side_rate > 0 and not crushing:
+        # (MECH114; AUDIT40 A40-1, an UNDERCOUNT: a side skill whose hits are Crushing Blows (Seismic Cry's warcry,
+        # Boneshatter, Staggering Palm, Wing Blast) Heavy Stuns the boss once Primed at 70%, at its own uses: as Arctic
+        # Howl's Primed Freeze (primed_refill: the first use after the bar reaches 70%, else the bar's 100%); its own Stun
+        # buildup not added (an undercount, said). A main skill landing Crushing Blows already stuns at 70% (above).
+        # Brink: the main can't finish the bar, so the side use always lands it)
+        before = refill
+        refill = (PRIMED_UNIQUE * refill + 0.5 / side_rate if brink and thorns <= 0 and blood <= 0 and others <= 0
+                  else primed_refill(refill, side_rate, PRIMED_UNIQUE))
+        side_how = (f"; {side_primed[1]}: Heavy Stunned at the first use after the bar reaches {PRIMED_UNIQUE:.0%} "
+                    f"(KeywordPopups PrimedStun; uses spread evenly, MEDIUM; their own Stun buildup not added): the refill "
+                    f"{before:.1f} -> {refill:.1f} s")
     every = d + refill
     basis = (f"{per_hit:.2%} of the boss's Stun bar per hit (PoB){f', {1 - uncold:.0%} of it Cold, which builds none' if uncold < 1 else ''}, "
              f"x{scale:.2f} for {bosses.of(stats).name}'s threshold ({bosses.of(stats).poise}%, the game files; PoB's is 938%), "
@@ -17657,7 +17673,7 @@ def heavy_stun_rate(stats: dict) -> tuple[float, str]:
                 "hit not counted, LOW)" if brink else "")
              + (f"; {crush_how}: Heavy Stunned once Primed at {PRIMED_UNIQUE:.0%} of the bar, by the hit that Primes it "
                 f"(R30-8, MEDIUM; on the next hit instead: one every {next_every:.1f} s)"
-                if crushing else "") + f": one every {every:.1f} s")
+                if crushing else "") + side_how + f": one every {every:.1f} s")
     return 1 / every, basis
 
 
@@ -17768,6 +17784,25 @@ def heavy_stunned_share(stats: dict) -> tuple[float, str]:
     d = bosses.of(stats).heavy_stun_s
     share = min(1.0, d * rate)  # (d / (d + refill) < 1 since MECH80)
     return share, f"{how}; each lasts {d:g} s ({bosses.of(stats).name}): Heavy Stunned {share:.0%} of the fight"
+
+
+def stunned_or_primed_share(stats: dict) -> tuple[float, str]:
+    """(MECH114; AUDIT40 A40-1, for GEM's Seismic Cry Empower reading, warcry_empowers) The share of the fight the boss
+    is Heavy Stunned or Primed for Stun (its bar at 70%+, KeywordPopups PrimedStun, Unique): each cycle is the stun's d s
+    plus the refill; the bar stands at 70%+ from 70% of the plain refill (no Crushing Blow, no side Crushing Blow skill:
+    the same 0.7 x refill reading as primed_refill, MEDIUM) until the stun lands. 0 with no Heavy Stuns."""
+    rate, how = heavy_stun_rate(stats)
+    if rate <= 0:
+        return 0.0, how
+    plain_rate, _ = heavy_stun_rate({**stats, "_crushing": (False, ""), "_primed_stun": None})
+    d = bosses.of(stats).heavy_stun_s
+    every = 1.0 / rate
+    refill = max(0.0, every - d)
+    plain = max(0.0, 1.0 / plain_rate - d) if plain_rate > 0 else refill
+    primed = max(0.0, refill - PRIMED_UNIQUE * plain)
+    share = min(1.0, (d + primed) / every)
+    return share, (f"{how}; Heavy Stunned {d:g} s and Primed (70%+ of the bar) {primed:.1f} s of each {every:.1f} s: "
+                   f"{share:.0%} of the fight (MEDIUM)")
 
 
 
