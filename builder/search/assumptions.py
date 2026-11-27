@@ -6685,6 +6685,9 @@ class Assumptions:
         freeze_mods, freeze_notes = models.freeze_magnitude_cancel_mods(  # (MECH94: R36-9; MECH95: the Devotion form)
             turmoil_texts, number(stats.get("Devotion")))
         hand_mods, hand_notes = hand_mods + freeze_mods, hand_notes + freeze_notes
+        moon_mods, moon_notes = models.frozen_count_duration_mods(  # (MECH117: Blessing of the Moon; PoB applies none)
+            turmoil_texts, getattr(build, "freeze_rate", None))
+        hand_mods, hand_notes = hand_mods + moon_mods, hand_notes + moon_notes
         volatility_crit =volatility_support(build, main)  # (MECH91: the Volatility support's chance on crit)
         if volatility_crit > 0 or any(models.INNER_TURMOIL.match(t.strip())
                                       or models.VOLATILITY_ON_CRIT.match(t.strip())

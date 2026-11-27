@@ -3616,6 +3616,29 @@ def curse_share(uses: list[CurseUse]) -> tuple[float, str]:
     return best.on_boss, f"{best.name} {best.how}"
 
 
+# Two copies of one curse (MECH117; POBR1-3's candidate, an UNDERCOUNT, or a curse zeroed). Two groups can apply the
+# same curse (a hand cast and a meta gem's, Blasphemy's aura, an item's "Curse Enemies with X on Hit"). PoB keeps ONE
+# copy per name in its curse slots, picked by its priority table (CalcPerform 3030-3072: the same name replaces only at
+# a higher priority; determineCursePriority 531-562: the gem, its socket, slot, aura / item source), and scores it
+# always up. Before, curse_model scaled that kept copy once per copy found ("1% more Effect of your Curses" tagged to
+# the name, the mods ADDING): two copies up 50% each gave -100%, the curse zeroed, where together they are on the boss
+# 75% of the fight. Now one scale per name: the share the boss carries at least one copy, 1 - prod(1 - each on_boss)
+# (copies timed on their own: MEDIUM; a copy up all fight makes it 100%). Which copy's strength the game keeps when
+# both are on (pobr: the strongest; PoB: by priority) is UNVERIFIED: PoB's kept copy's effect is used (a RESEARCH
+# question; the copies of one gem name differ only by their own support / slot modifiers).
+CURSE_COPIES_NOTE = ("; {} copies of this curse: the boss carries at least one {:.0%} of the fight (each timed on its own, "
+                     "MEDIUM; PoB keeps one copy by its priority table, its effect used: which copy's strength the game "
+                     "keeps is UNVERIFIED)")
+
+
+def curse_copies_up(uses: list[CurseUse]) -> dict[str, tuple[float, int]]:
+    """{curse name: (share of the fight the boss carries at least one copy, copies)} (CURSE_COPIES_NOTE's note)."""
+    off: dict[str, list[float]] = {}
+    for use in uses:
+        off.setdefault(use.name, []).append(1.0 - min(1.0, max(0.0, number(use.on_boss))))
+    return {name: (1.0 - math.prod(gaps), len(gaps)) for name, gaps in off.items()}
+
+
 def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
                 lines: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """Each curse's effect scaled from PoB's always-up to its share, the time casting it by hand takes from the main
@@ -3624,10 +3647,15 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
     mods: list[dict] = []
     notes: list[dict] = []
     by_name = {s.name: s for s in skills}
+    together, scaled = curse_copies_up(uses), set()  # (MECH117: one scale per curse name, its copies together)
     for use in uses:
         basis = use.how
-        if use.on_boss < 1.0 and use.name in by_name:  # (MECH114: on the boss, the zone's walk-out in)
-            mods.append(line("1% more Effect of your Curses", 100 * (use.on_boss - 1), skill=use.name))
+        up, copies = together[use.name]
+        if copies > 1:
+            basis += CURSE_COPIES_NOTE.format(copies, up)
+        if up < 1.0 and use.name in by_name and use.name not in scaled:  # (MECH114: on the boss, the walk-out in)
+            scaled.add(use.name)
+            mods.append(line("1% more Effect of your Curses", 100 * (up - 1), skill=use.name))
         cast = by_name.get(use.name)
         if use.by_hand and main is not None and cast is not None and cast is not main:
             took = cast.cast_time or 0.7
@@ -18649,6 +18677,54 @@ def primed_refill(refill: float, rate: float, primed: float = PRIMED_FREEZE_UNIQ
     if gap >= every:
         return primed * refill + every / 2
     return refill - rate * gap * gap / 2
+
+
+# Blessing of the Moon (MECH117; DASH1's find, COV62's probe POE2T6970: PoB counts none, an UNDERCOUNT). The notable
+# (PassiveSkills chill_and_freeze31_, 26650308; also an anoint by its Distilled Emotion recipe): "8% increased Skill
+# Effect Duration per Enemy you've Frozen in the last 8 seconds, up to 40%" (skill_effect_duration_+%_per_enemy_frozen_
+# last_8_seconds; the game counts number_of_enemies_frozen_last_8_seconds). PoB parses only the 8% (ModCache 5131 keeps
+# " per Enemy you've Frozen ..." as leftover text), so it applies none (LANE_RULES: a partly parsed line is never
+# applied). Carriers (checked: stat rows 24686-24688 across all 59 tables of 26650308: the passive only; poe2db
+# Blessing_of_the_Moon, 27 Nov: the notable, isUsed, and its anoint (Fear / Guilt / Despair), no item). Against the
+# boss alone: the count is the boss, while you Froze it in the past 8 s. The boss Freezes regularly (immobilise_period:
+# its duration, then the refill at x6 for the rest of 14 s), once every P = 1 / r s, so it was Frozen in the past 8 s for
+# min(1, 8 r) of the fight. Headline: one enemy counts once (the line's "per Enemy"; MEDIUM). Row: each Freeze counts
+# (min(5, 8 r) Freezes in the window; UNVERIFIED which the game does; the two agree whenever P >= 8 s, a boss's usual
+# case). Freeze rate: the build's buildup on the boss (Conditions publishes build.freeze_rate; the other groups' and
+# Thorns' buildup and Arctic Howl's Primed Freeze included, as the Frozen box). Adds aren't modelled (an UNDERCOUNT in a
+# fight with adds: up to 40% there). No Freeze source: 0, named.
+FROZEN_COUNT_DURATION = re.compile(r"^(\d+(?:\.\d+)?)% increased skill effect duration per enemy you've frozen in the "
+                                   r"last (\d+(?:\.\d+)?) seconds, up to (\d+(?:\.\d+)?)%$", re.I)
+
+
+def frozen_count_duration_mods(texts: list[str], freezes: tuple[float, str] | None) -> tuple[list[dict], list[dict]]:
+    """(mods, notes) for "N% increased Skill Effect Duration per Enemy you've Frozen in the last W seconds, up to C%"
+    (Blessing of the Moon; the note above). `freezes`: (the boss's Freezes a second, how), None if not read."""
+    lines = [(float(m.group(1)), float(m.group(2)), float(m.group(3)))
+             for t in texts if (m := FROZEN_COUNT_DURATION.match(t.strip()))]
+    if not lines:
+        return [], []
+    label = "Blessing of the Moon: Skill Effect Duration per Frozen enemy*"
+    if freezes is None:
+        return [], [{"label": label, "value": "0% (not read)", "confidence": "LOW",
+                     "basis": "the boss's Freeze rate wasn't read (no conditions round yet): counted 0 until it is"}]
+    rate, how = max(0.0, number(freezes[0])), freezes[1]
+    if rate <= 0:
+        return [], [{"label": label, "value": "0%", "confidence": "MEDIUM",
+                     "basis": "nothing in the build Freezes the boss: no enemy Frozen, no duration",
+                     "play": "Blessing of the Moon gives nothing here: the build has no Freeze on the boss"}]
+    once = each = 0.0
+    for per, window, cap in lines:
+        once += min(per * min(1.0, window * rate), cap)
+        each += min(per * window * rate, cap)
+    window = lines[0][1]
+    basis = (f"the boss Frozen {rate:.3f}/s (once every {1 / rate:.1f} s; {how}): Frozen in the past {window:g} s "
+             f"{min(1.0, window * rate):.0%} of the fight; one enemy counted once (MEDIUM): +{once:.1f}% Skill Effect "
+             f"Duration. Other reading (UNVERIFIED: each Freeze counts): +{each:.1f}%"
+             + (" (the same here)" if abs(each - once) < 0.05 else "") + ". Adds not modelled (up to the cap with them)")
+    return [raw_mod("Duration", "INC", round(once, 3))], [{
+        "label": label, "value": f"{once:+.1f}%", "confidence": "MEDIUM", "basis": basis,
+        "play": (f"Keep Freezing the boss: Blessing of the Moon's duration is +{once:.1f}% with it, +0% without")}]
 
 
 # Thorns hits' buildup (MECH84; PATCH_CHECK L4-2, an UNDERCOUNT for Thorns builds). Patch 0.2.0 (grep_notes "Thorns can

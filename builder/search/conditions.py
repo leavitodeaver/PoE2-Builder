@@ -5080,6 +5080,7 @@ EVIDENCE_FIELDS.extend(f for f in ("IgniteDuration", "IgniteStackPotential") if 
 EVIDENCE_FIELDS.extend(f for f in ("IgniteChanceRoll",) if f not in EVIDENCE_FIELDS)  # (MECH112: ignite_roll_chance)
 EVIDENCE_FIELDS.extend(f for f in ("MovementSpeedMod",) if f not in EVIDENCE_FIELDS)  # (MECH83: presence_reentries' roll)
 EVIDENCE_FIELDS.extend(f for f in ("PhysicalHitAverage",) if f not in EVIDENCE_FIELDS)  # (MECH116: no_physical_bleed)
+EVIDENCE_FIELDS.extend(f for f in ("AreaOfEffectMod",) if f not in EVIDENCE_FIELDS)  # (MECH117: shocked_ground_radius)
 EVIDENCE_FIELDS.extend(f for f in ("PoisonDPS",) if f not in EVIDENCE_FIELDS)  # (MECH89: Corrosion's Poison Armour Break)
 
 
@@ -9437,6 +9438,22 @@ def _boss_metres(stats: dict) -> float:
                                     (stats.get("_nova_reach") or (None, ""))[0])
 
 
+# (MECH117; MECH115's item 5, an UNDERCOUNT of b02's Shocked share) Storm Lance's ground radius takes the build's Area
+# of Effect modifiers, as its lodged spear's reach does (Assumptions.storm_lance_reach's fallback: 3.0 m x sqrt(PoB's
+# AreaOfEffectMod) for the main skill; area scales a radius by the square root): its 30 tertiary radius is a plain area
+# radius stat (MEDIUM). A wider ground holds the boss longer (ground_stay). The other skills' ground radii stay at their
+# base (whether their "Shocked Ground radius is N metres" stats take area modifiers: UNVERIFIED; an undercount if so).
+SHOCKED_GROUND_AREA_SCALED = ("Storm Lance",)
+
+
+def shocked_ground_radius(name: str, stats: dict) -> float:
+    """Metres of `name`'s own Shocked Ground (SHOCKED_GROUND_AREA_SCALED's note)."""
+    radius = SHOCKED_GROUND_RADII.get(name, SHOCKED_GROUND_RADIUS)
+    if name in SHOCKED_GROUND_AREA_SCALED:
+        radius *= math.sqrt(max(number(stats.get("AreaOfEffectMod")), 0.0) or 1.0)
+    return radius
+
+
 def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
     """(share of the fight the boss stands in your Shocked Ground, how). Each ground is taken to be made at the boss and
     the boss to stay in it for its duration (LOW: bosses move, and the ground's radius isn't read). Sources combine as
@@ -9466,7 +9483,7 @@ def shocked_ground(stats: dict, texts: list[str]) -> tuple[float, str]:
         if ms > 0:
             feed = stats.get("_sg_feed") or {}
             how = feed.get("how") or "no rate read for the uses that make it: 0"
-            radius = SHOCKED_GROUND_RADII.get(name, SHOCKED_GROUND_RADIUS)
+            radius = shocked_ground_radius(name, stats)  # (MECH117: Storm Lance's with the build's area)
             if SHOCKED_GROUND_GATED.get(name) == "cull":  # (made only in the last t of the boss's pool)
                 up0 = _covered(uses, 1.0, ms / 1000) * min(1.0, number(feed.get("share")))
                 up = walk(up0, radius, ms / 1000, uses)
@@ -12101,7 +12118,7 @@ class Conditions:
             return None
         return rates, f"{' + '.join(said)}, each taken to reach the boss (MEDIUM)"
 
-    def _primed_stun(self, stats: dict) -> tuple[float, str] | None:
+    def _primed_stun(self, stats: dict, every_hit: bool = False) -> tuple[float, str] | None:
         """(MECH114; AUDIT40 A40-1) (the uses a second of the build's OTHER skills whose hits are Crushing Blows, how), for
         models.heavy_stun_rate's primed_refill: each of models.CRUSHING_BLOW_SKILLS (checked: every GrantedEffectStatSets
         row holding crushing_blow, game 26650308: SeismicCryPlayer, BoneshatterPlayer, StaggeringPalmPlayer,
@@ -12114,10 +12131,22 @@ class Conditions:
         are Primed for Stun", Boneshatter "will cause a Heavy Stun on enemies that are Primed", Staggering Palm
         "instantly Heavily Stunning enemies which are Primed", Wing Blast "Enemies Primed for Heavy Stun will be
         stunned"."""
+        # (MECH117, A41-34) `every_hit`: "Your Hits are Crushing Blows" (Crushing Impacts, AscendancyWarrior1Notable4)
+        # makes the hits of EVERY other hitting group Crushing Blows: their hits a second (stats["_side_rows"], the
+        # side_hit_rows the other side readers use: PoB's trigger rate, else the press choices, x hit chance) join, each
+        # hit taken to reach the boss (MEDIUM); a named skill among those rows is counted there, not twice.
+        rates, said, counted = 0.0, [], set()
+        if every_hit:
+            for row in stats.get("_side_rows") or ():
+                if number(row.get("hits")) > 0:
+                    rates += number(row["hits"])
+                    counted.add(row.get("name"))
+                    said.append(f"{row.get('name')} {number(row['hits']):.3f} hits/s")
+            if said:
+                said = [f"Crushing Impacts: every hit a Crushing Blow ({' + '.join(said)})"]
         groups = [g for g in self.build.call("groups")["groups"] if g.get("enabled") is not False]
-        rates, said = 0.0, []
         for name in models.CRUSHING_BLOW_SKILLS:
-            if name == self.main_skill or not any(
+            if name == self.main_skill or name in counted or not any(
                     n.get("name") == name and n.get("enabled", True) for g in groups for n in g.get("gems") or []):
                 continue
             rate = self._group_uses(groups, {name}).get(name, self._chosen_use(name))
@@ -13209,7 +13238,8 @@ class Conditions:
         stats["_pin_primed"] = any(models.PIN_PRIMED_LINE.match(t.strip()) for t in texts)  # (MECH85: Primed Pins)
         self.build.crushing, self.build.pin_primed = stats["_crushing"], stats["_pin_primed"]
         # (MECH114, AUDIT40 A40-1: a side Crushing Blow skill Heavy Stuns the Primed boss at its own uses, heavy_stun_rate)
-        stats["_primed_stun"] = self._primed_stun(stats)
+        stats["_primed_stun"] = self._primed_stun(  # (MECH117, A41-34: Crushing Impacts' every hit)
+            stats, any(models.CRUSHING_BLOW_LINE.match(t.strip()) for t in texts))
         self.build.primed_stun = stats["_primed_stun"]
         main_group = self.build.main_group()  # (MECH100: Neural Overload / Voltaic Mark Electrocute the Primed boss)
         stats["_electrocute_primed"] = models.electrocute_primer(
@@ -13379,6 +13409,9 @@ class Conditions:
         # or not a box is on; Frozen from its resolver share, 0 without a Freeze source)
         self.build.ailment_uptimes = {"Ignited": _ailment_share("Ignite")(stats), "Shocked": shock_share(stats),
                                       "Frozen": number(uptimes.get("conditionEnemyFrozen"))}
+        # (MECH117, for models.frozen_count_duration_mods, Blessing of the Moon) the boss's Freezes a second from the
+        # build's buildup (the Frozen box's own rate: models.buildup_rate)
+        self.build.freeze_rate = (models.buildup_rate(stats, "Freeze"), "the build's Freeze buildup on the boss")
         # (MECH90, for models.saitha_ignite_mods: the share of the fight the boss is Cursed / Pinned, from the boxes' own
         # models: a box found with no share is up all fight, one not found 0)
         self.build.enemy_shares = {
