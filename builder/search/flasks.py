@@ -366,15 +366,42 @@ def boss_ailments(hit: dict, data: dict) -> tuple:
         slow, how = boss_hits.slow_rate(read, land)  # (MECHC18) None: the boss has no Slow the data gives
         if slow is not None:
             return slow, how
-        return min(1 / BOSS_AILMENT_EVERY, land), f"{how}: once per {BOSS_AILMENT_EVERY:g} s assumed (LOW)"
+        return 0.0, f"{how}: {SLOW_NONE}"  # (MECHC68, R68-4: SLOW_NONE's note; was once per 10 s, a flat rate)
 
     # (MECHC19, AUDIT29 A29-1: gains) the worst-case pinnacle reads the lowest real boss's rate of each (gain_floor)
     rows = tuple((a, *boss_hits.gain_floor(stats, ailment(a))) for a in ("Ignite", "Shock", "Freeze", "Bleed", "Poison"))
     if boss_hits.boss_name(stats) == bosses.WORST:
-        return rows + (("Slow", *boss_hits.gain_floor(stats, slowed)),)
-    read, land = paced(stats)
-    slow, how = boss_hits.slow_rate(read, land)  # (MECHC18) None: the boss has no Slow the data gives
-    return rows + ((("Slow", slow, how),) if slow is not None else ())
+        return rows + (("Slow", *worst_slow(stats, slowed)),)
+    return rows + (("Slow", *slowed(stats)),)  # (MECHC68, R68-4: a named boss reads its own, never a flat rate)
+
+
+# Chill and Maim are Slows (MECHC68; RESEARCH68 R68-4, MEDIUM-HIGH: KeywordPopups Chill "an Ailment that Slows", Maim /
+# Hinder / Temporal Chains "Slow"; 11 of the 12 pinnacle presets Chill, Maim or Slow you). The manager's ruling (26 Nov
+# 18:53; the gain-side convention, a gain reads the least favourable boss): a request that NAMES a boss reads that boss's
+# own Chills (its Cold hits of 30%+ of your Ailment Threshold), Maims and Slow skills (boss_hits.slow_rate: their rates
+# from its skills), never a flat rate: a boss with none in the data reads 0 with a note (its ground / tar Slows, R68-4's
+# Bodach and King, have no rate in the data: an UNDERCOUNT named). The default worst case reads 0 (the Arbiter of
+# Divinity: no Slow found, R68-4 UNVERIFIED), with a row giving each pinnacle boss's own rate. Before: once per 10 s
+# (BOSS_AILMENT_EVERY) wherever the data had no Slow, a flat rate. Maim was already in slow_rate (SLOW_SKILLS).
+SLOW_NONE = ("no Cold hit Chills you and no Maim or Slow skill is in the data (its ground Slows, if any, have no rate: "
+             "not counted): no source, 0 (R68-4; never a flat rate)")
+SLOW_NONE_BOSS = "Arbiter of Divinity"
+
+
+def worst_slow(stats: dict, slowed) -> tuple[float, str]:
+    """(the worst case's Slows a second on you, how): the lowest real boss's (gain_floor), named the Arbiter of Divinity
+    where it reads 0 (R68-4), with every real boss's own rate as the row (SLOW_NONE's note)."""
+    from builder.search import boss_hits
+
+    rate, how = boss_hits.gain_floor(stats, slowed)
+    each = [(name, slowed(read)[0]) for name, read in boss_hits.real_readings(stats)]
+    slowing = [(n, r) for n, r in each if r > 0]
+    row = ("; row, the pinnacle bosses that Chill / Maim / Slow you, each at its own rate: "
+           + (", ".join(f"{n} {r * 60:.1f} a minute" for n, r in slowing) or "none in the data"))
+    if rate <= 0 and any(n == SLOW_NONE_BOSS and r <= 0 for n, r in each):
+        how = (f"worst case: 0, the least favourable boss, the {SLOW_NONE_BOSS}: no Slow, Chill or Maim of it found "
+               f"(R68-4, UNVERIFIED; the manager's ruling)")
+    return rate, how + row
 
 
 # Charm triggers other than a kill (MECHC2, FIX_QUEUE: each counted as firing whenever its charges allowed, whether or not
@@ -398,6 +425,7 @@ def boss_ailments(hit: dict, data: dict) -> tuple:
 #   Threshold) plus its Slow skills at their cooldowns (boss_hits.slow_rate, Charges.ailments' "Slow" row); only a boss
 #   with neither (4 of the 12 real presets) keeps one per BOSS_AILMENT_EVERY s, at most one per landing hit (a flat rate where
 #   the game decides it: LOW, named in the report for the manager).
+#   (MECHC68, R68-4: no longer: such a boss reads 0 with a note, SLOW_NONE; the worst case worst_slow.)
 BOSS_AILMENT_EVERY = 10.0
 AILMENT_EVENT = {"ignited": "Ignite", "shocked": "Shock", "frozen": "Freeze", "poisoned": "Poison", "bleeding": "Bleed"}
 TRIGGER_DAMAGE = {"ignited": "Fire", "frozen": "Cold", "shocked": "Lightning", "poisoned": "Chaos", "bleeding": "Physical",
@@ -481,6 +509,7 @@ def trigger_rate(trigger: str, gain: Charges) -> tuple[float, str] | None:
         if "Slow" in found:
             rate, how = found["Slow"]
             return rate, f"the boss Slows you: {how}" + ("" if rate > 0 else ": no source, 0")
+        return 0.0, "no boss Slow data read (no boss hit lands): no source, 0 (R68-4; never a flat rate)"
     rate = min(1 / BOSS_AILMENT_EVERY, gain.boss_hits)
     return rate, (f"you {'are ' if event != 'slow' else ''}{event} by the boss once per {BOSS_AILMENT_EVERY:g} s assumed "
                   "(LOW: how often a boss does it no data gives: it has no Cold hit or Slow skill found)")

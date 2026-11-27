@@ -86,3 +86,23 @@ def test_savage_fury_reads_every_attacks_fury_and_a_form_switch_ends_it():
                                         switch=(0.5, "Wolf skill"))[1][0]
     assert switched["value"] == f"{up / (up + 10 + 0.6):.0%}"
     assert f"kept across forms: up {10 / 20.6:.0%}" in switched["basis"]
+
+
+def test_a_boss_with_no_slow_in_the_data_reads_none_and_the_worst_case_names_the_arbiter_of_divinity():
+    """MECHC68 (RESEARCH68 R68-4; the manager's ruling 26 Nov 18:53): Chill and Maim are Slows; a named boss reads its own
+    Chills / Maims / Slow skills, never a flat rate (none in the data: 0 with a note); the default worst case reads 0,
+    naming the Arbiter of Divinity, with each pinnacle boss's own rate as the row."""
+    from builder.search import bosses, flasks
+
+    hit = {"enemySkillTime": 1.0, "EvadeChance": 0.0, "EffectiveBlockChance": 0.0, "ColdTakenHit": 3000.0}
+    data = {"ailmentThreshold": 4000, "life": 5000}
+
+    def slow(boss):
+        return next(r for r in flasks.boss_ailments({**hit, "_boss": boss}, data) if r[0] == "Slow")[1:]
+
+    king, how = slow("The King in the Mists")
+    assert king == 0.0 and "never a flat rate" in how
+    olroth, how = slow("Olroth, Origin of the Fall")
+    assert olroth > 0 and "Chill" in how and "Maim" in how
+    worst, how = slow(bosses.WORST)
+    assert worst == 0.0 and "Arbiter of Divinity" in how and "Olroth, Origin of the Fall" in how

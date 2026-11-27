@@ -576,9 +576,9 @@ def test_charms_used_when_stunned_fire_at_the_bosss_light_stuns():
     immune = Charges.from_bridge({**data, "stunAvoid": 100}, 0, boss)
     rate, how = trigger_rate("Used when you become Stunned", immune)
     assert rate == 0.0 and "can't be Stunned" in how
-    # (MECHC17) the other ailments read the boss's own rate (Charges.ailments); Slow keeps its labelled rate
+    # (MECHC17) the other ailments read the boss's own rate (Charges.ailments); (MECHC68, R68-4) Slow too: no data, 0
     assert trigger_rate("Used when you become Frozen", Charges(boss_hits=1.0, boss_types=("Cold",)))[0] == 0.0
-    assert trigger_rate("Used when you are affected by a Slow", Charges(boss_hits=1.0))[0] == 0.1
+    assert trigger_rate("Used when you are affected by a Slow", Charges(boss_hits=1.0))[0] == 0.0
 
 
 def test_ailment_charms_fire_at_the_bosss_own_ailment_rate():
@@ -657,13 +657,13 @@ def test_slow_charms_read_the_bosss_chills_and_slow_skills():
     # a Cold boss whose hits are too small to Chill and that has no Slow skill: 0, no source
     zero, how = rate("The Aberration", takenByType={"Physical": 3000, "Cold": 300})
     assert zero == 0.0 and "no source, 0" in how
-    # neither a Cold hit nor a Slow skill (the Arbiter of Ash): the labelled flat rate stays
+    # neither a Cold hit nor a Slow skill (the Arbiter of Ash): (MECHC68, R68-4) 0 with a note, never a flat rate
     ash, how = rate("Arbiter of Ash")
-    assert ash == pytest.approx(0.1) and "LOW" in how
+    assert ash == 0.0 and "no source, 0" in how
     # (MECHC19, AUDIT29 A29-1) the worst-case pinnacle reads the lowest real boss's Slows, naming it
     from builder.search import bosses
     worst, how = rate(bosses.WORST)
-    assert 0 <= worst <= olroth and "lowest real boss" in how
+    assert 0 <= worst <= olroth and ("lowest real boss" in how or "Arbiter of Divinity" in how)  # (MECHC68, R68-4)
 
 
 def test_life_when_a_minion_is_revived_reads_the_builds_minion_deaths():
@@ -729,9 +729,9 @@ def test_worst_case_boss_counts_the_lowest_real_bosss_rate_of_a_gain():
         {"enemySkillTime": 0.51, "EvadeChance": 0.0, "EffectiveBlockChance": 0.0, "StunThreshold": 3000,
          **{f"{t}TakenHit": v * 0.6 for t, v in sizes.items()}})]
     assert worst.stuns == pytest.approx(min(rows)) and "lowest real boss" in worst.stuns_how
-    # Slow: no higher than the lowest real boss (four keep the labelled once per 10 s, the user's choice 13 Nov)
+    # Slow: (MECHC68, R68-4) the least favourable boss, 0, named; the row gives each boss's own rate
     slow, how = trigger_rate("Used when you are affected by a Slow", worst)
-    assert slow <= 0.1 + 1e-9 and "lowest real boss" in how
+    assert slow == 0.0 and ("Arbiter of Divinity" in how or "lowest real boss" in how) and "each at its own rate" in how
 
 
 def test_rune_of_reach_s_reduced_remnant_effect_lowers_remnant_recovery(engine):
