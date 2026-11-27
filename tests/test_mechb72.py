@@ -103,6 +103,24 @@ def test_the_sniper_cloud_duration_reading_steps_2_02_s_at_the_base_poison():
     assert fixed == pytest.approx(by_duration) == pytest.approx(3 * 2.0 / 20.0)
 
 
+def test_a_side_orb_s_bolts_stop_when_the_boss_walks_out_of_its_reach():
+    """The manager (05:45, from MECHC69's A41-33): an Orb fires at nearby enemies only, so with the boss walked out of
+    its 5.6 m reach its bolts stop and it lives out its duration (MECH-C's orb_stay life): fewer bolts and Orbs."""
+    orb = {"index": 2, "name": "Orb of Storms", "speed": 1.25, "duration": 12.0, "castTime": 0.8, "orbMaxHits": 6,
+           "orbBoltFrequency": 4000}
+    fast = {"index": 1, "name": "Spark", "speed": 2.0, "spell": True}
+    boss = {"_boss": bosses.WORST}
+    presses, bolts, _ = models.orb_cycle(orb, fast, 0.0)
+    walked, walked_bolts, note = models.orb_cycle(orb, fast, 0.0, boss=boss)
+    life = 6 / 2.25
+    q = bosses.still_there(boss, models.ORB_REACH, life)[0]
+    share = bosses.stay_share(boss, models.ORB_REACH, life)[0]
+    assert 0 < q < 1 and 0 < share < 1
+    assert walked == pytest.approx(1 / (q * life + (1 - q) * 12.0 + 0.8))
+    assert walked_bolts == pytest.approx(walked * 6 * share) and walked_bolts < bolts and walked < presses
+    assert "walking out of its 5.6 m reach" in note["basis"]
+
+
 class _DemiseBuild:
     """Explosive Demise's inputs: the Arsonist (group 1), Raise Zombie with Brutus' Brain (group 2) and Skeletal
     Warriors (group 3), each minion's Life; a 100 hit on a 50 weapon base."""

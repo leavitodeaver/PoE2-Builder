@@ -7137,10 +7137,11 @@ class Assumptions:
         self.untether_side_feed = (0.0, "")
         caps = self.press_caps(groups["groups"], pressed)
         near = getattr(build, models.ORB_NEAR, True) is not False  # (MECHB30: MECHC26's "without it" row switch)
+        walk = {"_boss": getattr(getattr(build.ctx, "request", None), "boss", None)}  # (MECHB72: the boss walking off an Orb)
         if near and any(r.get("name") == models.ORB_OF_STORMS for r in rates if r["index"] in pressed and r["index"] != main):
             near = self.orb_stand(rates, main)  # (MECHB44: the user's in-game test: only while you stand in its radius)
         build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
-                                                                 models.press_choices(build), near)
+                                                                 models.press_choices(build), near, walk)
         side = {g["index"] for g in groups["groups"] if g["index"] in pressed and g["index"] != main
                 and any(x["enabled"] and not x["support"] and x["name"] == models.UNTETHER for x in g["gems"])}
         if side:  # (MECHB35: a side Untether also fills from the other pressed skills, at their pressed rates: one more pass)
@@ -7150,12 +7151,12 @@ class Assumptions:
             if self.untether_side_feed[0] > 0:
                 caps = self.press_caps(groups["groups"], pressed)
                 build.objective.press_scales, notes = models.press_model(rates, main, pressed, paced, caps,
-                                                                         models.press_choices(build), near)
+                                                                         models.press_choices(build), near, walk)
         # (MECHB29, the manager 21:40: MECH-C's orb_remnants reads it) a pressed side Orb's Orbs a second, as press_model
         # scores it: each Orb ends at its maximum hits or its duration and is recast at once (models.orbs_per_second)
         orbs = models.orbs_per_second(rates, main, pressed, paced, caps, models.press_choices(build), near)
         # (MECHC44, for conditions' on-hit charge lines: a side Orb's bolts a second, the same cycle; a round behind)
-        bolts = models.side_orbs(rates, main, pressed, paced, caps, models.press_choices(build), near)
+        bolts = models.side_orbs(rates, main, pressed, paced, caps, models.press_choices(build), near, walk)
         build.orb_bolts = (sum(b for _, b, _ in bolts.values()), "MECH-B's side-Orb cycle (models.side_orbs)") if bolts else None
         build.orb_bolt_groups = {index: b for index, (_, b, _) in bolts.items()}  # (MECHB58)
         if orbs:

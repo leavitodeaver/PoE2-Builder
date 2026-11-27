@@ -21550,7 +21550,8 @@ ORB_NEAR = "orb_near"
 
 def side_orbs(rates: list[dict], main_index: int | None, pressed: set[int],
               paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
-              choices: dict[str, float] | None = None, near: bool = True) -> dict[int, tuple[float, float, dict]]:
+              choices: dict[str, float] | None = None, near: bool = True,
+              boss: dict | None = None) -> dict[int, tuple[float, float, dict]]:
     """{group: (presses/s, bolts/s, note)} for each pressed side Orb of Storms (orb_cycle), from the same inputs as
     press_model: the main skill's casts near it are what it's left after the other presses (MECHB28)."""
     main_rate = next((r for r in rates if r["index"] == main_index), None)
@@ -21572,8 +21573,8 @@ def side_orbs(rates: list[dict], main_index: int | None, pressed: set[int],
     # (MECHB29) the other pressed Spells the player casts fire bolts too ("when you cast a Spell near the Orb")
     spells = {str(r.get("name")): press_rate(r) for r in side if r.get("spell") and not r.get("triggered")
               and not r.get("channel")}
-    return {index: orb_cycle(orb, main_rate, others, (paced or {}).get(index), (caps or {}).get(index), spells, near)
-            for index, orb in orbs.items()}
+    return {index: orb_cycle(orb, main_rate, others, (paced or {}).get(index), (caps or {}).get(index), spells, near,
+                             boss) for index, orb in orbs.items()}
 
 
 def orbs_per_second(rates: list[dict], main_index: int | None, pressed: set[int],
@@ -21591,7 +21592,8 @@ def orbs_per_second(rates: list[dict], main_index: int | None, pressed: set[int]
 
 def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
                 paced: dict[int, float] | None = None, caps: dict[int, "PressCap"] | None = None,
-                choices: dict[str, float] | None = None, near: bool = True) -> tuple[dict[str, float], list[dict]]:
+                choices: dict[str, float] | None = None, near: bool = True,
+                boss: dict | None = None) -> tuple[dict[str, float], list[dict]]:
     """Full DPS entry scales ({SkillDPS name: x}) and notes for the pressed non-main groups `pressed`, from the bridge's
     `useRates` (each group's skill as if it were the main one: its speed, capped by its cooldown as PoB does, its
     cooldown after recovery, repeats, duration and base cast time). `paced` ({group: most uses per second}): a group
@@ -21603,7 +21605,8 @@ def press_model(rates: list[dict], main_index: int | None, pressed: set[int],
     busy, users = 0.0, []
     main_rate = next((r for r in rates if r["index"] == main_index), None)
     orb_rates: dict[int, tuple[float, float]] = {}  # (MECHB28) {group: (presses/s, bolts/s)}, orb_cycle
-    for index, (presses, bolts, orb_note) in side_orbs(rates, main_index, pressed, paced, caps, choices, near).items():
+    for index, (presses, bolts, orb_note) in side_orbs(rates, main_index, pressed, paced, caps, choices, near,
+                                                       boss).items():
         orb_rates[index] = (presses, bolts)
         notes.append(orb_note)
     for rate in rates:
@@ -25515,6 +25518,15 @@ def orb_of_storms_note(main: Skill | None, stats: dict, orb: dict | None = None)
 #   d <= 2 R (rolled across it); a longer one leaves it for the roll and the way back (2 x the roll's time, MEDIUM-LOW).
 # Triggered / channelled spells still don't fire it (UNVERIFIED, unchanged).
 ORB_REACH, ORB_STAND = 5.6, 3.6  # m (radius 56 and secondary radius 36, OrbOfStormsPlayer, game 26650308)
+# (MECHB72; the manager 27 Nov 05:45 from MECHC69's A41-33, the READER RULE) The boss walking OFF the Orb's spot: an Orb
+# "fires Chaining Lightning bolts at nearby enemies", so once the boss has walked out of its 5.6 m reach it fires at no one
+# (MEDIUM) and lives out its duration before it's recast. With `boss` (the scored preset), each Orb's bolts on the boss
+# are its bolts x bosses.stay_share(5.6 m, its life) (the share of its life the boss stays in reach, bolts spread evenly)
+# and its life q x life + (1 - q) x duration (q = bosses.still_there(5.6 m, life): MECH-C's orb_stay reading, MECHC69),
+# so it's recast less often. Rows kept: the boss standing still (boss None). Not read: the boss walking back into an
+# old Orb's reach (a small undercount), the player recasting at the boss once it leaves (MECH-C's UNVERIFIED row).
+# MECH-C's orb_stay applies the same walk-off to build.orb_presses, so that rate stays the standing cycle's
+# (Assumptions.rate_presses: orbs_per_second without `boss`): never counted twice.
 
 
 def orb_stand_share(roll: dict, distance: float, moving: tuple[float, str], stand: float = ORB_STAND
@@ -25537,7 +25549,7 @@ def orb_stand_share(roll: dict, distance: float, moving: tuple[float, str], stan
 
 def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = None,
               cap: "PressCap | None" = None, spells: dict[str, float] | None = None,
-              near: bool = True) -> tuple[float, float, dict]:
+              near: bool = True, boss: dict | None = None) -> tuple[float, float, dict]:
     """A pressed side Orb of Storms' (presses/s, bolts/s, note), from its `useRates` row (orbMaxHits, orbBoltFrequency,
     duration, speed), the main skill's row (its Speed, spell / triggered / channel) and `others`, the share of the
     fight the other presses take from the main skill. Held to Cadence's `pace` and the `cap` as press_group_rate is.
@@ -25555,11 +25567,18 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
     casts = own + beside
     timer = math.floor(duration / every + 1e-9)
 
+    walked = [""]  # (MECHB73: the walk-off's reading at the standing life, for the note)
+
     def cycle(rate: float) -> tuple[float, float, float]:  # (life, bolts an Orb, presses/s)
         if rate * duration + timer <= hits:
             life, bolts = duration, rate * duration + timer
         else:
             life, bolts = min(duration, hits / (rate + 1 / every)), hits
+        if boss is not None:  # (MECHB72, ORB_WALK_OFF: the boss walking out of the Orb's reach)
+            q, q_how = bosses.still_there(boss, ORB_REACH, life)
+            walked[0] = walked[0] or q_how  # (the first cycle's: the main rate's)
+            bolts *= bosses.stay_share(boss, ORB_REACH, life)[0]
+            life = q * life + (1 - q) * duration
         return life, bolts, 1 / (life + action)
 
     life, per, presses = cycle(casts)
@@ -25572,6 +25591,12 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
                 presses, held = limit, f", held to {limit:.3g} presses/s by {why}"
             alone_presses = min(alone_presses, limit)
     bolts, without = presses * per, alone_presses * alone
+    walk = ""
+    if boss is not None:
+        q_how = walked[0]
+        walk = (f"The boss walking out of its {ORB_REACH:g} m reach (MECHB72, A41-33's bolts; MEDIUM: \"fires ... at nearby "
+                f"enemies\"): an Orb's bolts count only while the boss is in reach (bosses.stay_share), and one it walks "
+                f"off fires at no one and lives out its {duration:.2f} s before it's recast ({q_how})")
     name = main.get("name") if main else None
     besides = (f" and the other pressed Spells' {beside:.2f} casts/s ("
                + ", ".join(f"{k} {number(v):.2f}" for k, v in (spells or {}).items() if number(v) > 0) + ")"
@@ -25596,7 +25621,8 @@ def orb_cycle(orb: dict, main: dict | None, others: float, pace: float | None = 
                       "pressed Spells fire bolts only while you stand in the Orb's radius (the user's in-game test, 20 "
                       "Nov), counted at that share; a triggered or channelled side Spell isn't counted (UNVERIFIED "
                       "whether it feeds the Orb). "
-                      f"Without it / with it: {without:.2f} / {bolts:.2f} bolts a second"),
+                      f"Without it / with it: {without:.2f} / {bolts:.2f} bolts a second"
+                      + (f". {walk}" if walk else "")),
             "confidence": "MEDIUM" if casting or beside > 0 else "UNVERIFIED" if main and (
                 main.get("triggered") or main.get("channel")) else "MEDIUM"}
     return presses, bolts, note
