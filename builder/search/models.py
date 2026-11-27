@@ -1134,6 +1134,8 @@ RESUMMON_SECONDS = 7.5  # global_resummon_time_ms (PoB Misc.lua)
 EXPLOSIVE_DEMISE_COOLDOWN = 3.0  # s (PoB minion.lua:815 levels; game files)
 EXPLOSIVE_DEMISE_CAST = 1.0  # s (PoB minion.lua DestructiveLinkSkeletonBombadierMinion castTime 1; COMMANDS below)
 EXPLOSIVE_DEMISE_ID = "DestructiveLinkSkeletonBombadierMinion"
+MINIONS_UNDAMAGEABLE = "MinionsAreUndamagable"  # (MECHB72, R69-3: the skill type; the game's spelling)
+BRUTUS_BRAIN = "Brutus' Brain"  # (the one support adding it: PoB sup_str.lua addSkillTypes; R69-3)
 # "Deals additional Fire damage equal to {0}% of Minion's maximum Life" (arsonist_destructive_link_%_of_life_as_fire_damage,
 # 8 in its stat set; + 0.2 a quality point: PoB minion.lua DestructiveLinkSkeletonBombadierMinion qualityStats, the game's
 # quality table 45 (AUDIT40 A40-51): 12 at 20% quality, read from the Skeletal Arsonist gem's quality since MECHB70). PoB

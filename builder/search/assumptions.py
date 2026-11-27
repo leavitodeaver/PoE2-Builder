@@ -14660,9 +14660,24 @@ class Assumptions:
         level, quality = int(number(gem.get("level")) or 20), number(gem.get("quality"))
         pct = models.EXPLOSIVE_DEMISE_LIFE_PCT + models.EXPLOSIVE_DEMISE_LIFE_PER_QUALITY * quality
         threshold = models.demise_threshold(level)
+        # (MECHB72; RESEARCH69 R69-3 (b), HIGH for the rule) the Command can't target a minion that can't be damaged:
+        # a summon whose skill types (after its supports) hold MinionsAreUndamagable (by data: the gem's types, and
+        # Brutus' Brain, the one support adding that type, in its group; checked: PoB's Skills/*.lua addSkillTypes,
+        # one row, sup_str.lua; R69-3: the game's GrantedEffects, one) and Ravenous Swarm (untargetable swarms, patch
+        # 0.3.0; its type UNVERIFIED, so by name)
+        unhittable = set()
+        for s in found:
+            if not s.summon:
+                continue
+            group = next((g for g in build.groups() if g.get("enabled") is not False
+                          and any(x["name"] == s.name and not x.get("support") for x in g.get("gems") or [])), None)
+            if (models.MINIONS_UNDAMAGEABLE in skill_types_of(build.ctx, s.name) or s.name == models.RAVENOUS_SWARM
+                    or any(x.get("enabled", True) and x["name"] == models.BRUTUS_BRAIN
+                           for x in (group or {}).get("gems") or [])):
+                unhittable.add(s.name)
         others = [(s.name, number(lives.get(s.name))) for s in found
                   if s.summon and s.summon.get("persistent") and not number(s.summon.get("duration"))
-                  and s.name != models.ARSONIST and number(lives.get(s.name)) > 0]
+                  and s.name != models.ARSONIST and number(lives.get(s.name)) > 0 and s.name not in unhittable]
         eligible = [(n, l) for n, l in others if l <= threshold]
         bigger = [(n, l) for n, l in others if l > threshold]
         name, life = max(eligible, key=lambda x: x[1], default=("", 0.0))
@@ -14671,9 +14686,12 @@ class Assumptions:
                     (f"no minion's maximum Life at or below the {threshold:,} threshold at gem level {level}: "
                      "its Life part 0 (CLAUDE.md: no source)" if others else
                      "no other minion's Life read: its Life part not counted, an UNDERCOUNT"))
+        if unhittable - {models.ARSONIST}:
+            life_how += (f"; not a target: {', '.join(sorted(unhittable - {models.ARSONIST}))} (minions that can't be "
+                         "damaged, RESEARCH69 R69-3, HIGH)")
         if len(eligible) > 1:  # (MECHB71; RESEARCH68 R68-1: which eligible minion it picks is UNVERIFIED: the build
-            # aims at its best one, a play choice, labelled; the weakest eligible minion a row. An unhittable minion
-            # can't be picked (R68-1): no minion flag read for it here, UNVERIFIED)
+            # aims at its best one, a play choice, labelled; the weakest eligible minion a row. MECHB72: the unhittable
+            # ones are out, R69-3)
             low = min(eligible, key=lambda x: x[1])
             life_how += (f"; row, the weakest eligible minion ({low[0]}, {low[1]:,.0f} Life; which one it detonates "
                          f"among several is UNVERIFIED, R68-1): {pct:g}% of {low[1]:,.0f}")

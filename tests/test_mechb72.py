@@ -101,3 +101,47 @@ def test_the_sniper_cloud_duration_reading_steps_2_02_s_at_the_base_poison():
     fixed = models.sniper_cloud_poison(cloud, 6.03, 20.0, "fixed")[1]
     by_duration = models.sniper_cloud_poison(cloud, 6.03, 20.0, "duration")[1]
     assert fixed == pytest.approx(by_duration) == pytest.approx(3 * 2.0 / 20.0)
+
+
+class _DemiseBuild:
+    """Explosive Demise's inputs: the Arsonist (group 1), Raise Zombie with Brutus' Brain (group 2) and Skeletal
+    Warriors (group 3), each minion's Life; a 100 hit on a 50 weapon base."""
+
+    def __init__(self, brutus=True):
+        self.ctx = type("Ctx", (), {"gems": {}})()
+        self.minion_lives = {"Raise Zombie": 900.0, "Skeletal Warrior": 400.0}
+        self._groups = [
+            {"index": 1, "gems": [{"name": "Skeletal Arsonist"}], "skills": [{"name": models.ARSONIST}]},
+            {"index": 2, "gems": [{"name": "Raise Zombie"}] + ([{"name": models.BRUTUS_BRAIN, "support": True}]
+                                                              if brutus else []),
+             "skills": [{"name": "Raise Zombie"}]},
+            {"index": 3, "gems": [{"name": "Skeletal Warrior"}], "skills": [{"name": "Skeletal Warrior"}]},
+        ]
+
+    def groups(self):
+        return self._groups
+
+    def call(self, method, **kw):
+        if method == "minionSkillHit":
+            return {"AverageDamage": 100.0, "weaponMin": 10.0, "weaponMax": 10.0}
+        assert method == "getConfig"
+        return {"input": {}}
+
+
+def test_explosive_demise_never_targets_a_minion_that_can_t_be_damaged():
+    """R69-3 (b): the Command can't detonate an undamageable minion: Brutus' Brain (the one support adding
+    MinionsAreUndamagable) takes Raise Zombie out, so the eligible minion with the most Life is the Skeletal Warrior."""
+    from builder.search.assumptions import Assumptions
+
+    undead = {"limit": 8, "duration": 0, "persistent": True, "undead": True}
+    found = [models.Skill(models.ARSONIST, summon=dict(undead, limit=1)), models.Skill("Raise Zombie", summon=undead),
+             models.Skill("Skeletal Warrior", summon=undead)]
+    lives = {}
+    for brutus in (True, False):
+        a = Assumptions(_DemiseBuild(brutus))
+        a.demise.update(key=("k",), most=1.0, rate=None)
+        _, _, notes = a.explosive_demise(found, None)
+        text = " ".join(str(n.get("basis", "")) for n in notes)
+        lives[brutus] = text
+    assert "your Skeletal Warrior" in lives[True] and "not a target: Raise Zombie" in lives[True]
+    assert "your Raise Zombie" in lives[False] and "not a target" not in lives[False]
