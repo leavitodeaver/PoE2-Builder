@@ -1195,6 +1195,21 @@ def low_mana_more(raw: str, pool: str | None) -> float:
     return 1.0 + sum(float(m.group(1)) for m in LOW_MANA_MORE.finditer(raw)) / 100
 
 
+# A Life (Mana) flask can't be drunk at full Life (Mana) (MECHC68; RESEARCH67 R67-3, MEDIUM-HIGH: patch 0.5.0 treats
+# use at full Life as Enduring Elixirs' exception; the game's "Life Flask Effects are not removed when Unreserved Life is
+# Filled" shows the effect ends at full by default; FULL_DRINK). uses_per_second already held its uses to one a dip below
+# full (pool_dips) and full_pool_cap ends its effect at full; recovery_per_second did NOT: it counted every use the
+# charges paid for (an OVERCOUNT where charges outrun the dips: above all the starting stock in a short fight, example
+# build 16's 1.4 s fight, its six stock uses read as ~4 drinks a second, each with its instant 20%; that recovery fed
+# its Full Life share, 83%). Now the same cap: at most one use a dip (none when nothing takes the pool below full), so
+# the stock's flask isn't drunk at the fight's start (on full Life) and its first use waits for the first dip. A build
+# that can drink at full (Enduring Elixirs: pool_dips None, as uses_per_second) keeps every use; a flask whose own line
+# keeps its effect at full (KEPT_AT_FULL, Blood of the Warrior) is still held to the dips, as uses_per_second holds it
+# (whether that local line also allows drinking at full: UNVERIFIED; R67-3 reads it as the effect only).
+# POE2_FULL_DRINK=0 is the old reading (a probe).
+FULL_DRINK = os.environ.get("POE2_FULL_DRINK", "1") != "0"
+
+
 def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own: bool = False) -> float:
     """A Life or Mana flask's recovery per second at the rate its generated charges allow (one use
     at a time: never faster than one per duration). 0 where PoB already counts it whole (pob_counts_whole), unless
@@ -1218,6 +1233,8 @@ def recovery_per_second(info: dict, gain: Charges, pool: str, raw: str = "", own
     if total <= 0 or used <= 0 or thrown(gain, pool) or (pool == "Life" and gain.life_flask_unusable):
         return 0.0
     uses = drink_charges(info, gain, pool) / used
+    if FULL_DRINK and info.get("kind") == "Flask" and (dips := pool_dips(gain, pool)) is not None:
+        uses = min(uses, max(dips[0], 0.0))  # (MECHC68, R67-3: FULL_DRINK's note: never drunk at full, one a dip)
     length = info.get("duration") or 0
     instant = instant_share(gain, pool, raw)
     capped = min(uses, 1 / length) if length > 0 else uses

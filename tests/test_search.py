@@ -763,8 +763,12 @@ def test_flask_effects_count_only_while_generated_charges_keep_them_up():
 
 
 def test_flask_recovery_counts_toward_sustain_at_the_rate_charges_allow():
-    from builder.search.flasks import RECOVERY_FIELDS, Charges, recovery_per_second
+    from builder.search.flasks import RECOVERY_FIELDS, recovery_per_second
+    from builder.search.flasks import Charges as _Charges
     from builder.search.objective import sustain
+
+    def Charges(**kw):  # (MECHC68, R67-3: a landed hit and a Mana spend a second: dips below full, so it is drunk)
+        return _Charges(**{"taken_hit": 100.0, "boss_hits": 1.0, "mana_cost": 10.0, "main_rate": 1.0, **kw})
 
     mana = {"kind": "Flask", "duration": 3, "chargesUsed": 10, "manaTotal": 300}
     assert recovery_per_second(mana, Charges(), "Mana") == 0.0

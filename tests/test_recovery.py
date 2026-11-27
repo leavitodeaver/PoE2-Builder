@@ -275,7 +275,8 @@ def test_indigon_stops_mana_flask_recovery():
 
     from builder.search.flasks import Charges, recovery_per_second
 
-    gain = Charges(mana_flask=2.0, life_flask=2.0)
+    # (MECHC68, R67-3: a flask is drunk only after a dip below full, so the boss hits and a Mana cost give it dips)
+    gain = Charges(mana_flask=2.0, life_flask=2.0, taken_hit=100.0, boss_hits=1.0, mana_cost=10.0, main_rate=2.0)
     mana = {"kind": "Flask", "manaTotal": 300, "chargesUsed": 10, "duration": 3}
     life = {"kind": "Flask", "lifeTotal": 300, "chargesUsed": 10, "duration": 3}
     assert recovery_per_second(mana, gain, "Mana") > 0
@@ -786,7 +787,7 @@ def test_life_flask_recovery_applies_to_energy_shield():
     from builder.search.flasks import Charges, es_recovery_per_second, recovery_per_second
 
     life = {"kind": "Flask", "lifeTotal": 300, "chargesUsed": 10, "duration": 3}
-    gain = Charges(flask=1)
+    gain = Charges(flask=1, taken_hit=100.0, boss_hits=1.0, mana_cost=10.0, main_rate=1.0)  # (MECHC68, R67-3: dips below full, so the flask is drunk)
     assert recovery_per_second(life, gain, "Life") == pytest.approx(30.0)
     assert es_recovery_per_second(life, gain) == 0.0  # no line
     shield = replace(gain, life_flask_to_es=True, es_recovery_mod=1.5)
@@ -885,8 +886,10 @@ def test_a_kept_at_full_flask_pob_counts_whole_adds_no_flask_recovery_of_ours():
     life = {"kind": "Flask", "chargesUsed": 10, "duration": 3, "lifeTotal": 920}
     mana = {"kind": "Flask", "chargesUsed": 10, "duration": 3, "manaTotal": 310}
     kept_mana = "Melting Maelstrom\nUltimate Mana Flask\nEffect is not removed when Unreserved Mana is Filled"
-    whole, part = Charges(flask=4.0), Charges(flask=1.0)  # 0.4 uses/s x 3 s: up whole; 0.1 x 3 s: 30%
-    elixirs, elixirs_part = Charges(flask=4.0, life_effect_kept=True), Charges(flask=1.0, life_effect_kept=True)
+    # (MECHC68, R67-3: a landed hit and a Mana spend a second, so the flasks are drunk after dips below full)
+    whole, part = Charges(flask=4.0, taken_hit=100.0, boss_hits=1.0, mana_cost=10.0, main_rate=1.0), Charges(flask=1.0, taken_hit=100.0, boss_hits=1.0, mana_cost=10.0, main_rate=1.0)  # 0.4 uses/s x 3 s: up whole; 0.1 x 3 s: 30%
+    elixirs, elixirs_part = (Charges(flask=4.0, life_effect_kept=True, taken_hit=100.0, boss_hits=1.0, mana_cost=10.0, main_rate=1.0),
+                             Charges(flask=1.0, life_effect_kept=True, taken_hit=100.0, boss_hits=1.0, mana_cost=10.0, main_rate=1.0))
     assert recovery_per_second(life, whole, "Life") == pytest.approx(920 / 3)  # no kept line: ours alone
     assert pob_counts_whole(life, elixirs, "Life") and recovery_per_second(life, elixirs, "Life") == 0.0
     assert recovery_per_second(life, elixirs, "Life", own=True) == pytest.approx(920 / 3)

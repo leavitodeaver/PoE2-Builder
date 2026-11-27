@@ -1,4 +1,6 @@
 """MECHC68's tests (MECH-C): the boss walking out of the twisters' roam space (MECHD9's reader rule)."""
+import math
+
 import pytest
 
 from builder.search import bosses, recovery
@@ -32,3 +34,26 @@ def test_twisters_extra_hits_count_only_while_the_boss_stays_in_their_roam_space
         1 + (recovery.twister_hits(longer, 0.4)[0] - 1) * s6)
     # one hit a cast stays one hit (nothing to lose)
     assert recovery.twister_hits({"ProjectileCount": 1, "Duration": 0.5}, 0.4, {"_boss": "Arbiter of Ash"})[0] == 1.0
+
+
+def test_a_life_flask_is_drunk_at_most_once_a_dip_below_full_life():
+    """MECHC68 (RESEARCH67 R67-3, MEDIUM-HIGH: a Life flask can't be drunk at Full Life by default): recovery_per_second
+    counts at most one use a dip below full (pool_dips), as uses_per_second does; nothing taking Life off: never drunk,
+    no recovery; the starting stock of a short fight no longer reads as several drinks a second."""
+    from dataclasses import replace
+
+    from builder.search import flasks
+
+    life = {"kind": "Flask", "lifeTotal": 1000, "chargesUsed": 10, "chargesMax": 60, "duration": 3}
+    # a 1.4 s fight's stock (6 uses: 4.3 a second) against 1.2 landed hits a second
+    gain = replace(flasks.Charges(), fight=1.4, taken_hit=1000.0, boss_hits=1.2)
+    capped = flasks.recovery_per_second(life, gain, "Life", "20% of Recovery applied Instantly")
+    uses = 6 / 1.4
+    old = 1000 * (0.2 * uses + 0.8 * min(uses, 1 / 3))
+    assert capped == pytest.approx(1000 * (0.2 * 1.2 + 0.8 * min(1.2, 1 / 3)))
+    assert capped < old
+    # nothing takes Life off: never drunk
+    assert flasks.recovery_per_second(life, replace(gain, taken_hit=0.0), "Life") == 0.0
+    # Enduring Elixirs (drinkable at full): every use the charges pay for
+    kept = replace(gain, life_effect_kept=True)
+    assert flasks.recovery_per_second(life, kept, "Life", "20% of Recovery applied Instantly", own=True) == pytest.approx(old)
