@@ -2031,8 +2031,9 @@ def sniper_gas_arrow(build: Build, main: models.Skill | None, explode) -> tuple[
             full = bool(getattr(getattr(build, "objective", None), "full", False))
             counted = sniper_main or (full and group.get("fullDPS"))
             player = 0.0 if minion_main else per_second(build.call("stats", fields=HUNT_FIELDS))
+            own = 0.0 if minion_main else number(build.call("stats", fields=["PoisonDPS"]).get("PoisonDPS"))
             return models.sniper_gas_arrow_model(impact, cloud, blast, share, how, no_trigger, inc, player,
-                                                 number(impact.get("baseDPS")) if counted else 0.0)
+                                                 number(impact.get("baseDPS")) if counted else 0.0, own)
     return 0.0, [], []
 
 
@@ -14339,6 +14340,12 @@ class Assumptions:
                     (f"no minion's maximum Life at or below the {threshold:,} threshold at gem level {level}: "
                      "its Life part 0 (CLAUDE.md: no source)" if others else
                      "no other minion's Life read: its Life part not counted, an UNDERCOUNT"))
+        if len(eligible) > 1:  # (MECHB71; RESEARCH68 R68-1: which eligible minion it picks is UNVERIFIED: the build
+            # aims at its best one, a play choice, labelled; the weakest eligible minion a row. An unhittable minion
+            # can't be picked (R68-1): no minion flag read for it here, UNVERIFIED)
+            low = min(eligible, key=lambda x: x[1])
+            life_how += (f"; row, the weakest eligible minion ({low[0]}, {low[1]:,.0f} Life; which one it detonates "
+                         f"among several is UNVERIFIED, R68-1): {pct:g}% of {low[1]:,.0f}")
         if bigger:
             top = max(bigger, key=lambda x: x[1])
             life_how += (f"; row, {top[0]} ({top[1]:,.0f} Life) once damaged below the threshold by your own sources "

@@ -9060,7 +9060,9 @@ def falling_thunder_model(main: Skill | None, scored: str | None, sets: list[dic
 # reached (MEDIUM-LOW), one row. A melee skill with no projectile gains none (MEDIUM-LOW, UNVERIFIED): nothing defines what
 # such a projectile would deal. (MECHB69; AUDIT39 A39-57, the other reading as a labelled row, CLAUDE.md) if the line
 # makes such a skill fire N projectiles dealing its own hit, they fire together, so one reaches a lone boss (the group
-# rule): x2 on that skill's hits (LOW, UNVERIFIED; no source either way: a RESEARCH question).
+# rule): x2 on that skill's hits (LOW). RESEARCH68 R68-3 (MECHB71): a melee skill with NO projectile of its own most
+# likely fires none (the line only adds to a projectile count those skills don't define): the headline stays none
+# (MEDIUM), the x2 row labelled "R68-3: no projectile defined, nothing behind it".
 MELEE_PROJECTILES = re.compile(r"^Melee Attacks fire (an|\d+) additional Projectiles?$", re.I)
 MELEE_PROJECTILE_PARTS = ("Staggering Palm", "Shred", "Ancestral Cry")
 FALLING_THUNDER_PER_CHARGE = 3
@@ -9080,11 +9082,11 @@ def melee_projectiles_note(main: Skill | None, texts: list[str], sets: list[dict
     label = f"Melee Attacks fire {extra} additional Projectile(s)*"
     if main.name != FALLING_THUNDER:
         return [{"label": label, "value": "x1.000", "confidence": "LOW",
-                 "basis": f"{main.name} has no projectile of its own to add to: none gained (MEDIUM-LOW, UNVERIFIED, "
-                          f"R56-1: nothing defines what such a projectile would deal). Row, the other reading (AUDIT39 "
-                          f"A39-57; LOW, UNVERIFIED): the attack fires {extra} projectile(s) dealing its own hit, fired "
-                          f"together so one reaches a lone boss (KeywordPopups 74's group rule): x2.000 on its hits."
-                          f"{other}"}]
+                 "basis": f"{main.name} has no projectile of its own to add to: none gained (MEDIUM, R56-1 / R68-3: "
+                          f"the line only adds to a projectile count such a skill doesn't define). Row, the other reading "
+                          f"(AUDIT39 A39-57; R68-3: no projectile defined, nothing behind it): the attack fires {extra} "
+                          f"projectile(s) dealing its own hit, fired together so one reaches a lone boss (KeywordPopups "
+                          f"74's group rule): x2.000 on its hits.{other}"}]
     if charges <= 0:
         return [{"label": label, "value": "x1.000", "confidence": "MEDIUM",
                  "basis": f"Falling Thunder fires projectiles only by consuming a Power Charge, and this build's uses "
@@ -14535,13 +14537,14 @@ def cloud_reading_row(cloud: dict, alive: float, every: float) -> str:
 
 
 def sniper_gas_arrow_model(impact: dict, cloud: dict, blast: dict, explode: float, explode_how: str, no_trigger: bool,
-                           duration_inc: float, player_dps: float, sniper_dps: float
+                           duration_inc: float, player_dps: float, sniper_dps: float, own_poison: float = 0.0
                            ) -> tuple[float, list[dict], list[dict]]:
     """(added DPS, mods, notes) for the Skeletal Sniper's Gas Arrow Command (see above). `impact` / `cloud` / `blast`:
     the bridge's minionSkillHit for its sets 1 / 2 / 3; `explode` (how): the share of clouds an Ignited boss or a
     Detonator sets off; `no_trigger`: its group holds ground_effects_cannot_trigger; `duration_inc`: its supports'
     ground_effect_duration_+%; `player_dps`: the main skill's DPS a press costs time from (0 for a minion main);
-    `sniper_dps`: the Sniper's own counted DPS (0 when the score doesn't count it)."""
+    `sniper_dps`: the Sniper's own counted DPS (0 when the score doesn't count it); `own_poison`: your own Poison DPS on
+    the boss (PoB's PoisonDPS of the main skill: the R68-7 shared-limit row)."""
     label = "Gas Arrow (the Skeletal Sniper's Command, added to the boss DPS)"
     hit = number(impact.get("AverageDamage")) or number(impact.get("AverageHit"))
     if hit <= 0 and number(cloud.get("PoisonDPS")) <= 0:
@@ -14568,6 +14571,12 @@ def sniper_gas_arrow_model(impact: dict, cloud: dict, blast: dict, explode: floa
         other = max(total(open_share)[0] - lost, 0.0)
         row = (f"; without Persistent Ground's protection {open_share:.0%} of clouds would explode ({explode_how}): "
                f"{other:,.1f} DPS")
+    if own_poison > 0 and poison > 0:  # (MECHB71; RESEARCH68 R68-7: Poisons from two sources share one limit)
+        limit = number(cloud.get("PoisonStacksMax")) or 1.0
+        shared = max(gross - poison + (held * max(0.0, one - own_poison) if limit <= 1 else poison) - lost, 0.0)
+        row += (f"; if a minion's Poison counted against YOUR Poison limit (UNVERIFIED, a RESEARCH question; the headline "
+                f"reads the Sniper's Poisons as its own, under its own limit {limit:g}), at a limit of one only the "
+                f"stronger of the cloud's Poison and your own {own_poison:,.1f} would act (R68-7): {shared:,.1f} DPS")
     basis = (f"one arrow a Command press (KeywordPopups Command: one minion carries it out), every {every:.3g} s (PoB's "
              f"minion cooldown, the Command's {SNIPER_COMMAND_CAST:g} s cast the floor: a press under the button cap): "
              f"the Impact hit {hit:,.0f} = {hit / every:,.1f} DPS; the cloud's Poison {poison:,.1f} DPS (one Poison "
@@ -23829,6 +23838,17 @@ def boss_moves(stats: dict | None, reach: float = 0.0) -> tuple[float, float, st
     off cooldown), how)."""
     rate, metres, how = bosses.relocations(stats, "headline", gain=True)
     top, top_metres, _ = bosses.relocations(stats, "skills", gain=True)
+    name = bosses.of(stats).name
+    if name != bosses.WORST and name not in bosses.RELOCATE_VIDEO and top > 0:
+        # (MECHB71; AUDIT41 A41-10, the manager 26 Nov 18:44: a named boss with no video tally reads 0 moves in
+        # relocations, though its skills show it moves; on a GAIN side that 0 is "no data", never "never moves") the
+        # fewest moves among the tallied presets (the worst case's gain reading), at most its own skills' upper bound,
+        # each move its own skills' length (LOW, labelled); rows: the upper bound (the note's), 0
+        low, _, low_how = bosses.relocations({"_boss": bosses.WORST}, "headline", gain=True)
+        rate, metres = min(low, top), top_metres
+        how = (f"no video tally of {name}'s moves (its skills show it moves: A41-10), so the fewest among the tallied "
+               f"presets, at most its own moves off cooldown ({rate * 60:.1f} a minute, {metres:.1f} m each; LOW, a "
+               f"labelled fallback: {low_how}); rows: its own moves off cooldown {top * 60:.1f} a minute, none 0")
     if metres < reach:
         how += f" (each {metres:.1f} m, short of the {reach:.2f} m out of the ring: not counted)"
         rate = 0.0
