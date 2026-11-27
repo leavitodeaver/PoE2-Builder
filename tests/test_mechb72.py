@@ -64,3 +64,31 @@ def test_mana_cap_row_reads_the_phases_and_shows_its_rows():
     one, row = models.mana_cap_row({"Mana": (390.0, "regen", 1000.0)}, "Spark", [], True, {"Mana": 2000.0},
                                    (0.25, "a 4 s fight"), (1.0,), None, {"Mana": 100.0})
     assert one == pytest.approx(models.cost_pace(390.0, 1000.0, 2100.0, 0.25)) and "regeneration alone" in row["basis"]
+
+
+def test_a_pressed_group_whose_selected_skill_is_triggered_is_rated_by_its_untriggered_skill():
+    """AUDIT41 A41-39: the search can select a group's triggered skill (Doom Blast beside Despair + Impending Doom);
+    the press is charged for the skill the player uses, so the group is rated by its next untriggered active skill,
+    and a group with none is dropped from the presses."""
+    from builder.search.assumptions import untriggered_presses
+
+    names = {(2, 1): ("Doom Blast", True), (2, 2): ("Despair", False), (3, 1): ("Lightning Bolt", True),
+             (3, 2): ("Lightning Bolt", True), (1, 1): ("Spark", False)}
+    calls = []
+
+    def call(method, indices, actives):
+        calls.append(list(actives))
+        return {"rates": [{"index": i, "name": names[(i, a)][0], "triggered": names[(i, a)][1]}
+                          for i, a in zip(indices, actives)]}
+
+    by_index = {1: {"skills": [{}]}, 2: {"skills": [{}, {}], "mainActiveSkill": 1},
+                3: {"skills": [{}, {}], "mainActiveSkill": 1}}
+    indices, actives = [1, 2, 3], [1, 1, 1]
+    rates = call("useRates", indices, actives)["rates"]
+    rates, actives, swapped, dropped = untriggered_presses(call, rates, actives, indices, by_index, 1)
+    assert swapped == {2: 2} and dropped == {3}
+    assert [r["name"] for r in rates] == ["Spark", "Despair"] and actives == [1, 2, 1]
+    # nothing triggered: no call, nothing changed
+    calls.clear()
+    plain = [{"index": 1, "name": "Spark"}, {"index": 2, "name": "Despair"}]
+    assert untriggered_presses(call, plain, [1, 2], [1, 2], by_index, 1) == (plain, [1, 2], {}, set()) and not calls

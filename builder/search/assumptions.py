@@ -1784,6 +1784,43 @@ def pressed_group(group: dict, gems: dict[str, dict], granted: dict[str, dict] |
     return any(presses(g) for g in active)
 
 
+def untriggered_presses(call, rates: list[dict], actives: list[int], indices: list[int], by_index: dict,
+                        main: int | None) -> tuple[list[dict], list[int], dict[int, int], set[int]]:
+    """(MECHB72; AUDIT41 A41-39, Assumptions.rate_presses) (rates, actives, {group: the active skill now rated},
+    {groups dropped}): a pressed side group whose rated skill comes back TRIGGERED (useRates' flag) is rated by its next
+    active skill useRates finds not triggered, tried in the group's order, one useRates call a round; with none, the
+    group is dropped (nothing in it is pressed; PoB's rate kept for its triggered damage)."""
+    still = {r["index"]: [actives[indices.index(r["index"])]] for r in rates
+             if r.get("triggered") and r["index"] != main and r["index"] in indices}
+    swapped, dropped = {}, set()
+    while still:
+        trying = {}
+        for index, tried in still.items():
+            count = len((by_index.get(index) or {}).get("skills") or [])
+            pick = next((i for i in range(1, count + 1) if i not in tried), None)
+            if pick is None:
+                dropped.add(index)
+            else:
+                trying[index] = pick
+        still = {i: t for i, t in still.items() if i in trying}
+        if not trying:
+            break
+        actives = [trying.get(i, a) for a, i in zip(actives, indices)]
+        rates = call("useRates", indices=indices, actives=actives)["rates"]
+        for r in rates:
+            if r["index"] in trying:
+                if r.get("triggered"):
+                    still[r["index"]].append(trying[r["index"]])
+                else:
+                    swapped[r["index"]] = trying[r["index"]]
+                    still.pop(r["index"], None)
+    if dropped:
+        actives = [((by_index.get(i) or {}).get("mainActiveSkill") or 1) if i in dropped else a
+                   for a, i in zip(actives, indices)]
+        rates = [r for r in rates if r["index"] not in dropped]
+    return rates, actives, swapped, dropped
+
+
 def minion_lives(build: Build, found: list[models.Skill], rows: dict | None = None) -> dict[str, float]:
     """{Reviving minion skill: its minion's maximum Life} when a skill in the build has Minion Pact (models.pact_uses_per_kill;
     PoB calculates a minion's Life only as the main skill, so the bridge's useRates sets each minion group as main).
@@ -7065,6 +7102,15 @@ class Assumptions:
             rates = build.call("useRates", indices=indices,
                                **({"actives": actives} if any(a != (by_index.get(i) or {}).get("mainActiveSkill", 1)
                                                              for a, i in zip(actives, indices)) else {}))["rates"]
+        # (MECHB72; AUDIT41 A41-39, an UNDERCOUNT) the same where the group's OWN selected skill is triggered (the
+        # search's skill choice can select the damaging skill, Doom Blast in a Despair + Impending Doom group): the
+        # press is charged for the skill the player uses, so such a group is rated by its next active skill that
+        # useRates finds NOT triggered (its triggered flag, by data; tried in the group's order, one useRates call a
+        # round): the trigger's source (a curse: the curse exclusion below then takes it out) or another skill; with
+        # none, nothing in it is pressed and it isn't charged (PoB's rate kept for its triggered damage).
+        rates, actives, swapped, dropped = untriggered_presses(build.call, rates, actives, indices, by_index, main)
+        pressed -= dropped
+        self.triggered_selected = {"swapped": swapped, "dropped": sorted(dropped)}  # (MECHB72: the probe's / tests')
         for r in rates:  # (MECHB47: a Warcry's PoB Speed counts the action speed twice, so press_use_rate's ceiling for
             # it is its castRate, 1 / WarcryCastTime: probe POE2T4710)
             if "Warcry" in skill_types_of(build.ctx, str(r.get("name"))):  # (SEARCH40: skill_types)
