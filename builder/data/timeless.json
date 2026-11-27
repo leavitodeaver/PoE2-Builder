@@ -1,0 +1,959 @@
+{
+ "source": "game tables timeless-26744644 (TIMELESS1; tools/build_timeless.py)",
+ "jewels": {
+  "6": {
+   "name": "Heroic Tragedy",
+   "conqueror": "kalguur",
+   "version": 6,
+   "seed": [
+    100,
+    8000
+   ],
+   "small_attribute_replaced": false,
+   "small_normal_replaced": false,
+   "notable_replacement_weight": 100,
+   "additions": {
+    "small_attribute": [
+     0,
+     0
+    ],
+    "small_normal": [
+     0,
+     0
+    ],
+    "notable": [
+     0,
+     0
+    ]
+   },
+   "keystones": {
+    "1": {
+     "id": "kalguur_keystone_1",
+     "name": "Black Scythe Training"
+    },
+    "2": {
+     "id": "kalguur_keystone_2",
+     "name": "Circular Teachings"
+    },
+    "3": {
+     "id": "kalguur_keystone_3",
+     "name": "Knightly Tenets"
+    }
+   },
+   "notables": [
+    {
+     "id": "kalguur_notable1",
+     "name": "Scorched Earth",
+     "weight": 1000,
+     "stats": {
+      "fire_damage_+%": 40,
+      "base_intelligence": 15
+     }
+    },
+    {
+     "id": "kalguur_notable2",
+     "name": "War Tactics",
+     "weight": 1000,
+     "stats": {
+      "physical_damage_+%": 40,
+      "mana_regeneration_rate_+%": 20
+     }
+    },
+    {
+     "id": "kalguur_notable3",
+     "name": "Kalguuran Forged",
+     "weight": 250,
+     "stats": {
+      "base_maximum_fire_damage_resistance_%": 2,
+      "base_self_freeze_duration_-%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable4",
+     "name": "Born of Middengard",
+     "weight": 1000,
+     "stats": {
+      "physical_damage_reduction_rating_+%": 40,
+      "base_cold_damage_resistance_%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable5",
+     "name": "Force of Will",
+     "weight": 500,
+     "stats": {
+      "hit_damage_stun_multiplier_+%": 30,
+      "maximum_mana_+%": 2
+     }
+    },
+    {
+     "id": "kalguur_notable6",
+     "name": "Runic Flows",
+     "weight": 500,
+     "stats": {
+      "life_regeneration_rate_per_minute_%": 90,
+      "base_curse_duration_+%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable7",
+     "name": "Siege Mentality",
+     "weight": 500,
+     "stats": {
+      "armour_break_amount_+%": 40,
+      "energy_shield_delay_-%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable8",
+     "name": "Rune Knight",
+     "weight": 500,
+     "stats": {
+      "melee_damage_+%": 40,
+      "base_spell_critical_strike_multiplier_+": 15
+     }
+    },
+    {
+     "id": "kalguur_notable9",
+     "name": "Fiery Leadership",
+     "weight": 500,
+     "stats": {
+      "ignite_chance_+%": 40,
+      "minion_elemental_resistance_%": 15
+     }
+    },
+    {
+     "id": "kalguur_notable10",
+     "name": "Druidic Alliance",
+     "weight": 500,
+     "stats": {
+      "totem_damage_+%": 40,
+      "base_chaos_damage_resistance_%": 7
+     }
+    },
+    {
+     "id": "kalguur_notable11",
+     "name": "Steel and Sorcery",
+     "weight": 500,
+     "stats": {
+      "base_bleeding_effect_+%": 20,
+      "arcane_surge_effect_on_self_+%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable12",
+     "name": "Triskelion's Light",
+     "weight": 500,
+     "stats": {
+      "empowered_attack_damage_+%": 50,
+      "lightning_exposure_effect_+%": 10,
+      "cold_exposure_effect_+%": 10,
+      "fire_exposure_effect_+%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable13",
+     "name": "Stormtossed Voyager",
+     "weight": 250,
+     "stats": {
+      "base_maximum_lightning_damage_resistance_%": 2,
+      "base_self_ignite_duration_-%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable14",
+     "name": "Wrest Control",
+     "weight": 1000,
+     "stats": {
+      "lightning_damage_+%": 40,
+      "base_strength": 15
+     }
+    },
+    {
+     "id": "kalguur_notable15",
+     "name": "Firedancer",
+     "weight": 1000,
+     "stats": {
+      "evasion_rating_+%": 40,
+      "base_fire_damage_resistance_%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable16",
+     "name": "Mercenary's Lot",
+     "weight": 500,
+     "stats": {
+      "attack_speed_+%": 10,
+      "stun_threshold_+%": 15
+     }
+    },
+    {
+     "id": "kalguur_notable17",
+     "name": "Vorana's Fury",
+     "weight": 500,
+     "stats": {
+      "projectile_damage_+%": 40,
+      "gain_x_rage_on_melee_hit": 1
+     }
+    },
+    {
+     "id": "kalguur_notable18",
+     "name": "Sensible Precautions",
+     "weight": 500,
+     "stats": {
+      "flask_life_to_recover_+%": 40,
+      "block_chance_+%": 6
+     }
+    },
+    {
+     "id": "kalguur_notable19",
+     "name": "Aim for the Jugular",
+     "weight": 500,
+     "stats": {
+      "accuracy_rating_+%": 30,
+      "base_bleeding_effect_+%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable20",
+     "name": "Survival Plan",
+     "weight": 500,
+     "stats": {
+      "flask_mana_to_recover_+%": 40,
+      "maximum_life_+%": 2
+     }
+    },
+    {
+     "id": "kalguur_notable21",
+     "name": "War of Attrition",
+     "weight": 500,
+     "stats": {
+      "base_poison_effect_+%": 20,
+      "base_life_leech_amount_+%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable22",
+     "name": "Guerilla Warfare",
+     "weight": 500,
+     "stats": {
+      "shock_chance_+%": 40,
+      "totem_life_+%": 15
+     }
+    },
+    {
+     "id": "kalguur_notable23",
+     "name": "One for the Road",
+     "weight": 500,
+     "stats": {
+      "flask_duration_+%": 30,
+      "warcry_cooldown_speed_+%": 15
+     }
+    },
+    {
+     "id": "kalguur_notable24",
+     "name": "Targeted Strike",
+     "weight": 500,
+     "stats": {
+      "mark_effect_+%": 20,
+      "skill_effect_duration_+%": 8
+     }
+    },
+    {
+     "id": "kalguur_notable25",
+     "name": "Steel Bastion",
+     "weight": 500,
+     "stats": {
+      "elemental_damage_+%": 40,
+      "shield_armour_evasion_energy_shield_+%": 20
+     }
+    },
+    {
+     "id": "kalguur_notable26",
+     "name": "Forceful Energies",
+     "weight": 500,
+     "stats": {
+      "base_cast_speed_+%": 10,
+      "base_chance_to_pierce_%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable27",
+     "name": "Winter Forest",
+     "weight": 1000,
+     "stats": {
+      "cold_damage_+%": 40,
+      "base_dexterity": 15
+     }
+    },
+    {
+     "id": "kalguur_notable28",
+     "name": "Fight as One",
+     "weight": 500,
+     "stats": {
+      "minion_damage_+%": 40,
+      "accuracy_rating_+%": 8
+     }
+    },
+    {
+     "id": "kalguur_notable29",
+     "name": "Summer Meadows",
+     "weight": 500,
+     "stats": {
+      "minion_maximum_life_+%": 30,
+      "evasion_rating_+%": 15
+     }
+    },
+    {
+     "id": "kalguur_notable30",
+     "name": "Druidic Training",
+     "weight": 500,
+     "stats": {
+      "spell_damage_+%": 40,
+      "charges_gained_+%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable31",
+     "name": "Corrupted Vision",
+     "weight": 500,
+     "stats": {
+      "spell_critical_strike_chance_+%": 30,
+      "global_chance_to_blind_on_hit_%": 5
+     }
+    },
+    {
+     "id": "kalguur_notable32",
+     "name": "Runic Tattoos",
+     "weight": 500,
+     "stats": {
+      "mana_regeneration_rate_+%": 30,
+      "ailment_threshold_+%": 15
+     }
+    },
+    {
+     "id": "kalguur_notable33",
+     "name": "Furs and Leather",
+     "weight": 250,
+     "stats": {
+      "base_maximum_cold_damage_resistance_%": 2,
+      "base_self_shock_duration_-%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable34",
+     "name": "Sudden Hail",
+     "weight": 500,
+     "stats": {
+      "hit_damage_freeze_multiplier_+%": 30,
+      "base_projectile_speed_+%": 8
+     }
+    },
+    {
+     "id": "kalguur_notable35",
+     "name": "Natural Energies",
+     "weight": 1000,
+     "stats": {
+      "maximum_energy_shield_+%": 40,
+      "base_lightning_damage_resistance_%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable36",
+     "name": "Oaken Form",
+     "weight": 500,
+     "stats": {
+      "damage_taken_goes_to_life_over_4_seconds_%": 10,
+      "charm_duration_+%": 10
+     }
+    },
+    {
+     "id": "kalguur_notable37",
+     "name": "Spider's Lesson",
+     "weight": 500,
+     "stats": {
+      "chaos_damage_+%": 37,
+      "projectile_chance_to_chain_1_extra_time_from_terrain_%": 6
+     }
+    }
+   ],
+   "small": [],
+   "attribute_additions": []
+  },
+  "7": {
+   "name": "Undying Hate",
+   "conqueror": "abyss",
+   "version": 7,
+   "seed": [
+    79,
+    30977
+   ],
+   "small_attribute_replaced": false,
+   "small_normal_replaced": true,
+   "notable_replacement_weight": 100,
+   "additions": {
+    "small_attribute": [
+     1,
+     1
+    ],
+    "small_normal": [
+     0,
+     0
+    ],
+    "notable": [
+     0,
+     0
+    ]
+   },
+   "keystones": {
+    "1": {
+     "id": "abyss_keystone_1",
+     "name": "Sacrifice of Flesh"
+    },
+    "2": {
+     "id": "abyss_keystone_2",
+     "name": "Sacrifice of Loyalty"
+    },
+    "3": {
+     "id": "abyss_keystone_3",
+     "name": "Sacrifice of Mind"
+    },
+    "4": {
+     "id": "abyss_keystone_4",
+     "name": "Sacrifice of Blood"
+    },
+    "5": {
+     "id": "abyss_keystone_5",
+     "name": "Sacrifice of Sight"
+    }
+   },
+   "notables": [
+    {
+     "id": "abyss_notable_1",
+     "name": "Disciple of Darkness",
+     "weight": 100,
+     "stats": {
+      "tribute_+%": 20
+     }
+    },
+    {
+     "id": "abyss_notable_2",
+     "name": "Creature of Death",
+     "weight": 100,
+     "stats": {
+      "damage_taken_goes_to_life_over_4_seconds_%_per_10_tribute": 1,
+      "recover_%_maximum_life_on_kill_per_50_tribute": 1
+     }
+    },
+    {
+     "id": "abyss_notable_3",
+     "name": "Creature of Magic",
+     "weight": 100,
+     "stats": {
+      "damage_taken_goes_to_mana_%_per_10_tribute": 1,
+      "recover_%_maximum_mana_on_kill_per_50_tribute": 1
+     }
+    },
+    {
+     "id": "abyss_notable_4",
+     "name": "Quickened Corpses",
+     "weight": 100,
+     "stats": {
+      "minion_damage_+%_per_10_tribute": 1,
+      "minion_attack_and_cast_speed_+%_per_50_tribute": 3
+     }
+    },
+    {
+     "id": "abyss_notable_5",
+     "name": "Ambivalent Command",
+     "weight": 100,
+     "stats": {
+      "minions_lose_%_life_when_following_commands_per_10_tribute": 2,
+      "minion_cooldown_recovery_+%_per_10_tribute": 4
+     }
+    },
+    {
+     "id": "abyss_notable_6",
+     "name": "Boneshedder",
+     "weight": 100,
+     "stats": {
+      "chance_to_fork_extra_projectile_%_per_10_tribute": 10
+     }
+    },
+    {
+     "id": "abyss_notable_7",
+     "name": "Unfiltered Brutality",
+     "weight": 100,
+     "stats": {
+      "base_damage_taken_+%_per_10_tribute": 1,
+      "attack_damage_+%_per_10_tribute": 8
+     }
+    },
+    {
+     "id": "abyss_notable_8",
+     "name": "Derogatory Gaze",
+     "weight": 100,
+     "stats": {
+      "attack_critical_strike_chance_+%_per_10_tribute": 5,
+      "accuracy_rating_+%_per_25_tribute": -3
+     }
+    },
+    {
+     "id": "abyss_notable_9",
+     "name": "Abyssal Conduit",
+     "weight": 100,
+     "stats": {
+      "base_mana_cost_efficiency_+%_per_10_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_10",
+     "name": "Expedited Horrors",
+     "weight": 100,
+     "stats": {
+      "curse_duration_+%_per_10_tribute": 3,
+      "curse_delay_+%_per_20_tribute": -3
+     }
+    },
+    {
+     "id": "abyss_notable_11",
+     "name": "Confined Exaltation",
+     "weight": 100,
+     "stats": {
+      "presence_area_+%_per_10_tribute": -2,
+      "base_spirit_reservation_efficiency_+%_per_20_tribute": 1
+     }
+    },
+    {
+     "id": "abyss_notable_12",
+     "name": "Arcane Ascension",
+     "weight": 100,
+     "stats": {
+      "maximum_life_%_to_convert_to_maximum_energy_shield_per_20_tribute": 1
+     }
+    },
+    {
+     "id": "abyss_notable_13",
+     "name": "Ravenous Mind",
+     "weight": 100,
+     "stats": {
+      "mana_recovery_rate_+%_per_10_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_14",
+     "name": "Gluttonous Presence",
+     "weight": 100,
+     "stats": {
+      "life_recovery_rate_+%_per_10_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_15",
+     "name": "Unrestrained Intellect",
+     "weight": 100,
+     "stats": {
+      "base_cooldown_speed_+%_per_10_tribute": 1,
+      "base_intelligence_per_25_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_16",
+     "name": "Cruel Strength",
+     "weight": 100,
+     "stats": {
+      "hit_damage_stun_multiplier_+%_per_10_tribute": 2,
+      "base_strength_per_25_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_17",
+     "name": "Opportunistic Dexterity",
+     "weight": 100,
+     "stats": {
+      "parry_skill_effect_duration_+%_per_10_tribute": 2,
+      "base_dexterity_per_25_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_18",
+     "name": "Unreal Potential",
+     "weight": 100,
+     "stats": {
+      "chance_to_gain_1_more_charge_%_per_10_tribute": 1
+     }
+    },
+    {
+     "id": "abyss_notable_19",
+     "name": "I Have Darkvision",
+     "weight": 100,
+     "stats": {
+      "light_radius_+%_per_10_tribute": -2,
+      "accuracy_rating_+%_per_10_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_20",
+     "name": "Domineering Commands",
+     "weight": 100,
+     "stats": {
+      "empowered_attack_damage_+%_per_10_tribute": 2,
+      "warcry_speed_+%_per_25_tribute": 4
+     }
+    },
+    {
+     "id": "abyss_notable_21",
+     "name": "Worthy Tithes",
+     "weight": 100,
+     "stats": {
+      "remnant_effect_+%_per_10_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_22",
+     "name": "Buried Animosity",
+     "weight": 0,
+     "stats": {
+      "rage_decay_speed_+%_per_10_tribute": -2,
+      "maximum_rage_per_50_tribute": 1
+     }
+    },
+    {
+     "id": "abyss_notable_23",
+     "name": "Fast Rot",
+     "weight": 100,
+     "stats": {
+      "base_damaging_ailment_effect_+%_per_10_tribute": 2,
+      "damaging_ailment_duration_+%_per_10_tribute": -1
+     }
+    },
+    {
+     "id": "abyss_notable_24",
+     "name": "Hollow Bones",
+     "weight": 100,
+     "stats": {
+      "evasion_rating_+%_per_10_tribute": 2,
+      "base_deflection_rating_%_of_evasion_rating_per_25_tribute": 2
+     }
+    },
+    {
+     "id": "abyss_notable_25",
+     "name": "Ancient Bastion",
+     "weight": 100,
+     "stats": {
+      "maximum_energy_shield_+%_per_10_tribute": 4,
+      "energy_shield_recharge_rate_+%_per_25_tribute": -2
+     }
+    },
+    {
+     "id": "abyss_notable_26",
+     "name": "Deformed Steel",
+     "weight": 100,
+     "stats": {
+      "physical_damage_reduction_rating_+%_per_10_tribute": 2,
+      "stun_threshold_+%_per_25_tribute": 5
+     }
+    },
+    {
+     "id": "abyss_notable_27",
+     "name": "Mystic Brew",
+     "weight": 100,
+     "stats": {
+      "flask_life_and_mana_to_recover_+%_per_10_tribute": 1,
+      "flask_duration_+%_per_25_tribute": 3
+     }
+    },
+    {
+     "id": "abyss_notable_28",
+     "name": "Resilient Wards",
+     "weight": 100,
+     "stats": {
+      "charm_effect_+%_per_10_tribute": 1,
+      "charm_duration_+%_per_25_tribute": 3
+     }
+    },
+    {
+     "id": "abyss_notable_29",
+     "name": "Dreadful Fortitude",
+     "weight": 100,
+     "stats": {
+      "heavy_stun_poise_decay_rate_+%_per_10_tribute": 1,
+      "shield_armour_evasion_energy_shield_+%_per_25_tribute": 5
+     }
+    },
+    {
+     "id": "abyss_notable_30",
+     "name": "Barbed Allegiance",
+     "weight": 100,
+     "stats": {
+      "thorns_damage_+%_per_10_tribute": 2,
+      "additional_thorns_critical_strike_chance_permyriad_per_50_tribute": 50
+     }
+    }
+   ],
+   "small": [
+    {
+     "id": "abyss_small_tribute",
+     "name": "Tribute",
+     "weight": 100,
+     "types": [
+      2
+     ],
+     "stats": {
+      "base_tribute": 5
+     }
+    }
+   ],
+   "attribute_additions": [
+    {
+     "id": "abyss_attribute_tribute",
+     "weight": 100,
+     "types": [
+      1
+     ],
+     "stats": {
+      "base_tribute": 3
+     }
+    }
+   ]
+  }
+ },
+ "historic_additions": [
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_attribute_passives_grant_tribute",
+   "stat": "base_tribute",
+   "node_type": "attribute",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_attribute_passives_grant_strength",
+   "stat": "base_strength",
+   "node_type": "attribute",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_attribute_passives_grant_dexterity",
+   "stat": "base_dexterity",
+   "node_type": "attribute",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_attribute_passives_grant_intelligence",
+   "stat": "base_intelligence",
+   "node_type": "attribute",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_attribute_passives_grant_all_attributes",
+   "stat": "base_all_attributes",
+   "node_type": "attribute",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_evasion_rating_+%",
+   "stat": "evasion_rating_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_armour_rating_+%",
+   "stat": "physical_damage_reduction_rating_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_energy_shield_+%",
+   "stat": "maximum_energy_shield_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_mana_regen_rate_+%",
+   "stat": "mana_regeneration_rate_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_life_regen_rate_+%",
+   "stat": "life_regeneration_rate_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_spell_damage_+%",
+   "stat": "spell_damage_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_attack_damage_+%",
+   "stat": "attack_damage_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_elemental_damage_+%",
+   "stat": "elemental_damage_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_physical_damage_+%",
+   "stat": "physical_damage_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_chaos_damage_+%",
+   "stat": "chaos_damage_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_minions_deal_increased_damage_+%",
+   "stat": "minion_damage_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_stun_threshold_+%",
+   "stat": "stun_threshold_+%",
+   "node_type": "small",
+   "version": 7
+  },
+  {
+   "jewel_stat": "local_historic_abyss_jewel_conquered_small_passives_grant_ailment_threshold_+%",
+   "stat": "ailment_threshold_+%",
+   "node_type": "small",
+   "version": 7
+  }
+ ],
+ "historic_overrides": [
+  {
+   "id": "abyss_notable_override_1",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_1",
+   "name": "Ephemeral Contact"
+  },
+  {
+   "id": "abyss_notable_override_2",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_2",
+   "name": "Ancient Reserve"
+  },
+  {
+   "id": "abyss_notable_override_3",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_3",
+   "name": "Unburdened Shadow"
+  },
+  {
+   "id": "abyss_notable_override_4",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_4",
+   "name": "Unbuckling Resilience"
+  },
+  {
+   "id": "abyss_notable_override_5",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_5",
+   "name": "Uncompromising Efficacy"
+  },
+  {
+   "id": "abyss_notable_override_6",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_6",
+   "name": "Unfettered Hysteria"
+  },
+  {
+   "id": "abyss_notable_override_7",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_7",
+   "name": "Enduring Threats"
+  },
+  {
+   "id": "abyss_notable_override_8",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_8",
+   "name": "Calloused Marrow"
+  },
+  {
+   "id": "abyss_notable_override_9",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_9",
+   "name": "Vainglorious"
+  },
+  {
+   "id": "abyss_notable_override_10",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_10",
+   "name": "Twisted Steel"
+  },
+  {
+   "id": "abyss_notable_override_11",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_11",
+   "name": "Grand Tribute"
+  },
+  {
+   "id": "abyss_notable_override_12",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_12",
+   "name": "Toll of Agony"
+  },
+  {
+   "id": "abyss_notable_override_13",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_13",
+   "name": "Deep Venom"
+  },
+  {
+   "id": "abyss_notable_override_14",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_14",
+   "name": "Unrighteous Rally"
+  },
+  {
+   "id": "abyss_notable_override_15",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_15",
+   "name": "Terse Curses"
+  },
+  {
+   "id": "abyss_notable_override_16",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_16",
+   "name": "Heightened Shadows"
+  },
+  {
+   "id": "abyss_notable_override_17",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_17",
+   "name": "Stratified Wards"
+  },
+  {
+   "id": "abyss_notable_override_18",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_18",
+   "name": "Unsavored Feast"
+  },
+  {
+   "id": "abyss_notable_override_19",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_19",
+   "name": "Certain Hand"
+  },
+  {
+   "id": "abyss_notable_override_20",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_20",
+   "name": "Diabolical Opportunity"
+  },
+  {
+   "id": "abyss_notable_override_21",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_21",
+   "name": "Spiritkeeper"
+  },
+  {
+   "id": "abyss_notable_override_22",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_22",
+   "name": "Grim Grit"
+  },
+  {
+   "id": "abyss_notable_override_23",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_23",
+   "name": "Lavish Soul"
+  },
+  {
+   "id": "abyss_notable_override_24",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_24",
+   "name": "Kingslayer"
+  },
+  {
+   "id": "abyss_notable_override_25",
+   "passive": "AbyssJewelHistoricOverrideNotable_T_T_25",
+   "name": "Twice Bled"
+  }
+ ],
+ "observed": []
+}

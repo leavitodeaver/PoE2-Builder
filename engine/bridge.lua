@@ -3622,6 +3622,238 @@ function bridge.conqueredNodes()
 	return { nodes = nodes }
 end
 
+-- (TIMELESS1, research timeless-jewels-t1.md; the manager's ruling 27 Nov 11:25) A conquered NOTABLE is always replaced
+-- in the game (AlternateTreeVersions 6 / 7: NotableReplacementSpawnWeight 100), but PoB-PoE2 has no seed data and keeps
+-- its ORIGINAL stats (PassiveSpec.lua's notable code commented out: probe POE2T9204, those originals carried 6.1% of
+-- 2b75e's damage, 4.3% of 2b75c's, 3.5% of 2b75d's). Which notable a seed gives a node is unproven for PoE2
+-- (TIMELESS1-2), so each conquered notable becomes: the real outcome where the game has shown it (timeless.json's
+-- "observed"), else the EXPECTED notable: every candidate's PoB mods (Data/TimelessJewelData/LegionPassives, values
+-- checked against the game's tables by tools/build_timeless.py) scaled by its chance (spawn weight / total), labelled
+-- LOW. Its text lines name the candidates but carry no stat line (a decimal stat line could be misread by a reader
+-- taking digits only). PoB's own handling stays: keystones, Undying Hate's Tribute smalls / attributes, Historic
+-- "also grant" lines (ModParser l.7188). Inside a do-block: no new top-level local (LuaJIT's 200).
+do
+	local state = { on = os.getenv("POE2_TIMELESS_ORIGINAL") ~= "1" }
+	bridge.timelessState = state
+	local source = debug.getinfo(1, "S").source:gsub("^[@=]", "")
+	local root = source:match("^(.*)[/\\]engine[/\\][^/\\]+$")
+
+	local function load()
+		if state.data ~= nil then
+			return state.data
+		end
+		state.data = false
+		local file = root and io.open(root .. "/builder/data/timeless.json", "r")
+		if not file then
+			return false
+		end
+		local decoded = dkjson.decode(file:read("*a"))
+		file:close()
+		local out = { odds = { }, known = { } }
+		for _, jewelData in pairs(decoded and decoded.jewels or { }) do
+			local total, rows = 0, { }
+			for _, row in ipairs(jewelData.notables or { }) do
+				if row.weight > 0 then
+					total = total + row.weight
+					rows[#rows + 1] = row
+				end
+			end
+			local odds = { }
+			for _, row in ipairs(rows) do
+				odds[#odds + 1] = { id = row.id, name = row.name, chance = row.weight / total }
+			end
+			out.odds[jewelData.conqueror] = odds
+		end
+		for _, seen in ipairs(decoded and decoded.observed or { }) do
+			out.known[seen.version .. ":" .. seen.seed .. ":" .. seen.node] = seen.id
+		end
+		state.data = out
+		return out
+	end
+
+	local function legionNode(spec, id)
+		for _, node in ipairs(spec.tree.legion and spec.tree.legion.nodes or { }) do
+			if node.id == id then
+				return node
+			end
+		end
+	end
+
+	local function scaled(mod, chance)
+		if type(mod.value) == "number" then
+			local copy = copyTable(mod)
+			copy.value = mod.value * chance
+			return copy
+		elseif type(mod.value) == "table" and type(mod.value.mod) == "table" and type(mod.value.mod.value) == "number" then
+			local copy = copyTable(mod)
+			copy.value.mod.value = mod.value.mod.value * chance
+			return copy
+		end
+	end
+
+	-- The expected notable for one conqueror type, made once per tree
+	local function expected(spec, kind)
+		state.expected = state.expected or { }
+		local cached = state.expected[kind]
+		if cached and cached.tree == spec.tree then
+			return cached.node
+		end
+		local data = load()
+		local odds = data and data.odds[kind]
+		if not odds or #odds == 0 then
+			return nil
+		end
+		local modList = new("ModList")
+		local names, skipped = { }, { }
+		for _, entry in ipairs(odds) do
+			local legion = legionNode(spec, entry.id)
+			if legion then
+				names[#names + 1] = string.format("%s %.1f%%", legion.dn, entry.chance * 100)
+				for _, mod in ipairs(legion.modList or { }) do
+					local copy = scaled(mod, entry.chance)
+					if copy then
+						modList:AddMod(copy)
+					else
+						skipped[#skipped + 1] = legion.dn .. ": " .. tostring(mod.name)
+					end
+				end
+			else
+				skipped[#skipped + 1] = entry.id .. " (no PoB legion node)"
+			end
+		end
+		local node = {
+			dn = "Expected conquered notable",
+			sd = { "Timeless: " .. #odds .. " possible notables; seed effects unproven: the average over the "
+				.. "possible replacement notables (TIMELESS1-2, LOW)", "Possible: " .. table.concat(names, ", ") },
+			mods = { }, modKey = "timeless_expected_" .. kind, modList = modList, reminderText = { },
+			skipped = skipped,
+		}
+		state.expected[kind] = { tree = spec.tree, node = node }
+		return node
+	end
+
+	-- After PassiveSpec:BuildAllDependsAndPaths (which puts every node back to the raw tree, then applies PoB's
+	-- conquest): each conquered notable takes the known outcome or the expected one
+	local function apply(spec)
+		if not state.on then
+			return
+		end
+		local data = load()
+		if not data then
+			return
+		end
+		for id, node in pairs(spec.nodes) do
+			local by = node.conqueredBy
+			node.timeless = nil
+			if by and node.type == "Notable" and by.conqueror then
+				local version = by.conqueror.type == "kalguur" and 6 or by.conqueror.type == "abyss" and 7 or nil
+				local seen = version and data.known[version .. ":" .. tostring(by.id) .. ":" .. id]
+				local replacement = seen and legionNode(spec, seen) or (version and expected(spec, by.conqueror.type))
+				if replacement then
+					local icon, overlay = node.icon, node.overlay
+					spec:ReplaceNode(node, replacement)
+					node.icon, node.overlay = icon, overlay
+					node.timeless = seen and "known" or "expected"
+				end
+			end
+		end
+	end
+
+	function bridge.installTimeless()
+		local class = common and common.classes and common.classes.PassiveSpec
+		if not class or state.wrapped == class.BuildAllDependsAndPaths then
+			return
+		end
+		local original = class.BuildAllDependsAndPaths
+		state.wrapped = function(self, ...)
+			local result = original(self, ...)
+			apply(self)
+			return result
+		end
+		class.BuildAllDependsAndPaths = state.wrapped
+	end
+
+	-- The rows beside the expected reading: each allocated expected-notable tried as every candidate in turn (the others
+	-- kept expected): its best and worst candidate for args.field, and the build with every such node at its own best,
+	-- then at its own worst. The node is swapped in place for each what-if (CalcSetup reads node.modList) and put back.
+	function bridge.timelessRange(args)
+		local field = args.field or "FullDPS"
+		local fields = { field }
+		local calcFunc = calculator()
+		local useFullDPS = args.fullDPS ~= false
+		local function value()
+			local found = derivedCalc(function() return calcFunc({ }, useFullDPS) end, fields)
+			return found and found[field] or 0
+		end
+		local spec = build.spec
+		local data = load()
+		local base = value()
+		local rows, best, worst = { }, { }, { }
+		for id, node in pairs(spec.nodes) do
+			if node.alloc and node.timeless == "expected" and node.conqueredBy then
+				local kind = node.conqueredBy.conqueror.type
+				local saved = expected(spec, kind)
+				local row = { id = id }
+				for _, entry in ipairs(data and data.odds[kind] or { }) do
+					local legion = legionNode(spec, entry.id)
+					if legion then
+						spec:ReplaceNode(node, legion)
+						local v = value()
+						if not row.best or v > row.best.value then
+							row.best = { name = legion.dn, id = entry.id, value = v }
+						end
+						if not row.worst or v < row.worst.value then
+							row.worst = { name = legion.dn, id = entry.id, value = v }
+						end
+					end
+				end
+				spec:ReplaceNode(node, saved)
+				if row.best then
+					rows[#rows + 1] = row
+					best[node] = legionNode(spec, row.best.id)
+					worst[node] = legionNode(spec, row.worst.id)
+				end
+			end
+		end
+		table.sort(rows, function(a, b) return a.id < b.id end)
+		local function all(choice)
+			for node, legion in pairs(choice) do
+				spec:ReplaceNode(node, legion)
+			end
+			local v = value()
+			for node in pairs(choice) do
+				spec:ReplaceNode(node, expected(spec, node.conqueredBy.conqueror.type))
+			end
+			return v
+		end
+		return { field = field, expected = base, nodes = rows, allBest = #rows > 0 and all(best) or base,
+			allWorst = #rows > 0 and all(worst) or base }
+	end
+
+	-- On / off (a with / without probe or test; POE2_TIMELESS_ORIGINAL=1 starts it off), and what it did to the build
+	function bridge.setTimeless(args)
+		if args.on ~= nil then
+			state.on = args.on ~= false
+			build.spec:BuildAllDependsAndPaths()
+			recalc()
+		end
+		local nodes = { }
+		for id, node in pairs(build.spec.nodes) do
+			if node.timeless and node.conqueredBy then
+				nodes[#nodes + 1] = { id = id, mode = node.timeless, name = node.dn, allocated = node.alloc or false }
+			end
+		end
+		table.sort(nodes, function(a, b) return a.id < b.id end)
+		local skipped = { }
+		for kind, entry in pairs(state.expected or { }) do
+			for _, line in ipairs(entry.node.skipped or { }) do
+				skipped[#skipped + 1] = kind .. ": " .. line
+			end
+		end
+		return { on = state.on, loaded = load() and true or false, nodes = nodes, skipped = skipped }
+	end
+end
+
 -- What-if passive changes. Each case: { add = {ids}, remove = {ids}, addPaths = bool,
 -- attribute = 1|2|3, switch = {id, attribute} }. With addPaths, each added id brings its whole
 -- path from the allocated tree; attribute nodes on it take the given option (default 1, as
@@ -4267,6 +4499,7 @@ end
 -- calculation modules (a new build's CalcsTab)
 local wrappedInitEnv
 installRadiusModel = function()
+	bridge.installTimeless()  -- (TIMELESS1: conquered notables take the known or expected outcome)
 	installRadiusTransforms()  -- (COV49: the radius damage transforms, above; PoB redefines it with CalcSetup too)
 	installNoDamageSets()  -- (SEARCH35: no-damage stat sets out of Full DPS)
 	local calcs = require("Modules.CalcBase")
