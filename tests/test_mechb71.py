@@ -74,3 +74,13 @@ def test_seismic_cry_quality_raises_its_empowered_aftershocks():
     v1 = next(m for m in more if m["name"] == "DPS")["value"]
     assert v0 == pytest.approx(25.0) and v1 == pytest.approx(25.0 + 100 * 0.25 * 1.0 * 0.10, abs=1e-3)
     assert "Seismic Cry's quality" in notes[0]["basis"]
+
+
+def test_toxic_growth_explosion_beside_its_pustules_set():
+    """(turn 3, b11) Toxic Growth calculated at its Pustules set: its Explosion added at pustule_cap's share."""
+    rates = [{"speed": 1.0, "pustuleLimit": 6, "detonationTime": 15}]
+    added, notes = models.pustule_explosion_added(rates, 1000.0, 0.3, {"_boss": None})
+    mods, _ = models.pustule_cap(rates, "Toxic Growth", 0.0, 0.3, {"_boss": None})
+    share = 1 + next(m for m in mods if m["name"] == "DPS")["value"] / 100
+    assert added == pytest.approx(1000.0 * share) and 0 < added < 1000.0 and notes
+    assert models.pustule_explosion_added(rates, 0.0, 0.3, None) == (0.0, [])

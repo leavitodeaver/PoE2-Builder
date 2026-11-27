@@ -27013,6 +27013,26 @@ PUSTULE_SETS = {"Toxic Growth": "Explosion"}  # (the others: PUSTULE_SET)
 PUSTULE_LIMIT = {"Toxic Growth": 5}  # (base, when the bridge gives no pustuleLimit; the others: one per enemy)
 
 
+def pustule_explosion_added(rates: list[dict], explosion_dps: float, radius: float, stats: dict | None,
+                            poison_dps: float = 0.0) -> tuple[float, list[dict]]:
+    """(MECHB71; the manager 27 Nov 05:35, b11: an UNDERCOUNT) Toxic Growth calculated at its Pustules set: PoB scores
+    the Pustules' impact (one a use: number_of_projectiles_override 1) and never its Explosion. `explosion_dps`: the
+    Explosion set's TotalDPS at PoB's rate (bridge setRates), held by pustule_cap's own rule (its Limit a fuse, those
+    reaching the boss, the boss still there after the fuse) and added beside PoB: (added DPS, notes)."""
+    if explosion_dps <= 0 or not rates:
+        return 0.0, []
+    mods, notes = pustule_cap(rates, "Toxic Growth", poison_dps, radius, stats)
+    share = next((1 + number(m.get("value")) / 100 for m in mods if m.get("name") == "DPS"), 1.0)
+    added = explosion_dps * max(share, 0.0)
+    cap = next((n for n in notes if "Pustule Limit" in str(n.get("label"))), None)
+    return added, [{
+        "label": "Toxic Growth: its Explosion beside the Pustules PoB scores*", "value": round(added, 1),
+        "confidence": "LOW-MEDIUM",
+        "basis": (f"PoB calculates Toxic Growth at its Pustules set, so its Explosion is never scored; the Explosion set "
+                  f"(bridge setRates) {explosion_dps:,.1f} DPS at PoB's rate x{share:.3f} ("
+                  + (cap["basis"] if cap else "the Limit a fuse") + f") = +{added:,.1f} DPS, added beside PoB")}]
+
+
 def pustule_groups(skills: list[Skill], name: str = PUSTULE_SKILL) -> list[int]:
     """Groups whose `name` (a PUSTULE_SKILLS skill) PoB calculates at its Pustule Explosion set (Full DPS or main)."""
     label = PUSTULE_SETS.get(name, PUSTULE_SET)

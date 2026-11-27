@@ -7580,6 +7580,28 @@ class Assumptions:
             radius = bosses.hit_radius(boss)[0]
             more, why = models.pustule_cap(rates, name, poison, radius, boss)  # (MECHB70: the boss still there)
             mods, notes = mods + more, notes + why
+        # (MECHB71, b11: an UNDERCOUNT) a counted Toxic Growth group PoB calculates at its Pustules set: its Explosion
+        # from setRates, held as above (models.pustule_explosion_added), added beside PoB
+        for skill in found:
+            if skill.name != "Toxic Growth" or skill.group is None or skill.stat_set != "Pustules":
+                continue
+            by_index = by_index or {g["index"]: g for g in self.build.groups()}
+            group = by_index.get(skill.group) or {}
+            if group.get("enabled") is False or not (group.get("fullDPS") or group.get("main")):
+                continue
+            active = next((i for i, s in enumerate(group.get("skills") or [], start=1) if s["name"] == skill.name), 0)
+            if not active:
+                continue
+            sets = self.build.call("setRates", index=skill.group, active=active)["sets"]
+            explosion = next((number(x.get("TotalDPS")) for x in sets if x.get("label") == "Explosion"), 0.0)
+            rates = self.build.call("useRates", indices=[skill.group], actives=[active])["rates"]
+            if poison is None:
+                poison = number(self.build.call("stats", fields=["PoisonDPS"]).get("PoisonDPS"))
+            from builder.search import bosses
+            boss = {"_boss": getattr(getattr(self.build.ctx, "request", None), "boss", None)}
+            added, why = models.pustule_explosion_added(rates, explosion, bosses.hit_radius(boss)[0], boss, poison)
+            if added > 0:
+                mods, notes = mods + [models.added_input("ToxicGrowthExplosion", added)], notes + why
         return mods, notes
 
     def tornado_copies(self, found: list["models.Skill"], main: "models.Skill | None",
