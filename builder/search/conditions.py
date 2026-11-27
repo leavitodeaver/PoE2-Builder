@@ -263,12 +263,19 @@ def _withered_stacks(lines: list[str], stats: dict) -> tuple:
             sources.append(f"{text} (the boss Wasted {wasted:.0%} of the fight; {WITHER_DEFAULT_DURATION:g} s each, "
                            "no duration in the game data: the shortest stated one, LOW)")
         elif m := WITHER_MINIONS.match(text):  # (MECH67)
-            if minion_rate <= 0:
-                idle.append(f"{text} (the main skill isn't a minion's)")
+            # (MECH114, item 6: b18's author 10 stacks, ours none: the line read the main skill's own minion alone, and a
+            # build whose main skill isn't a minion's read 0. Now every minion's hits on the boss, minion_hits: the main
+            # skill's minions x their count and the other groups' minions, MECH96's reader; the one-minion reading a row)
+            every = number(stats.get("_minion_hits"))
+            if every <= 0 and minion_rate <= 0:
+                idle.append(f"{text} (no minion hits read)")
                 continue
-            stacks += float(m.group(1)) / 100 * minion_rate * WITHER_DEFAULT_DURATION
-            sources.append(f"{text} (one minion's {minion_rate:.2f} hits/s, the others not counted; "
-                           f"{WITHER_DEFAULT_DURATION:g} s each, no duration in the game data: the shortest stated one, LOW)")
+            hits = max(every, minion_rate)
+            stacks += float(m.group(1)) / 100 * hits * WITHER_DEFAULT_DURATION
+            sources.append(f"{text} (the build's minions' {hits:.2f} hits/s on the boss"
+                           + (f"; the main skill's one minion alone {minion_rate:.2f}" if minion_rate > 0 and every > 0
+                              else "") + f"; {WITHER_DEFAULT_DURATION:g} s each, no duration in the game data: the "
+                           "shortest stated one, LOW)")
         elif m := WITHER_HEX.match(text):  # (MECH75)
             each, why = withering_hex_rate(stats.get("_curse_uses") or [])
             if each <= 0:
@@ -12629,7 +12636,8 @@ class Conditions:
         stats["_stationary"] = (not self.stationary_off and not self.moving
                                 and any(STATIONARY_LINE.search(t) for t in texts))
         # (MECH67) the boss's Power with the build's Power lines (models.boss_power): Glory, the roar's Empowers
-        if any(models.MADNESS_MINION.match(t.strip()) for t in texts):  # (MECH96: the minions' Gruelling Madness)
+        if any(models.MADNESS_MINION.match(t.strip()) or WITHER_MINIONS.match(t.strip()) for t in texts):
+            # (MECH96: the minions' Gruelling Madness; MECH114: their Withered, _withered_stacks)
             stats["_minion_hits"] = minion_hits(self.build, stats)[0]
         stats["_boss_power"] = models.boss_power(texts, stats, _boss_distance(texts, stats)[0], "Attack" in main_types,
                                                  self.main_skill)

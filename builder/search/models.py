@@ -16016,6 +16016,44 @@ POISON_SHARE_PER_SECOND = 0.20  # KeywordPopups Poison: 20% of the hit's Physica
 POISON_SECONDS = 2.0  # KeywordPopups Poison: 2 seconds by default
 
 
+# Deep Venom's extra Poison (MECH114; THE USER, 26 Nov via the manager 14:36: "you know there are ways to get multiple
+# poison stacks, right?": check that PoB's PoisonStacksMax counts every Poison-limit source). PoB's limit is (1 + the BASE
+# PoisonStacks lines) x their MORE, only with PoisonCanStack (CalcOffence 5230-5234). The game's sources (checked: every
+# Stats id holding poison with stack / limit / infinit / infint / multiple / double_number / number_of, and their carriers
+# in Mods, PassiveSkills, GrantedEffectStatSets, GrantedEffectQualityStats and SoulCoreStats, 26650308):
+# number_of_additional_poison_stacks (Building Toxins, Stacking Toxins, UniquePoisonStackCount1,
+# UniqueMutatedVaalPoisonStackCount, soul core row 262, Escalating Poison), double_number_of_poison_you_can_inflict
+# (Overwhelming Toxicity), number_of_additional_poison_stacks_if_you_have_at_least_100_tribute (Deep Venom, an Abyss jewel
+# notable), local_hits_with_this_weapon_ignore_poison_limit (a unique weapon's hits only); no carrier for
+# poisons_can_stack_infinitely / poisons_you_inflict_can_stack_infintely and their hand / generic variants or
+# chance_to_poison_on_hit_can_apply_multiple_stacks. Probe POE2T6744 (b11, each line's game text through customMods):
+# PoisonStacksMax 4 -> 5 (+1), 6 (+1 twice), 8 (doubled), 10 (+1 and doubled): PoB counts those; Deep Venom's line
+# leaves it at 4 with 0 Tribute AND with +100 Tribute (PoB's output Tribute 100): an UNDERCOUNT. So with the line in the
+# build and PoB's Tribute at the threshold or more, the plain "+N of your Poisons" line is added (PoB counts that one, the
+# probe above); below the threshold nothing. Not probed: Escalating Poison on a gem (PoB maps its stat to PoisonStacks
+# BASE + PoisonCanStack, sup_dex 2187: the same mod the +1 line makes) and the weapon line (OVERRIDE, weapon attacks).
+DEEP_VENOM = re.compile(r"^Targets can be affected by \+(\d+) of your Poisons at the same time if you have at least "
+                        r"(\d+) Tribute$", re.I)
+
+
+def deep_venom_model(texts: list[str], tribute: float) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): Deep Venom's extra Poisons when PoB's Tribute meets its threshold (the note above)."""
+    mods, notes = [], []
+    for text in texts:
+        if not (m := DEEP_VENOM.match(text.strip())):
+            continue
+        extra, need = int(m.group(1)), float(m.group(2))
+        on = tribute >= need
+        if on:
+            mods.append(line("Targets can be affected by +1 of your Poisons at the same time", extra))
+        notes.append({"label": "Deep Venom: extra Poisons on the boss*", "value": extra if on else 0,
+                      "basis": (f"'{text.strip()}': your Tribute {tribute:g} {'meets' if on else 'is under'} {need:g}"
+                                + (f", so the boss can carry {extra} more of your Poisons (PoB leaves the line unapplied: "
+                                   "probe POE2T6744)" if on else ": no extra Poison")),
+                      "confidence": "HIGH" if on else "theory"})
+    return mods, notes
+
+
 def block_poison_model(texts: list[str], stats: dict, chaos_resist: float, own_poison: float,
                        stacks_max: float = 1.0) -> tuple[float, list[dict]]:
     """(added DPS, notes) for "Blocking Damage Poisons the Enemy as though dealing N Base Chaos Damage" (the note above)."""

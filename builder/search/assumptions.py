@@ -6433,6 +6433,11 @@ class Assumptions:
                 number(own.get("PoisonDPS")), number(own.get("PoisonStacksMax")) or 1.0)
             hand_mods += [models.added_input("BlockPoison", block_poison)] if block_poison > 0 else []
             hand_notes += block_notes
+        venom_texts = [e["text"] for e in source_lines if models.DEEP_VENOM.match(e["text"].strip())]
+        if venom_texts:  # (MECH114: Deep Venom's extra Poison, which PoB leaves unapplied)
+            venom_mods, venom_notes = models.deep_venom_model(
+                venom_texts, number(build.call("stats", fields=["Tribute"]).get("Tribute")))
+            hand_mods, hand_notes = hand_mods + venom_mods, hand_notes + venom_notes
         blaze_mods, blaze_notes = models.engineered_blaze_mods(  # (MECH90: PoB applies none of it)
             [e["text"] for e in source_lines],
             models.number((getattr(build, "ailment_uptimes", None) or {}).get("Ignited")))

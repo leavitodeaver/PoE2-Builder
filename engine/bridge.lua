@@ -1031,6 +1031,21 @@ local function pickStats(output, fields)
 		if value == nil and field == "LedgerAddedDPS" and committedAddedDPS then
 			value = committedAddedDPS(output)  -- (SEARCH29: a committed build's added sources from its own output, as a what-if's)
 		end
+		if value == nil and (field == "ChillChanceOnHit" or field == "ChillChanceOnCrit") then
+			-- (MECH114, an UNDERCOUNT: b01's Twister read no Chill) PoB writes an attack's Chill chance per hand only
+			-- (CalcOffence 5550-5559 run in each hand's pass; its combineStat list holds ChillEffectMod / ChillDuration but
+			-- not the chance), so every attack main skill's ChillChanceOnHit read 0 here: the hands' own, their mean when
+			-- both hands hit (as ailmentChancePerHit's hands)
+			local mh = type(output.MainHand) == "table" and output.MainHand[field] or nil
+			local oh = type(output.OffHand) == "table" and output.OffHand[field] or nil
+			if type(mh) == "number" and type(oh) == "number" then
+				value = (mh + oh) / 2
+			elseif type(mh) == "number" then
+				value = mh
+			elseif type(oh) == "number" then
+				value = oh
+			end
+		end
 		if value == nil and field == "ShockChancePerHit" then
 			local env = build.calcsTab and build.calcsTab.mainEnv  -- (MECH110: the main skill, for Esh's Prowess; a what-if
 			-- reads the committed build's skill, as the Flag: fields do)
