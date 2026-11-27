@@ -557,6 +557,11 @@ class Build:
                              "whatif": round(whatif - before, 4)}
                 if judge:  # (JUDGE: the inputs this case moved, for calibrating judge_inputs_moved on real trials)
                     row["moved"] = flagged.get(i, [])
+                    # (SEARCH43: and the slot, with the support it replaces: 7605 / 7606 showed the screen-vs-ours gap
+                    # belongs mostly to the slot's current support, not to the gem put in or the inputs moved)
+                    slot = case["slot"]
+                    row.update({"group": group["index"], "slot": slot,
+                                "replaced": group["gems"][slot - 1]["name"] if slot <= len(group["gems"]) else None})
                 try:
                     self.call("setGroup", index=group["index"], gems=self._trial_gems(group, case), fields=[])
                     self.gem_settle()
