@@ -11080,7 +11080,8 @@ class Conditions:
             boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
             radius, _ = bosses.hit_radius({"_boss": boss})
             head, open_row, _ = recovery.twister_hits(
-                {"ProjectileCount": first.get("ProjectileCount"), "Duration": first.get("Duration")}, radius)
+                {"ProjectileCount": first.get("ProjectileCount"), "Duration": first.get("Duration")}, radius,
+                {"_boss": boss})  # (MECHC68: the boss walking out of the roam space)
             row["hits"] *= head
             row["crits"] *= head
             row["how"] += (f"; x {head:.2f} hits a cast from its {number(first.get('ProjectileCount')) or 1:g} twister(s) "
@@ -11136,7 +11137,7 @@ class Conditions:
         boss = getattr(getattr(getattr(self.build, "ctx", None), "request", None), "boss", None) or bosses.DEFAULT
         seen = self.build.call("stats", fields=list(recovery.TWISTER_FIELDS))
         radius, _ = bosses.hit_radius({"_boss": boss})
-        head, open_row, _ = recovery.twister_hits(seen, radius)
+        head, open_row, _ = recovery.twister_hits(seen, radius, {"_boss": boss})  # (MECHC68: + the stay)
         return head, (f"Twister's twister-count reading, MEDIUM-LOW, as its DPS counts; in an open arena {open_row:g} "
                       "a cast")
 

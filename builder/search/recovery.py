@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import functools
 import math
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -1824,9 +1825,35 @@ TWISTER_SPEED, TWISTER_RADIUS, TWISTER_INTERVAL, TWISTER_DURATION = 7.5, 0.5, 0.
 TWISTER_ROAM = 6.0  # metres: the roam space radius (LOW, RESEARCH28's named assumption)
 
 
-def twister_hits(stats: dict, boss_radius: float) -> tuple[float, float, str]:
+def twister_stay(boss: dict | None, duration: float) -> tuple[float, float, str]:
+    """(MECHC68) (the share of a twister group's extra hits the boss is still in their roam space for: the headline,
+    the every-move-its-mean-length row, how): bosses.stay_share(boss, TWISTER_ROAM, D), MECHD9's reader rule (the
+    manager 26 Nov 06:30; GEM47's cb052241 the pattern). See TWISTER_STAY's note."""
+    from builder.search import bosses  # (lazy: bosses imports nothing of this module, but keep the load order free)
+
+    share, how = bosses.stay_share(boss, TWISTER_ROAM, duration)
+    fixed, _ = bosses.stay_share(boss, TWISTER_ROAM, duration, moves="fixed")
+    return share, fixed, how
+
+
+# The boss walks out of the twisters' roam space (MECHC68; MECHD9's "boss stands still" survey, MECH-D's
+# scratch/mechd9/survey.md, MECH-C section; the manager's READER RULE, 26 Nov 06:30: the site's damage x
+# bosses.stay_share(stats, R, T); rows: the boss standing still (the reading before) and every move its mean length).
+# The headline's extra hits (hits - 1: the twisters bouncing back through the boss) come over each group's D s life
+# inside the TWISTER_ROAM space around the boss; a boss that relocates further than the space's radius plus its own hit
+# radius leaves them behind (an OVERCOUNT before: the boss taken to stand in it all D). The first hit (the cast aimed at
+# the boss) is kept. T = D, not the recast interval: a recast sends a NEW group at the boss's new place but doesn't move
+# the earlier group, whose extra hits still come only over its own life (the rule's "shorter of the duration and the
+# recast interval" is for an effect a recast re-places on the boss). The extra hits are spread over [0, D], so their mean
+# share is stay_share over D (as GEM47's uniform wait). R = TWISTER_ROAM (the roam space, LOW, R28-10's named
+# assumption), the space taken as centred on the boss (the reading that keeps the most hits).
+TWISTER_STAY = os.environ.get("POE2_TWISTER_STAY", "1") != "0"  # (POE2_TWISTER_STAY=0: the old reading, a probe)
+
+
+def twister_hits(stats: dict, boss_radius: float, boss: dict | None = None) -> tuple[float, float, str]:
     """(hits on the boss a cast: the headline from the twister count, the open-arena row 1, how) from PoB's Twister
-    outputs."""
+    outputs. (MECHC68) `boss` (a stats dict naming the boss, {"_boss": name}): when given, the extra hits x
+    twister_stay's share (the boss walking out of the roam space); None: the boss standing still (the old reading)."""
     duration = _num(stats.get("Duration")) or TWISTER_DURATION
     k = math.floor(duration / TWISTER_INTERVAL + 1e-9) + 1
     count = max(_num(stats.get("ProjectileCount")), 1.0)
@@ -1834,16 +1861,25 @@ def twister_hits(stats: dict, boss_radius: float) -> tuple[float, float, str]:
     own = _num(stats.get("AreaOfEffectRadiusMetres")) or TWISTER_RADIUS * math.sqrt(_num(stats.get("AreaOfEffectMod")) or 1.0)
     rho = own + max(boss_radius, 0.0)
     area = math.pi * TWISTER_ROAM ** 2
-    head = 1 + (k - 1) * (1 - math.exp(-count * 2 * rho * speed * TWISTER_INTERVAL / area))
+    still = 1 + (k - 1) * (1 - math.exp(-count * 2 * rho * speed * TWISTER_INTERVAL / area))
+    stay = ""
+    if boss is not None and TWISTER_STAY and still > 1 + 1e-9:
+        share, fixed, stay_how = twister_stay(boss, duration)
+        head = 1 + (still - 1) * share
+        stay = (f"; the boss is still in their roam space for {share:.0%} of the extra hits ({stay_how}; MECHC68, "
+                f"MECHD9's reader rule, LOW): {head:.2f} a cast. Rows: the boss standing still {still:.2f}; every move "
+                f"its mean length {1 + (still - 1) * fixed:.2f}")
+    else:
+        head = still
     return head, 1.0, (
-        f"{head:.2f} hits a cast from your {count:g} twister(s) fired together (the user's observation, 16 Nov: many "
+        f"{still:.2f} hits a cast from your {count:g} twister(s) fired together (the user's observation, 16 Nov: many "
         f"twisters bounce around and hit more than once, \"it depends on the number of twisters\"; MEDIUM-LOW): "
         f"1 + ({k} - 1) x (1 - e^(-{count:g} x 2 x {rho:.2f} m x {speed:.1f} m/s x {TWISTER_INTERVAL:g} s / "
         f"{area:.0f} m^2)), at most {k} ({duration:.2f} s / {TWISTER_INTERVAL:g} s + 1, shared by the group: HIGH / "
         f"MEDIUM-HIGH); the roam space a {TWISTER_ROAM:g} m radius (LOW, a named assumption); in an open arena 1 a cast "
         f"(a pass crosses the boss in 2 x ({own:.2f} + {boss_radius:.2f}) m / {speed:.1f} m/s = {2 * rho / speed:.2f} s, "
         f"under one {TWISTER_INTERVAL:g} s window: PoB's number). On-hit charges and ailment buildup still read one hit "
-        f"a cast (an UNDERCOUNT for those)")
+        f"a cast (an UNDERCOUNT for those)" + stay)
 
 
 # Sprinting between boss attacks (MECHC34; RESEARCH26 R26-22, sprint-between-boss-attacks.md, ASSUMED MEDIUM for the

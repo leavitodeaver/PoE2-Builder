@@ -3572,7 +3572,7 @@ def test_the_bosses_own_armour_evasion_and_no_penetration_reach_pob(engine):
 def test_twister_hits_on_the_boss_rise_with_its_twisters(engine):
     """MECHC35 (the user's answer 16 Nov ~21:10: "it depends on the number of twisters"): the twister-count reading is
     the headline: the main skill's DPS x hits a cast (PoB scores one hit a use); more twisters, more hits, never past k."""
-    from builder.search import models, recovery
+    from builder.search import bosses, models, recovery
     from builder.search.assumptions import Assumptions
 
     search = _skeleton_search(engine, "Twister", "Amazon")
@@ -3595,7 +3595,13 @@ def test_twister_hits_on_the_boss_rise_with_its_twisters(engine):
     k = int(many_seen.get("Duration", 3.0) / recovery.TWISTER_INTERVAL + 1e-9) + 1
     assert many_seen["ProjectileCount"] > one_seen["ProjectileCount"]
     assert 1 < head_one < head_many <= k and "open arena: 1" in many_note["value"]
-    assert many and many[0]["value"] == pytest.approx((head_many - 1) * 100, abs=0.1)
+    # (MECHC68: the note shows hits a cast to two decimals, so +-0.5 points; the exact head is twister_hits' with the
+    # boss's stay in the roam space)
+    assert many and many[0]["value"] == pytest.approx((head_many - 1) * 100, abs=0.5)
+    boss = {"_boss": getattr(getattr(build.ctx, "request", None), "boss", None) or bosses.DEFAULT}
+    exact = recovery.twister_hits(many_seen, bosses.hit_radius(boss)[0], boss)[0]
+    assert many[0]["value"] == pytest.approx((exact - 1) * 100, abs=0.01)
+    assert exact < recovery.twister_hits(many_seen, bosses.hit_radius(boss)[0])[0]  # (the boss walks out: fewer)
 
     # (MECHC44) Twister carries skill_can_add_multiple_charges_per_action (game files; PoB's TwisterPlayer stats): its
     # on-hit charge lines roll on each of its hits a cast, the same headline its DPS uses

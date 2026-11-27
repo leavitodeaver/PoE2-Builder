@@ -4507,7 +4507,7 @@ class Assumptions:
         if main is not None and main.name == recovery_mod.TWISTER:  # (MECHC33, R28-10: hits on the boss per cast)
             seen = build.call("stats", fields=list(recovery_mod.TWISTER_FIELDS))
             radius, radius_how = bosses.hit_radius({"_boss": boss})
-            head, open_row, how = recovery_mod.twister_hits(seen, radius)
+            head, open_row, how = recovery_mod.twister_hits(seen, radius, {"_boss": boss})  # (MECHC68: + the stay)
             # (MECHC35, the user's answer 16 Nov ~21:10: the twister-count reading is the headline; PoB scores one hit)
             if head > 1 + 1e-9:
                 hand_mods = hand_mods + [models.raw_mod("DPS", "MORE", (head - 1) * 100, skill=main.name)]

@@ -313,7 +313,10 @@ def boss_moving_row(search: Any, headline: float) -> dict | None:
     standing in reach; the chosen boss spends up to that share of the fight in its own dashes, leaps and charges (an
     UPPER BOUND, LOW). A Melee main skill can't reach it while it travels, so its DPS at the ceiling is the headline x (1 -
     share): a "with it" row, never counted. Other main skills (projectiles, targeted spells, minions, totems) are taken as
-    still hitting a moving boss (UNVERIFIED: a ground effect or totem out of reach loses some too), so no row."""
+    still hitting a moving boss, so no row here: a part placed on the ground that the boss walks out of loses its share
+    at its own reader instead (MECHD9's reader rule, bosses.stay_share / still_there in the headline, with the
+    standing-still row in that site's note: Twister's roam space, MECHC68; GEM47's set-off spikes and clouds); a placed
+    part with no reader yet is still taken as hit all its life (UNVERIFIED, MECHD9's survey lists them)."""
     from builder.search import bosses
 
     build = search.build
