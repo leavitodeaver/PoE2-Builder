@@ -16731,6 +16731,62 @@ def presence_lowest_ignite(texts: list[str], resists: dict, presence: dict, main
                  f"not its Fire ({fire:g}%): x{ratio:.3f}.")}]
 
 
+# Eternal Flame III (MECH116; MECH115's Turn 7 design; an UNDERCOUNT wherever the search picks it: no example build
+# b01-b21 and no gate reference 2b75a-e holds it, checked by MECH115). The support's only stat is
+# refresh_ignite_duration_on_critical_strike_chance_% 20 ("Supports any skill that Hits enemies, causing it to refresh
+# Ignites on Critical Hit"; PoB's Data/Skills/sup_str.lua SupportIgniteDurationPlayerThree: PoB maps the stat to no mod,
+# so it counts nothing). Only the strongest Ignite on a target deals damage (KeywordPopups Ignite), and PoB sizes it from
+# the applications within one duration D (S = IgniteStackPotential: the roll average S / (S + 1) and the crit share
+# 1 - (1 - c)^S, ailment_size; its uptime min(1, S)). A refresh restarts the duration, so an Ignite lives on while a
+# refreshing crit lands before it runs out: refreshes come at r = the skill's landing hits a second x crit chance x 20%,
+# and with Poisson refreshes the expected lifetime is (e^(rD) - 1) / r (E[L] = E[min(T, D)] + P(T < D) E[L]). The
+# strongest is then chosen among the applications in that longer window: S' = S x (e^(rD) - 1) / (rD). The Ignite's
+# size goes from ailment_size(S) min(1, S) to ailment_size(S') min(1, S'), with the hit-range profile ailment_ranges
+# reads (no profile: the roll average alone, crit weighting taken as unchanged). MEDIUM: "refresh Ignites" taken to refresh
+# every Ignite on the target (the strongest included); the hits a second are the main skill's Speed x hit chance (one
+# landing hit a use).
+ETERNAL_FLAME_III = "Eternal Flame III"
+ETERNAL_FLAME_REFRESH = 0.20  # (refresh_ignite_duration_on_critical_strike_chance_% 20)
+ETERNAL_FLAME_ENTRY = "model-mech116-eternal-flame-iii"
+ETERNAL_FLAME_FIELDS = ["IgniteStackPotential", "IgniteDuration", "IgniteDPS", "Speed", "HitChance", "CritChance"]
+
+
+def eternal_flame_refresh(stats: dict, main_name: str | None, ranges: dict | None = None,
+                          forbidden: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
+    """(mods, notes): the main skill's Ignite with Eternal Flame III's refreshes (see above)."""
+    s, d = number(stats.get("IgniteStackPotential")), number(stats.get("IgniteDuration"))
+    hits = number(stats.get("Speed")) * (number(stats.get("HitChance")) or 100.0) / 100.0
+    crit = min(1.0, max(0.0, number(stats.get("CritChance")) / 100.0))
+    if (ETERNAL_FLAME_ENTRY in forbidden or not main_name or number(stats.get("IgniteDPS")) <= 0 or s <= 0 or d <= 0
+            or hits <= 0 or crit <= 0):
+        return [], []
+    r = hits * crit * ETERNAL_FLAME_REFRESH
+    k = math.expm1(r * d) / (r * d)
+    s2 = s * k
+    profile = (ranges or {}).get("Ignite")
+    if profile is not None:
+        before, after = ailment_size(profile, s) * min(1.0, s), ailment_size(profile, s2) * min(1.0, s2)
+    else:
+        before = (ailment_roll(s) if s > 1 else 0.5) * min(1.0, s)
+        after = (ailment_roll(s2) if s2 > 1 else 0.5) * min(1.0, s2)
+    factor = after / before if before > 0 else 1.0
+    if factor <= 1 + 1e-6:
+        return [], []
+    return [raw_mod("AilmentMagnitude", "MORE", 100 * (factor - 1), main_name, tag="MECH116EternalFlame",
+                    keywords=["Ignite"])], [{
+        "label": "Eternal Flame III: your Critical Hits refresh your Ignites*", "value": f"x{factor:.3f}",
+        "confidence": "MEDIUM", "entry": ETERNAL_FLAME_ENTRY,
+        "basis": (f"20% of your Critical Hits refresh the Ignites on the boss (PoB counts nothing): {hits:.2f} hits a "
+                  f"second x {crit:.0%} crit x 20% = {r:.3f} refreshes a second against a {d:.2f} s Ignite, so an Ignite "
+                  f"lives {k:.2f}x its duration on average ((e^(rD) - 1) / (rD)); the strongest is chosen among "
+                  f"{s2:.2f} applications instead of {s:.2f} (its roll and crit share"
+                  + (", the hit range's" if profile is not None else ", the roll average only") +
+                  f"), and is up {min(1.0, s2):.0%} of the time instead of {min(1.0, s):.0%}. Row: PoB's (no refresh) "
+                  "x1.000"),
+        "play": (f"Eternal Flame III keeps your strongest Ignite burning: crit often (each crit has a 20% chance to "
+                 f"refresh it): x{factor:.3f} Ignite here.")}]
+
+
 # Engineered Blaze (MECH90; the catalog's damaging-ailments passive row, an UNDERCOUNT: PoB parses "4% increased Area of
 # Effect for Attacks per Enemy you've Ignited in the last 8 seconds, up to 40%" only in part (ModCache: AreaOfEffect INC
 # with " per Enemy you've Ignited in the last 8 seconds, up to 40% " left over), so never applies it). Against a lone boss

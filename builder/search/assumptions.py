@@ -6575,6 +6575,11 @@ class Assumptions:
                 [e["text"] for e in source_lines], build.call("enemyResists"),
                 conditions_mod.boss_in_presence(build, None), main.name, forbidden)
             hand_mods, hand_notes = hand_mods + low_mods, hand_notes + low_notes
+        if main is not None and models.ETERNAL_FLAME_III in main_gems:  # (MECH116: PoB counts its refresh nowhere)
+            ef_stats = build.call("stats", fields=models.ETERNAL_FLAME_FIELDS + models.STRONG_RANGE_FIELDS)
+            ef_mods, ef_notes = models.eternal_flame_refresh(ef_stats, main.name, models.ailment_ranges(ef_stats),
+                                                             forbidden)
+            hand_mods, hand_notes = hand_mods + ef_mods, hand_notes + ef_notes
         block_texts = [e["text"] for e in source_lines if models.BLOCK_POISON.match(e["text"].strip())]
         if block_texts:  # (MECH90: Lycosidae's Poison on Block; PoB leaves the line unparsed, 0)
             own = build.call("stats", fields=["PoisonDPS", "PoisonStacksMax"])

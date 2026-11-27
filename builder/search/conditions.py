@@ -5049,6 +5049,7 @@ EVIDENCE_FIELDS.extend(f for f in CHILL_FIELDS if f not in EVIDENCE_FIELDS)
 EVIDENCE_FIELDS.extend(f for f in ("IgniteDuration", "IgniteStackPotential") if f not in EVIDENCE_FIELDS)  # (MECH81)
 EVIDENCE_FIELDS.extend(f for f in ("IgniteChanceRoll",) if f not in EVIDENCE_FIELDS)  # (MECH112: ignite_roll_chance)
 EVIDENCE_FIELDS.extend(f for f in ("MovementSpeedMod",) if f not in EVIDENCE_FIELDS)  # (MECH83: presence_reentries' roll)
+EVIDENCE_FIELDS.extend(f for f in ("PhysicalHitAverage",) if f not in EVIDENCE_FIELDS)  # (MECH116: no_physical_bleed)
 EVIDENCE_FIELDS.extend(f for f in ("PoisonDPS",) if f not in EVIDENCE_FIELDS)  # (MECH89: Corrosion's Poison Armour Break)
 
 
@@ -7921,6 +7922,24 @@ def _ailment_share(ailment: str):
     return lambda s: ailment_uptime(s, ailment)
 
 
+# A Bleed chance on hits with no Physical damage (MECH116; RESEARCH69 R69-5, scratch/manager/research/bleed-zero-physical-
+# hit-r69.md: UNVERIFIED whether such a hit puts a Bleed (of size 0) on the boss; KeywordPopups Bleeding / Contributes
+# split the chance from the magnitude and say neither way). The manager's ruling (27 Nov 05:55): keep the headline (PoB
+# turns the Bleeding box on from the chance: b15's Comet, x1.0018) and add a "no Bleed" lower ROW: the boss's Bleeding
+# share from the build's other sources only (the main skill's chance taken as 0), as the box's other reading
+# (Conditions.alt_uptimes, which the play guide shows). Only where PoB's PhysicalHitAverage is read and is 0.
+def no_physical_bleed(stats: dict) -> tuple[float, str]:
+    """(the Bleeding share with the main skill's no-Physical hits taken not to Bleed, its row text), or (0, "") where it
+    doesn't apply (see above)."""
+    if ("PhysicalHitAverage" not in stats or number(stats.get("PhysicalHitAverage")) > 0
+            or number(stats.get("BleedChancePerHit")) <= 0):
+        return 0.0, ""
+    up = ailment_uptime({**stats, "BleedChancePerHit": 0.0}, "Bleed")
+    return up, (f"the main skill's hits carry a {number(stats.get('BleedChancePerHit')):.3g}% Bleed chance but no Physical "
+                f"damage: whether such a hit Bleeds is UNVERIFIED (RESEARCH69 R69-5); if it doesn't, the boss Bleeds "
+                f"{up:.0%} of the fight (the build's other sources only)")
+
+
 def shared(up: float) -> str:
     """How an uptime is counted, for a basis."""
     if up >= FULL_UPTIME:
@@ -10521,7 +10540,7 @@ CONDITIONS: list[Condition] = [
     Condition("conditionEnemyPoisoned", "Poisoned", stat=_ailment_up("Poison"), uptime_fn=_ailment_share("Poison"),
               fields=("PoisonChancePerHit", "Speed", "HitChance", "PoisonDuration")),
     Condition("conditionEnemyBleeding", "Bleeding", stat=_ailment_up("Bleed"), uptime_fn=_ailment_share("Bleed"),
-              fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration")),
+              fields=("BleedChancePerHit", "Speed", "HitChance", "BleedDuration", "PhysicalHitAverage")),
     Condition("conditionEnemyChilled", "Chilled", stat=lambda s: chilled_share(s) >= MIN_UPTIME, uptime_fn=chilled_share,
               fields=CHILL_FIELDS),
     Condition("parryActive", "Parried", value_fn=_parried, fields=("enemySkillTime", "Ward")),
@@ -13252,6 +13271,9 @@ class Conditions:
                         reason += f"; with {chilled[1]}; without it {chilled_share(without):.0%}"
                     if condition.var == "conditionEnemyChilled" and (beside := side_chill_share(stats))[1]:
                         reason += f"; with {beside[1]}"  # (MECH109: SIDE_CHILL's note)
+                    if condition.var == "conditionEnemyBleeding" and (row := no_physical_bleed(stats))[1]:
+                        reason += f"; {row[1]}"  # (MECH116, R69-5: the "no Bleed" lower reading, a play-guide row)
+                        self.alt_uptimes[condition.var] = row
             if condition.value_fn is not None:
                 value, basis, *share = condition.value_fn([line["text"] for line in lines], stats)
                 if value > 0 or basis:  # (a basis with 0: the build has sources, none of which a boss fight feeds)

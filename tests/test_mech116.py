@@ -92,3 +92,36 @@ def test_presence_lowest_resistance_scales_the_ignite_inside_presence_only():
     assert models.presence_lowest_ignite(["Elemental Damage you deal with Hits is Resisted by lowest Elemental "
                                           "Resistance instead"], resists, inside, "Flame Wall") == ([], [])
     assert models.presence_lowest_ignite([LINE], {"found": False}, inside, "Flame Wall") == ([], [])
+
+
+def test_eternal_flame_iii_refresh_lengthens_the_strongest_ignite_window():
+    """Step 4: 2 hits/s x 50% crit x 20% = 0.2 refreshes/s on a 4 s Ignite: it lives (e^0.8 - 1) / 0.8 = 1.532x, so
+    PoB's 1.5 applications a duration become 2.30; the roll average S / (S + 1) goes 0.6 -> 0.697."""
+    import math
+    stats = {"IgniteStackPotential": 1.5, "IgniteDuration": 4.0, "IgniteDPS": 100.0, "Speed": 2.0, "HitChance": 100.0,
+             "CritChance": 50.0}
+    mods, notes = models.eternal_flame_refresh(stats, "Crossbow Shot")
+    s2 = 1.5 * math.expm1(0.8) / 0.8
+    factor = (s2 / (s2 + 1)) / (1.5 / 2.5)
+    assert mods[0]["keywordFlags"] == ["Ignite"] and mods[0]["value"] == pytest.approx(100 * (factor - 1), abs=0.01)
+    assert notes[0]["value"] == f"x{factor:.3f}" and notes[0]["confidence"] == "MEDIUM"
+    # no crits, no Ignite, or the entry forbidden: nothing
+    assert models.eternal_flame_refresh({**stats, "CritChance": 0}, "Crossbow Shot") == ([], [])
+    assert models.eternal_flame_refresh({**stats, "IgniteDPS": 0}, "Crossbow Shot") == ([], [])
+    assert models.eternal_flame_refresh(stats, "Crossbow Shot", None, {models.ETERNAL_FLAME_ENTRY}) == ([], [])
+    # a rare Ignite (S under 1): its uptime grows with the window too
+    mods, _ = models.eternal_flame_refresh({**stats, "IgniteStackPotential": 0.5}, "Crossbow Shot")
+    s2 = 0.5 * math.expm1(0.8) / 0.8
+    assert mods[0]["value"] == pytest.approx(100 * ((s2 / (s2 + 1) if s2 > 1 else 0.5) * min(1, s2) / (0.5 * 0.5) - 1),
+                                             abs=0.01)
+
+
+def test_no_physical_bleed_row_only_for_a_chance_on_hits_with_no_physical_damage():
+    """Step 5 (R69-5, UNVERIFIED): the Bleeding box's lower reading takes the main skill's chance as 0."""
+    from builder.search import conditions
+    stats = {"BleedChancePerHit": 5.0, "Speed": 2.0, "HitChance": 100.0, "BleedDuration": 5.0, "PhysicalHitAverage": 0}
+    up, text = conditions.no_physical_bleed(stats)
+    assert up == 0.0 and "UNVERIFIED" in text and "R69-5" in text
+    assert conditions.no_physical_bleed({**stats, "PhysicalHitAverage": 120.0}) == (0.0, "")
+    assert conditions.no_physical_bleed({k: v for k, v in stats.items() if k != "PhysicalHitAverage"}) == (0.0, "")
+    assert conditions.no_physical_bleed({**stats, "BleedChancePerHit": 0}) == (0.0, "")
