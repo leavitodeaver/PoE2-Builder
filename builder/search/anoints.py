@@ -123,11 +123,44 @@ def with_anoints(raw: str, notables: list[str]) -> str:
         return "\n".join(head + ([f"Implicits: {len(new)}"] + new if new else []) + rest)
     if not notables:
         return raw
-    # No implicits: after the header (as rares.with_runes places sockets) and any socket lines
+    # No implicits: after the WHOLE header (JEWEL6, the Black Insignia bug), before the first mod line
     at = next((i + 1 for i, l in enumerate(lines) if l.startswith("Item Level:")), None)
     if at is None:
         at = 2 if not lines[0].startswith("Rarity:") or lines[0] == "Rarity: Normal" else 3
         at = min(at, len(lines))
-    while at < len(lines) and lines[at].startswith(("Sockets:", "Rune:", "Quality:")):
+    base = lines[at - 1] if at else ""
+    while at < len(lines) and _header_line(lines[at], base):
         at += 1
     return "\n".join(lines[:at] + [f"Implicits: {len(notables)}"] + [f"{ANOINT_LINE}{n}" for n in notables] + lines[at:])
+
+
+# (JEWEL6, 27 Nov: the Black Insignia bug, SEARCHC6 / SEARCHC7) PoB's item header lines ("<name>: <value>", Classes/Item.lua
+# parseItemSpec, the names its ParseRaw reads) and a unique's "{base:N}<base name>" lines. A unique's text from PoB's
+# catalogue holds them after its name ("Evasion", "Base Variant" x3, "Selected Base Variant", "{base:2}Runeforged Corsair
+# Cap", "Quality", "LevelReq", "Implicits: 0"). gear.anointed strips the anoint first (strip: an item whose only implicit is
+# its anoint loses its "Implicits:" line), and the re-anoint here then put "Implicits: 1" + the anoint right after the base
+# line, so the whole header fell into the explicit section. PoB kept those lines as explicit mod lines when it wrote the
+# item back, while its selection pre-pass (Item.lua 583-610, over every line) added that block's "Base Variant" lines to
+# baseList and its "Rune:" line to the runes again on every re-equip of PoB's own text: the helmet grew by one triple and
+# one Raven-Touched Shard each time (41 / 34 / 80 shards on 2b75e seed 3; The Vertex 22 on 2b75d, 12 Nov), until PoB's
+# "exceeding augment limit" warning made the gate run infeasible.
+HEADER_SPECS = frozenset((
+    "Allow Duplicate Variants", "Armour", "Attacks per Second", "Base Variant", "Block chance", "Catalyst", "CatalystQuality",
+    "Chance to Block", "Chaos Damage", "Charm Slots", "Cluster Jewel Node Count", "Cluster Jewel Skill", "Cold Damage",
+    "Crafted", "Critical Hit Chance", "Critical Hit Range", "Elemental Damage", "Energy Shield", "Evasion Rating", "Evasion",
+    "Fire Damage", "Has Alt Variant", "Has Alt Variant Two", "Has Alt Variant Three", "Has Alt Variant Four",
+    "Has Alt Variant Five", "Has Variants", "Item Level", "League", "Level", "LevelReq", "Lightning Damage", "Limited to",
+    "Note", "Physical Damage", "Prefix", "Quality", "Radius", "Reload Time", "Requires Class", "Requires Level", "Requires",
+    "Rune", "Runic Ward", "Selected Alt Variant", "Selected Alt Variant Two", "Selected Alt Variant Three",
+    "Selected Alt Variant Four", "Selected Alt Variant Five", "Selected Base Variant", "Selected Variant Group",
+    "Selected Variant", "Selected Variants", "Selected Version", "Sockets", "Source", "Spirit", "Suffix", "Talisman Tier",
+    "Unique ID", "Unreleased", "Upgrade", "Variant", "Version", "Ward", "Weapon Range"))
+_SPEC = re.compile(r"^([A-Za-z ()]+:?): (.+)$")
+_TAGGED = re.compile(r"^(?:\{[^}]*\})+(.+)$")
+
+
+def _header_line(line: str, base: str) -> bool:
+    """Is this an item header line (a PoB spec, or a tagged base-name line of the item's base)?"""
+    if (m := _SPEC.match(line)) and m.group(1) in HEADER_SPECS:
+        return True
+    return bool(base) and bool(m := _TAGGED.match(line)) and m.group(1).strip().endswith(base.strip())

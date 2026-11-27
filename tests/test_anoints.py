@@ -63,6 +63,33 @@ def test_item_text_round_trip():
     assert anoints.strip(two) == with_implicit
 
 
+def test_reanointing_a_unique_keeps_its_header_above_the_implicits():
+    """(JEWEL6, the Black Insignia bug) gear.anointed strips the anoint and anoints again: on a unique whose only implicit
+    is its anoint, the strip drops the "Implicits:" line, and the re-anoint put it right after the base line, so the
+    whole header (Base Variant lines, LevelReq, Sockets, Rune) became explicit lines that PoB re-added on every re-equip."""
+    from builder.search.base_variants import select
+    from builder.search.rares import with_runes
+
+    raw = next(u["raw"] for u in GameData().uniques if u["name"] == "The Black Insignia")
+    item = with_runes(select(raw, 2), [anoints.SHARD])
+    once = anoints.with_anoints(item, ["Bastion of Light"])
+    stripped = anoints.strip(once)
+    again = anoints.with_anoints(stripped, ["Bastion of Light"])
+    for text in (once, again, anoints.with_anoints(anoints.strip(again), ["Bastion of Light"])):
+        lines = text.splitlines()
+        at = lines.index("Implicits: 1")
+        assert lines[at + 1] == "{enchant}Allocates Bastion of Light"
+        header = lines[:at]
+        assert sum(l.startswith("Base Variant:") for l in header) == 3, text
+        assert all(not l.startswith(("Base Variant:", "Rune:", "Sockets:", "LevelReq:", "Evasion:", "Quality:",
+                                     "{base:")) for l in lines[at + 2:]), text
+        assert text.count("Rune: ") == 1 and text.count("Base Variant: Regular Base") == 1
+    assert again == anoints.with_anoints(anoints.strip(again), ["Bastion of Light"])  # stable under strip / re-anoint
+    # a plain normal item still takes its anoint right after the base, as before
+    assert anoints.with_anoints("Rarity: Normal\nGold Amulet\n+5 to Strength", ["Paragon"]).splitlines() == [
+        "Rarity: Normal", "Gold Amulet", "Implicits: 1", "{enchant}Allocates Paragon", "+5 to Strength"]
+
+
 def test_cost_sums_the_three_emotions():
     prices = {"Diluted Liquid Ire": 0.1, "Liquid Envy": 0.2, "Potent Liquid Contempt": 3.0}
     assert anoints.cost(("Ire", "Envy", "Contempt"), prices) == pytest.approx(3.3)
