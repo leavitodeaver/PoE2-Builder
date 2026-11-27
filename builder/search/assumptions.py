@@ -5894,7 +5894,8 @@ class Assumptions:
             casts = 1.0 / duration if duration > 0 else None  # (one storm at a time, recast as it ends)
             shares = {e: self.infusion_share(e, ailments, casts) for e in ("Fire", "Cold", "Lightning")}
             storm_mods, storm_notes = models.firestorm_infusion_model(  # (GEM50: R57-7, bolts landing on the boss)
-                main, main.stat_set, sets, shares, forbidden, bosses.hit_radius(stats), bosses.hit_radius(stats, "upper"))
+                main, main.stat_set, sets, shares, forbidden, bosses.hit_radius(stats), bosses.hit_radius(stats, "upper"),
+                stats, duration)  # (GEM50 turn 2: the boss walking out of the storm over its Duration, the reader rule)
             storm_notes = storm_notes + models.storm_limit_row(  # (GEM40: a raised Limit, a row)
                 main.name, self.stat_limit(main.name, models.STORM_LIMIT_STATS[main.name], 1.0,
                                            [e["text"] for e in source_lines]),

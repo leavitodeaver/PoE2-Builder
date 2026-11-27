@@ -8956,6 +8956,12 @@ def drenched_model(skills: list[Skill], stats: dict, main: Skill | None, groups:
 # hits with p: hits a second = (1 / i) p / (1 + (k - 1) p), k = ceil(0.15 / i) (as Hailstorm's min(1, 0.1 / 0.2)); a
 # Fire-Infused storm's 0.1 s bolts on a boss every one reaches give 5 hits a second, not min(10, 6.67) (before: an
 # OVERCOUNT x0.75 there). Rows: every bolt on the boss (PoB's), the upper boss radius, the +1.5 m unscaled.
+# (GEM50 turn 2; the manager's 04:59 ruling, the READER RULE of 26 Nov 06:30, MECHD9's survey) The storm stays where it
+# was cast: its bolts reach the boss only while the boss is inside it, so the hits go x bosses.stay_share(stats, R, T),
+# R the plain storm's radius (a Fire-Infused storm's larger one not used: the lower reading), T the shorter of the
+# storm's duration and the build's own recast interval on the boss: the model casts one storm a Duration (no recast
+# charged), so T = the Duration. Rows: the boss standing still (before) and the fixed window (every move its mean
+# length). LOW (the relocation tallies).
 # A Bolts set PoB scored alone (probe POE2T2164: Lightning Bolts 477 DPS vs the fire storm's 409, no Infusion: the
 # OVERCOUNT) gets the storm's total x FIRESTORM_BOLTS_MARGIN 0.9, so the search keeps the fire set; PoB has no stat-set tag
 # to zero that set alone (a skill-tagged -100% zeroed all three, probe POE2T2165).
@@ -9004,10 +9010,12 @@ def firestorm_rate_scale(fire_share: float, extra: float, shared: bool, p: float
 
 def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[dict], shares: dict,
                              forbidden: set[str] = frozenset(), boss: tuple[float, str] | None = None,
-                             boss_upper: tuple[float, str] | None = None) -> tuple[list[dict], list[dict]]:
+                             boss_upper: tuple[float, str] | None = None, stay_stats: dict | None = None,
+                             seconds: float = 0.0) -> tuple[list[dict], list[dict]]:
     """Firestorm as the game casts it (see above): `sets` the bridge's setRates for its group, `shares` {element: (share
     of casts consuming one, how)} from Assumptions.infusion_share at one cast per Duration; (GEM50) `boss` / `boss_upper`
-    (hit radius in metres, how): the share of bolts landing on it (None: every bolt, PoB's reading)."""
+    (hit radius in metres, how): the share of bolts landing on it (None: every bolt, PoB's reading); `stay_stats` /
+    `seconds` (the scored boss's stats, the storm's Duration): the boss walking out of it (none with no boss or 0 s)."""
     if main is None or main.name != FIRESTORM or FIRESTORM_ENTRY in forbidden or scored not in FIRESTORM_SETS:
         return [], []
     dps = {s.get("label"): number(s.get("TotalDPS")) for s in sets}
@@ -9028,10 +9036,17 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
         return ((1.0, 1.0) if r is None else
                 (firestorm_landing(impact, storm, r), firestorm_landing(impact, fire_storm, r)))
     p, p_fire = lands(boss[0] if boss else None)
-    scale = firestorm_rate_scale(s["Fire"], extra, True, p, p_fire)
+    stay, fixed, stay_how = 1.0, 1.0, ""
+    if boss is not None and seconds > 0:  # (GEM50 turn 2: the reader rule, above)
+        stay, stay_how = bosses.stay_share(stay_stats, storm, seconds)
+        fixed = bosses.stay_share(stay_stats, storm, seconds, moves="fixed")[0]
+    scale = firestorm_rate_scale(s["Fire"], extra, True, p, p_fire) * stay
     low = scale * streams / dps[scored]  # (each stream its share of the cap)
-    high = firestorm_rate_scale(s["Fire"], extra, False, p, p_fire) * streams / dps[scored]
+    high = firestorm_rate_scale(s["Fire"], extra, False, p, p_fire) * stay * streams / dps[scored]
     rows = []
+    if stay < 1.0:
+        rows.append(f"the boss standing still in the storm x{low / stay:.3f}")
+        rows.append(f"the boss's moves all their mean length x{low / stay * fixed:.3f}")
     if boss is not None:
         every = firestorm_rate_scale(s["Fire"], extra, True) * streams / dps[scored]
         rows.append(f"every bolt on the boss (PoB's) x{every:.3f}")
@@ -9046,6 +9061,7 @@ def firestorm_infusion_model(main: Skill | None, scored: str | None, sets: list[
               f"/ {storm:.2f} m storm, squared: even landing over the storm, LOW-MEDIUM, RESEARCH57 R57-7)"
               + (f", {p_fire:.0%} of a Fire-Infused one's ({grown:.2f} m)" if s["Fire"] > 0 else "")
               + "; the 0.15 s limit lets a landing hit only 0.15 s after the last hit"
+              + (f"; the storm stays where it was cast: the boss inside it {stay_how} (READER RULE)" if stay_how else "")
               + (f". Rows: {'; '.join(rows)}" if rows else "")) if boss is not None else
              "; every bolt taken to hit the boss (PoB's reading: no boss radius given)")
     if scored != FIRESTORM:

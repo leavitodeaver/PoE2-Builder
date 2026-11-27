@@ -54,3 +54,26 @@ def test_firestorm_bolts_land_over_the_storm():
     assert "+1.5 m unscaled (4.50 m)" in notes[0]["basis"]
     # no boss radius given: every bolt (PoB's reading), the grid limit kept
     assert models.firestorm_infusion_model(storm, "Firestorm", sets, {})[0] == []
+
+
+def test_firestorm_counts_only_the_time_the_boss_stays_in_the_storm():
+    """GEM50 turn 2 (the manager's 04:59 ruling, the reader rule): the storm stays where it was cast."""
+    from builder.search import bosses
+    from builder.search.models import Skill
+    sets = [{"label": "Firestorm", "TotalDPS": 1000.0, "Speed": 5.0, "AreaOfEffectRadius": 10,
+             "AreaOfEffectRadiusSecondary": 30}]
+    storm = Skill("Firestorm", 1, spell=True)
+    stay = bosses.stay_share(None, 3.0, 6.0)[0]
+    fixed = bosses.stay_share(None, 3.0, 6.0, moves="fixed")[0]
+    assert 0 < fixed < stay < 1
+    mods, notes = models.firestorm_infusion_model(storm, "Firestorm", sets, {}, boss=(0.5, "t"), stay_stats=None,
+                                                  seconds=6.0)
+    dps = [m for m in mods if m["name"] == "DPS"][0]
+    assert 1 + dps["value"] / 100 == pytest.approx(0.25 * stay, rel=1e-4)
+    assert dps[models.HIT_CUT_PER_USE] == pytest.approx(0.25 * stay)
+    basis = notes[0]["basis"]
+    assert "the boss standing still in the storm x0.250" in basis and f"x{0.25 * fixed:.3f}" in basis
+    assert "READER RULE" in basis
+    # no Duration read: no stay cut (the landing share alone)
+    mods, _ = models.firestorm_infusion_model(storm, "Firestorm", sets, {}, boss=(0.5, "t"))
+    assert 1 + [m for m in mods if m["name"] == "DPS"][0]["value"] / 100 == pytest.approx(0.25)
