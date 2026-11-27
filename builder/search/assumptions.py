@@ -2566,7 +2566,11 @@ def fiery_death(build: Build) -> tuple[float, list[dict]]:
 # (what, needs on the main skill, the boss condition the Empower waits for)
 WARCRY_EMPOWERS = {
     "Infernal Cry": ("Melee Attacks", ("melee", "attack"), None),
-    "Seismic Cry": ("Slams", ("slam",), "Heavy Stunned"),
+    # (GEM50, AUDIT40 A40-1: the cry itself Heavy Stuns a boss Primed for Stun, and that Empowers too: ActiveSkills
+    # seismic_cry, 26650308: "Heavy Stunning enemies that are Primed for Stun. If an enemy is Heavy Stunned or a
+    # currently Heavy Stunned enemy is Hit, this Skill Empowers subsequent Slams"; patch 0.3.0 "Empowers Attacks if it
+    # Heavy Stuns a target as well as if it Hits a Heavily Stunned target")
+    "Seismic Cry": ("Slams", ("slam",), "Heavy Stunned or Primed for Stun"),
     "Arctic Howl": ("attacks", ("attack",), "Frozen"),
     "Ferocious Roar": ("Attacks", ("attack",), None),
     "Fortifying Cry": ("Shield Attacks", ("attack", "shield"), None),
@@ -2575,7 +2579,7 @@ WARCRY_EMPOWERS = {
 
 def warcry_empowers(name: str, mains: list[dict], stats: dict) -> tuple[str, bool, float, str]:
     """(what the Warcry Empowers, whether the main skill is one, the share of its uses that Empower, why) for
-    Assumptions.empowered_uses. A Warcry whose Empower waits on the boss being Heavy Stunned or Frozen counts at the
+    Assumptions.empowered_uses. A Warcry whose Empower waits on the boss being Heavy Stunned (Seismic Cry: or Primed for Stun, GEM50 A40-1) or Frozen counts at the
     share of the fight the boss is (models.heavy_stunned_share / immobilised_share): a lower reading, since a use can
     also Empower once the boss gets there later in its window (LOW)."""
     what, needs, cond = WARCRY_EMPOWERS.get(name, ("Melee Attacks", ("melee", "attack"), None))
@@ -2584,6 +2588,13 @@ def warcry_empowers(name: str, mains: list[dict], stats: dict) -> tuple[str, boo
         return what, fits, 1.0, ""
     if cond == "Heavy Stunned":
         share, how = models.heavy_stunned_share(stats)
+    elif cond == "Heavy Stunned or Primed for Stun":
+        # (GEM50, A40-1: MECH114's share of the fight the boss is Heavy Stunned or at 70%+ of its bar; the cry's own
+        # Heavy Stuns are in heavy_stun_rate through Conditions._primed_stun. Before: the Heavy Stunned share alone, an
+        # UNDERCOUNT; that reading stays a row in the note)
+        share, how = models.stunned_or_primed_share(stats)
+        stunned, _ = models.heavy_stunned_share(stats)
+        how = f"{how}; without the Primed part (the boss Heavy Stunned only): {stunned:.0%}"
     else:
         share, how = models.immobilised_share(stats, "Freeze")[:2]
     how = how or f"nothing in the build makes the boss {cond}"  # (MECHB41: immobilised_share's 0 has no words)

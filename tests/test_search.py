@@ -2985,18 +2985,20 @@ def test_empowered_uses_come_from_the_skills_murderous_intent_supports():
     # (MECH65: a Warcry without EmpowersOtherSkill can't take Murderous Intent, whatever PoB's Empower count)
     assert run("Rallying Cry", stab, {"speed": 0.125, "warcryEmpowers": 4}, empowers=None)[0] == 0.0
     # (MECH65, AUDIT29 A29-4: each Warcry's own text) Arctic Howl Empowers "your attacks", thrown ones too, only while
-    # the boss is Frozen; Seismic Cry only Slams, only while it's Heavy Stunned
+    # the boss is Frozen; Seismic Cry only Slams, only while it's Heavy Stunned or (GEM50, AUDIT40 A40-1) Primed for Stun
     from builder.search import models
-    orig = models.immobilised_share, models.heavy_stunned_share
+    orig = models.immobilised_share, models.heavy_stunned_share, models.stunned_or_primed_share
     try:
         models.immobilised_share = lambda stats, ailment: (0.25, "Frozen 25%")
         models.heavy_stunned_share = lambda stats: (0.5, "Heavy Stunned 50%")
+        models.stunned_or_primed_share = lambda stats: (0.75, "Heavy Stunned or Primed 75%")
         rate, how = run("Arctic Howl", spear, {"speed": 0.125, "warcryEmpowers": 4})
         assert rate == pytest.approx(0.125) and "Frozen" in how
         assert run("Seismic Cry", stab, {"speed": 0.125, "warcryEmpowers": 4})[0] == 0.0
-        assert run("Seismic Cry", {**stab, "slam": True}, {"speed": 0.125, "warcryEmpowers": 4})[0] == pytest.approx(0.25)
+        rate, how = run("Seismic Cry", {**stab, "slam": True}, {"speed": 0.125, "warcryEmpowers": 4})
+        assert rate == pytest.approx(0.375) and "without the Primed part" in how  # (0.25 before A40-1)
     finally:
-        models.immobilised_share, models.heavy_stunned_share = orig
+        models.immobilised_share, models.heavy_stunned_share, models.stunned_or_primed_share = orig
     # (MECHB32: Olroth's Conviction on a non-Warcry Empowerer: 1 + 2 Empowered uses a use)
     olroth = {"supportStats": {models.OLROTH_EMPOWERS: 2}}
 
