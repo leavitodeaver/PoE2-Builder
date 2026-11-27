@@ -76,6 +76,23 @@ JUDGE_SIZE_WORDS = ("DPS", "HitAverage", "Damage", "AverageHit")
 # and keeps a commit only for a REAL gain on the settled score; a revert's removal (Build.allocate) is settled again, so
 # the next node is judged against a settled score too. The tree step's code (tree.py, SEARCH-B's) is unchanged
 JUDGE_KEEP_PHASES = ("tree", "tree rebuild")  # (inputs that scale with any damage support: on / off)
+# (JUDGE, SEARCH44: the manager's option (iii), 27 Nov, from SEARCH43's calibration POE2T9305 / 9306) Most of the
+# screen-vs-ours gap belongs to the SLOT (what removing its current support costs on our models), plus a per-gem part:
+# ours ~ screen + a(slot) + b(gem). It fits 2b75e (81.5% of cases within 0.05 ln with a alone) and not 2b75b (28%). So
+# each support screen first tries its FIT PROBES (every remove case: a(slot) = ours - screen; the JUDGE_TOP best by
+# what-if; JUDGE_FIT_SAMPLE more spread over the what-if order) and adds their residuals to the build's fit tally
+# (judge_fit). Once the tally holds JUDGE_FIT_MIN_N cases and at least JUDGE_FIT_SHARE of them fit within JUDGE_FIT_TOL,
+# the rest of the flagged cases get a real trial only when screen + a + b is above -JUDGE_FIT_MARGIN (an unseen gem: above
+# -JUDGE_FIT_MARGIN - JUDGE_UNSEEN_NET), and a flagged case left untried is scored at its PREDICTED ours (never its raw
+# screen gain: 2b75e's 214 false gains); otherwise EVERY flagged case gets a real trial (2b75b's x2.10). Both within the
+# time guards above; a time-cut case keeps its what-if and is counted. Off-line on 9306's rows the rule tries 11% of
+# 2b75e's cases and keeps its one buried gain (SEARCH43's additive.py)
+JUDGE_FIT_SAMPLE = 6  # LOW, a search-effort setting: probe cases beyond the remove cases and the top by what-if
+JUDGE_FIT_MIN_N = 8  # LOW: fit cases the tally needs before the rule may be used (until then: every case)
+JUDGE_FIT_TOL = 0.05  # LOW (ln of the score): a case "fits" when |ours - (screen + a)| is within this
+JUDGE_FIT_SHARE = 0.6  # LOW: the fit share that allows the rule (data: 2b75e 0.815, 2b75b 0.28)
+JUDGE_FIT_MARGIN = 0.05  # LOW (ln): a predicted loss smaller than this is still tried
+JUDGE_UNSEEN_NET = 0.5  # LOW (ln): a gem with no real trial yet (b unknown) is tried down to -(margin + this)
 
 
 def judge_enabled() -> bool:
@@ -260,6 +277,7 @@ class Build:
         self.judge_log: list[dict] = []  # (JUDGE) one row a support screen: cases, flagged, tried, cut, seconds
         self.judge_settle: Callable[[], Any] | None = None  # (JUDGE) the search's settle (Search.resolve)
         self.judge_keeps = {"judged": 0, "reverted": 0, "seconds": 0.0}  # (JUDGE) the tree's keep / revert
+        self.judge_fit = {"n": 0, "fit": 0}  # (JUDGE, SEARCH44) this build's slot-offset fit tally (JUDGE_FIT_*)
         self._gem_trial = False
         self.stopped = False  # the hard stop has fired (tick): no rescore trials in the wrap-up after it
         self._model_texts: tuple[int, list[str]] = (-1, [])
@@ -494,6 +512,53 @@ class Build:
             gems[slot - 1] = {"name": case["gem"], "quality": gems[slot - 1]["quality"], **level}
         return gems
 
+    @staticmethod
+    def _judge_slot(case: dict, group: dict) -> tuple:
+        """(JUDGE, SEARCH44) A case's slot as the support it holds now: (group, slot, that support or None: a new slot)."""
+        slot = case["slot"]
+        return group["index"], slot, group["gems"][slot - 1]["name"] if slot <= len(group["gems"]) else None
+
+    def _judge_tally(self) -> dict:
+        """(JUDGE, SEARCH44) This build's fit tally (made on first use for a Build made without __init__)."""
+        return self.__dict__.setdefault("judge_fit", {"n": 0, "fit": 0})
+
+    def _judge_learn(self, fit: dict, case: dict, group: dict, gem: str, whatif: float, real: float) -> None:
+        """(JUDGE, SEARCH44) One real trial's lesson (both as score - the build's score): a remove case gives its slot's
+        a = ours - screen; any other case's residual after a (0 for a new slot) counts into the build's fit tally, and the
+        first one of a gem is its b. A case in a slot with no remove case tried teaches nothing."""
+        key = self._judge_slot(case, group)
+        if case.get("remove"):
+            fit["a"][key] = real - whatif
+            return
+        offset = 0.0 if key[2] is None else fit["a"].get(key)
+        if offset is None:
+            return
+        residual = real - whatif - offset
+        tally = self._judge_tally()
+        tally["n"] += 1
+        tally["fit"] += abs(residual) <= JUDGE_FIT_TOL
+        fit["b"].setdefault(gem, residual)
+
+    def _judge_predict(self, fit: dict, case: dict, group: dict, gem: str, whatif: float) -> float | None:
+        """(JUDGE, SEARCH44) Past the fit probes: None = give this case a real trial; a number = leave it untried, scored
+        at that predicted ours (screen + a + b). The mode is set once a screen: the rule only when the build's tally
+        holds JUDGE_FIT_MIN_N cases and JUDGE_FIT_SHARE of them fit; else every case is tried. A case whose slot has
+        no a is always tried."""
+        if fit["mode"] is None:
+            tally = self._judge_tally()
+            fits = tally["n"] >= JUDGE_FIT_MIN_N and tally["fit"] >= JUDGE_FIT_SHARE * tally["n"]
+            fit["mode"] = "rule" if fits else "every"
+        if fit["mode"] != "rule" or case.get("remove"):
+            return None
+        key = self._judge_slot(case, group)
+        offset = 0.0 if key[2] is None else fit["a"].get(key)
+        if offset is None:
+            return None
+        unseen = gem not in fit["b"]
+        predicted = whatif + offset + fit["b"].get(gem, 0.0)
+        floor = -JUDGE_FIT_MARGIN - (JUDGE_UNSEEN_NET if unseen else 0.0)
+        return None if predicted > floor else predicted
+
     def _rescore_model_gems(self, cases: list[dict], scored: list[tuple[float, dict]],
                             hooked: bool = False, judge: bool = False) -> list[tuple[float, dict]]:
         """The RESCORE_GEMS best support cases by what-if, and the model-valued ones (at most MODEL_GEMS more, the best by
@@ -522,6 +587,16 @@ class Build:
             flagged = {i: f for i, f in moves.items() if f}
             picks = by_whatif[:JUDGE_TOP] + [i for i in by_whatif[JUDGE_TOP:] if i in flagged]
             model = [i for i in picks if i in flagged]
+            # (SEARCH44, option (iii)) the fit probes first: every remove case (its slot's a), the top by what-if, a spread
+            # sample of the other flagged cases; then the rest of `picks` as the build's fit tally decides (_judge_next)
+            removes = [i for i in by_whatif if cases[i].get("remove")]
+            rest = [i for i in picks[JUDGE_TOP:] if i not in removes]
+            step = max(1, len(rest) // (JUDGE_FIT_SAMPLE + 1))
+            sample = rest[step - 1::step][:JUDGE_FIT_SAMPLE] if rest else []
+            probes = list(dict.fromkeys(removes + by_whatif[:JUDGE_TOP] + sample))
+            fit = {"a": {}, "b": {}, "probes": len(probes), "mode": None, "skipped": {},
+                   "later": [i for i in picks if i not in probes]}
+            picks = probes + fit["later"]
             moved: dict[str, int] = {}
             for found in flagged.values():
                 for field in found:
@@ -546,13 +621,18 @@ class Build:
         snap = self.snapshot()
         self._gem_trial = True
         try:
-            for i in picks:
+            for n, i in enumerate(picks):
                 now = clock.now()
                 if now - started > limit or (self.stop_at is not None
                                                            and now > self.stop_at - GEM_RESCORE_SECONDS):
                     break
                 case, group = cases[i], groups[cases[i]["group"]]
                 whatif = scored[i][0]
+                if judge and n >= fit["probes"]:  # (SEARCH44: past the probes, the fit tally decides)
+                    predicted = self._judge_predict(fit, case, group, support[i], whatif - before)
+                    if predicted is not None:
+                        fit["skipped"][i] = predicted
+                        continue
                 row: dict = {"gem": support[i], "remove": bool(case.get("remove")), "model": i in model,
                              "whatif": round(whatif - before, 4)}
                 if judge:  # (JUDGE: the inputs this case moved, for calibrating judge_inputs_moved on real trials)
@@ -572,6 +652,8 @@ class Build:
                     if judge:
                         judged["tried"] += 1
                     row["real"] = round(scored[i][0] - before, 4)
+                    if judge:
+                        self._judge_learn(fit, case, group, support[i], whatif - before, scored[i][0] - before)
                 except OutOfTime:
                     raise
                 except Exception as error:  # (a trial PoB refuses: its what-if stays)
@@ -590,7 +672,19 @@ class Build:
             if judge:
                 self.judge_seconds += clock.now() - started
                 judged["seconds"] = round(clock.now() - started, 2)
-                judged["cut"] = judged["picks"] - judged["tried"]
+                # (SEARCH44) a case the rule left untried is scored at its PREDICTED ours, never its raw screen gain
+                for i, predicted in fit["skipped"].items():
+                    self.gem_rescore_log.append({"gem": support[i], "remove": False, "model": True,
+                                                 "whatif": round(scored[i][0] - before, 4),
+                                                 "predicted": round(predicted, 4)})
+                    scored[i] = (before + predicted, scored[i][1])
+                del self.gem_rescore_log[:-200]
+                judged["skipped"] = len(fit["skipped"])
+                judged["cut"] = judged["picks"] - judged["tried"] - judged["skipped"]
+                tally = self._judge_tally()
+                judged["fit"] = {"mode": fit["mode"] or "probes only", "n": tally["n"],
+                                 "share": round(tally["fit"] / tally["n"], 3) if tally["n"] else None,
+                                 "slots": len(fit["a"])}
                 self.judge_log.append(judged)
                 del self.judge_log[:-500]
             else:
