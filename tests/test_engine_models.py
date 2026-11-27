@@ -3022,6 +3022,12 @@ def test_the_boss_resists_a_real_builds_leech(engine):
     lost = recovery.leech_resisted(stats, recovery.leech_resistance(level))["Life"]
     assert build.recovery_sources["LifeLeechResisted"] == pytest.approx(-lost) and 0 < lost <= rate
     assert any(n["label"] == "The boss's Leech resistance*" for n in search.assumptions.active)
+    # (MECHC69: one Leech instance at a time, recovery.ONE_LEECH: the bridge gives the duration and pool it needs)
+    single = recovery.leech_single_share(stats, "Life")
+    print("PROBE one leech", single)
+    assert single is not None and 0 < single[0]
+    if single[0] < 1:
+        assert any(n["label"] == "One Leech instance at a time*" for n in search.assumptions.active)
 
 
 def test_into_the_breach_reports_its_flames_leech_and_the_build_counts_it(engine):

@@ -87,6 +87,35 @@ def test_charges_lapse_and_rebuild_while_a_named_boss_is_off_the_field(monkeypat
     assert conditions.charge_lapse(king, 3.0, 1.5, 15.0) == (3.0, "")
 
 
+def test_one_leech_instance_recovers_at_a_time(monkeypatch):
+    """MECHC69 (POBR1 via the manager; KeywordPopups Leech "Only one instance of Leech for each resource can provide
+    recovery at a time", patch 0.5.0): PoB's stacked rate A x h x s becomes A x min(h, s) = its uncapped sum /
+    max(h, s), h = instances / PoB's duration, s = the instance rate / (2% of the pool); the instant part and the cap as
+    before; the boss's resistance on top."""
+    from builder.search import recovery
+
+    base = {"LifeLeechInstantRate": 20.0, "LifeLeechInstances": 4.0, "LifeLeechInstanceRate": 50.0,
+            "MaxLifeLeechRate": 500.0, "LifeRecoveryRateMod": 1.0, "LifeLeechDuration": 0.5, "Life": 2500.0}
+    stats = {**base, "LifeLeechRate": 220.0}
+    share, how = recovery.leech_single_share(stats, "Life")
+    assert share == pytest.approx(1 / 8) and "one recovers at a time" in how  # (8 hits/s, speed x1)
+    lost, single, _ = recovery.leech_cuts(stats, 0.0)["Life"]
+    assert lost == pytest.approx(200 - 25) and single == pytest.approx(lost)
+    keep = 1 - 0.5
+    lost, single, _ = recovery.leech_cuts(stats, 0.5)["Life"]
+    assert 220 - lost == pytest.approx(20 * keep + 25 * keep)
+    assert single == pytest.approx((20 * keep + 200 * keep) - (20 * keep + 25 * keep))
+    # slow hits (h < s): every instance runs whole: the stacked amount A x h, PoB's sum / s
+    slow = {**stats, "LifeLeechInstances": 0.25, "LifeLeechRate": 20.0 + 12.5, "LifeLeechInstanceRate": 100.0}
+    share, how = recovery.leech_single_share(slow, "Life")  # (h = 0.5/s, s = 2)
+    assert share == pytest.approx(0.5) and "each runs whole" in how
+    # no duration read, or PoB's rate not its stacked sum: unchanged
+    assert recovery.leech_single_share({**stats, "LifeLeechDuration": 0}, "Life") is None
+    assert recovery.leech_cuts({**base, "LifeLeechRate": 100.0}, 0.0) == {}
+    monkeypatch.setattr(recovery, "ONE_LEECH", False)
+    assert recovery.leech_cuts(stats, 0.0) == {}
+
+
 def test_snaps_quality_adds_its_chance_of_an_additional_infusion_remnant(monkeypatch):
     """MECHC69 (GEM49's unread stat, an UNDERCOUNT): Snap's chance_%_to_spawn_another_infusion_remnant (0.5 a quality
     point; "{0}% chance to spawn an additional Infusion Remnant") adds to the source's additional-Remnant chance, as

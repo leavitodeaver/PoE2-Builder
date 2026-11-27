@@ -866,7 +866,42 @@ MAX_ENEMY_LEVEL = 85  # (PoB's data.misc.MaxEnemyLevel, Modules/Data.lua: its en
 LEECH_POOLS = ("Life", "Mana", "EnergyShield")
 LEECH_FIELDS = tuple(f for pool in LEECH_POOLS for f in (
     f"{pool}LeechRate", f"{pool}LeechInstantRate", f"{pool}LeechInstances", f"{pool}LeechInstanceRate",
-    f"Max{pool}LeechRate", f"{pool}RecoveryRateMod"))
+    f"Max{pool}LeechRate", f"{pool}RecoveryRateMod", f"{pool}LeechDuration", pool))  # (MECHC69: + duration, pool)
+# One Leech instance at a time per resource (MECHC69; POBR1's pobr finding via the manager 27 Nov 03:10, a likely
+# OVERCOUNT in PoB and in us; checked HIGH: KeywordPopups Leech (26650308) "Only one instance of Leech for each resource
+# can provide recovery at a time", LifeLeech / ManaLeech / EnergyShieldLeech "You can only recover from a single
+# instance of <pool> Leech at a time"; patch 0.5.0 "Only a single Leech instance per resource (Life, Mana, or Energy
+# Shield) can apply at a time. When multiple Leech instances are active, only the one with the highest recovery rate
+# will recover you until it expires, after which the next-highest recovery rate instance will apply" (grep_notes
+# --history "Leech": no later change)). The game's instance: a hit's Leech amount A "over a period of one second"
+# (KeywordPopups LifeLeech), so at A x s a second for 1 / s s, s the Leech speed (PoB's {pool}LeechRate mod). PoB
+# (CalcOffence 3341-3346, 4908-4916) keeps PoE1's model: every hit's instance stacks, each at the base 2% of the pool a
+# second x s for PoB's duration A / (2% pool), so its rate is A x h x s (h hits a second), held to Max{pool}LeechRate:
+# the instances stacked (and the speed counted on the amount too). One at a time, with the hits' instances alike and
+# each waiting one expiring on its own timer (MEDIUM: "until it expires" reads so; the strongest-first order not read:
+# the average hit's instance, a lower reading where crits leech more): A x s while a new instance comes before the last
+# expires (h >= s), else every instance whole, A x h. So the stacking rate becomes PoB's uncapped sum / max(h, s), with
+# A = PoB's duration x 2% of the pool and h = PoB's instances / its duration (the main skill's, as PoB reads them); the
+# instant part and the cap as before. Rows: PoB's stacking (without) / one at a time (with), in the boss's Leech note.
+# Where PoB's rate isn't that sum (Immortal Ambition, "Unaffected by non-instant Life Leech") or its duration / pool
+# isn't read: unchanged, said. POE2_ONE_LEECH=0 is the old reading.
+ONE_LEECH = os.environ.get("POE2_ONE_LEECH", "1") != "0"
+LEECH_RATE_BASE = 0.02  # (PoB's data.misc.LeechRateBase, Modules/Data.lua 268: its instance rate's base, 2% of the pool)
+
+
+def leech_single_share(stats: dict, pool: str) -> tuple[float, str] | None:
+    """(the share of PoB's stacked non-instant {pool} Leech one instance at a time keeps, how); None where it can't be
+    read (no instances, duration or pool). See ONE_LEECH's note."""
+    instances, rate = _num(stats.get(f"{pool}LeechInstances")), _num(stats.get(f"{pool}LeechInstanceRate"))
+    duration, size = _num(stats.get(f"{pool}LeechDuration")), _num(stats.get(pool))
+    if instances <= 0 or rate <= 0 or duration <= 0 or size <= 0:
+        return None
+    speed = rate / (size * LEECH_RATE_BASE)
+    hits = instances / duration
+    share = 1.0 / max(hits, speed)
+    return share, (f"{hits:.2f} hits/s leeching, each instance over {1 / speed:.2f} s (Leech speed x{speed:.2f}): "
+                   + ("a new one comes before the last ends, so one recovers at a time" if hits >= speed else
+                      "each runs whole before the next") + f": x{share:.3f} of PoB's stacked rate")
 
 
 def leech_resistance(level: float) -> float:
@@ -885,35 +920,60 @@ def leech_resisted(stats: dict, resist: float) -> dict[str, float]:
     scales by (1 - resist). Whether the resistance applies before or after the per-hit cap ("Hits that deal more than
     40,000 total damage are treated as though they only dealt 40,000") is UNVERIFIED: taken after, so a hit over the cap
     loses the same share."""
+    return {pool: lost for pool, (lost, _single, _how) in leech_cuts(stats, resist).items()}
+
+
+def leech_cuts(stats: dict, resist: float) -> dict[str, tuple[float, float, str]]:
+    """{pool: (leech a second PoB counts that the boss resists or one-instance-at-a-time takes off, the part of it the
+    one-instance rule takes (ONE_LEECH's note), how)}: leech_resisted's reading with the instance rule."""
     keep = 1.0 - min(max(resist, 0.0), 1.0)
     out = {}
     for pool in LEECH_POOLS:
         rate = _num(stats.get(f"{pool}LeechRate"))
-        if rate <= 0 or keep >= 1.0:
+        if rate <= 0:
             continue
         instant = _num(stats.get(f"{pool}LeechInstantRate"))
         uncapped = _num(stats.get(f"{pool}LeechInstances")) * _num(stats.get(f"{pool}LeechInstanceRate"))
         cap, mod = _num(stats.get(f"Max{pool}LeechRate")), _num(stats.get(f"{pool}RecoveryRateMod")) or 1.0
+        single, how = 1.0, ""
         if cap > 0 and abs(instant + min(uncapped, cap) * mod - rate) <= 1e-6 * max(rate, 1.0):
-            kept = instant * keep + min(uncapped * keep, cap) * mod
+            if ONE_LEECH and (found := leech_single_share(stats, pool)) is not None:
+                single, how = min(found[0], 1.0), found[1]
+            kept = instant * keep + min(uncapped * single * keep, cap) * mod
+            alone = instant * keep + min(uncapped * keep, cap) * mod  # (the boss's resistance alone)
         else:
-            kept = rate * keep
-        out[pool] = max(rate - kept, 0.0)
-    return out
+            kept = alone = rate * keep
+            how = ("PoB's rate isn't its stacked sum here (Immortal Ambition / unaffected by non-instant Leech): "
+                   "the one-instance rule not read") if ONE_LEECH else ""
+        lost = max(rate - kept, 0.0)
+        if lost > 1e-9 or how:
+            out[pool] = (lost, max(alone - kept, 0.0), how)
+    return {pool: v for pool, v in out.items() if v[0] > 1e-9}
 
 
 def leech_income(income: Income, stats: dict, level: float) -> list[dict]:
     """The boss's Leech resistance as negative recovery (LEECH_RESISTED), at the enemy `level` PoB scores against; its
     note, or [] when PoB gives the build no leech."""
     resist = leech_resistance(level)
-    parts = []
-    for pool, lost in leech_resisted(stats, resist).items():
+    parts, single_parts = [], []
+    for pool, (lost, single, how) in leech_cuts(stats, resist).items():
         if lost > 0:
             income.rates[LEECH_RESISTED[pool]] = -lost
-            parts.append(f"{pool} {_num(stats.get(f'{pool}LeechRate')):,.1f}/s in PoB, {lost:,.1f}/s resisted")
+            rate = _num(stats.get(f"{pool}LeechRate"))
+            parts.append(f"{pool} {rate:,.1f}/s in PoB, {lost - single:,.1f}/s resisted")
+            if single > 0:  # (MECHC69: ONE_LEECH's note)
+                single_parts.append(f"{pool}: {rate - (lost - single):,.1f}/s stacked (without) / "
+                                    f"{rate - lost:,.1f}/s one at a time (with): {how}")
     if not parts:
         return []
-    return [{"label": "The boss's Leech resistance*",
+    notes = [{"label": "One Leech instance at a time*",
+              "value": "; ".join(p.split(": ")[0] + ": " + p.split(": ")[1] for p in single_parts),
+              "basis": ("; ".join(single_parts) + ". KeywordPopups Leech (game 26650308): \"Only one instance of Leech "
+                        "for each resource can provide recovery at a time\"; patch 0.5.0. PoB stacks every hit's "
+                        "instance (PoE1's model); taken off the sustain and recovery floors (MEDIUM: the hits' instances "
+                        "alike; the strongest-first order not read)"),
+              "confidence": "MEDIUM"}] if single_parts else []
+    return notes + [{"label": "The boss's Leech resistance*",
              "value": f"{resist:.1%} of each hit's leech (monster level {int(level)})",
              "basis": ("; ".join(parts) + ". DefaultMonsterStats.LeechResistance (game files; the same for every "
                        "rarity, 0 up to level 30, as 0.5.0's note describes); PoB applies none. The cut is on each hit's "
