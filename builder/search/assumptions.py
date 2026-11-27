@@ -1136,11 +1136,15 @@ def infusion_supply(present: dict[str, dict], lines: list[str], ailments: set[st
     for name, chance in made_by.items():
         support = max((number((s.get("supportStats") or {}).get(EXTRA_REMNANT_STAT)) / 100.0
                        for s in (present.get(name),) if s), default=0.0)
+        own = (number(((present.get(name) or {}).get("levelStats") or {}).get(SNAP_EXTRA_STAT)) / 100.0
+               if name == "Snap" and SNAP_EXTRA else 0.0)  # (MECHC69: Snap's quality, SNAP_EXTRA_STAT's note)
+        support += own
         if general + support > 0:
             for element, rate in chance.items():
                 made[element] += rate * (general + support)
             used.append(f"{name}: +{general + support:.0%} additional Remnants"
-                        + (f" (its supports' {support:.0%})" if support else "")
+                        + (f" (its supports' {support - own:.0%})" if support - own > 0 else "")
+                        + (f" (its quality's {own:.1%})" if own > 0 else "")
                         + (" (the generic line makes Infusion Remnants too: R59-9, MEDIUM-HIGH)" if general else ""))
     if any(EQUILIBRIUM.search(t) for t in texts):
         made = {EQUILIBRIUM_SHIFT[e]: r for e, r in made.items()}
@@ -1201,6 +1205,24 @@ LINGERING_OWN_CHANCE = 0.76
 def additional_remnant_chance(texts: list[str]) -> float:
     """The build's "N% chance to create an additional Remnant" lines, summed (remnant_multiplier's g)."""
     return sum(float(m.group(1)) for t in texts if (m := ADDITIONAL_REMNANT.search(t))) / 100.0
+
+
+# Snap's quality (MECHC69; GEM49's unread-stat ranking, an UNDERCOUNT): chance_%_to_spawn_another_infusion_remnant, 0.5
+# a quality point (PoB act_int.lua Snap's quality stats: 10% at quality 20), "{0}% chance to spawn an additional
+# Infusion Remnant" (skill_stat_descriptions, 26650308). Read from Snap's own stats at its level and quality (the
+# bridge's levelStats) and added to the chance of an additional Remnant as the source's supports' is
+# (support_remnant_scale: additive with the build's "additional Remnant" lines, MEDIUM). The only skill with the stat
+# (checked: the game's Stats ids holding "remnant", build 26650308; PoB Data/Skills: Snap alone). POE2_SNAP_EXTRA=0 is
+# the old reading.
+SNAP_EXTRA_STAT = "chance_%_to_spawn_another_infusion_remnant"
+SNAP_EXTRA = os.environ.get("POE2_SNAP_EXTRA", "1") != "0"
+
+
+def snap_extra_chance(build) -> float:
+    """Snap's own chance of an additional Infusion Remnant (SNAP_EXTRA_STAT's note), the best enabled copy; 0 if none."""
+    rows = build.call("activeSkills", levelStats=["Snap"])["skills"]
+    return max((number((r.get("levelStats") or {}).get(SNAP_EXTRA_STAT)) / 100.0 for r in rows
+                if r.get("name") == "Snap" and not r.get("disabled")), default=0.0)
 
 
 def support_remnant_scale(skills: list[dict], name: str, chance: float) -> tuple[float, float]:
@@ -7785,6 +7807,7 @@ class Assumptions:
         `chance` (read from the build's lines when not given); Into the Breach at its own level's cadence."""
         present = {s["name"]: s for s in skills if not s.get("disabled")}
         supply, used = 0.0, []
+        snap_own = 0.0  # (MECHC69: Snap's quality chance, SNAP_EXTRA_STAT)
         if chance is None and any(n in present for n in REMNANT_SOURCES):
             chance = additional_remnant_chance([line["text"] for line in self.build.call("sourceLines")["lines"]])
         selfless = selfless_of(self.build)  # (MECHC50: SELFLESS_REMNANTS' note)
@@ -7847,6 +7870,10 @@ class Assumptions:
                 found, how = snap_found(snap_stats(self.build))
                 rate *= found
                 condition = f"on its cooldown, when it finds an ailment to Consume ({found:.0%}: {how})"
+                if SNAP_EXTRA and (extra := snap_extra_chance(self.build)) > 0:  # (MECHC69: SNAP_EXTRA_STAT's note)
+                    rate *= (1.0 + (chance or 0.0) + extra) / (1.0 + (chance or 0.0))
+                    snap_own = extra
+                    condition = f"{condition}; its quality's {extra:.1%} chance of an additional Infusion Remnant"
             elif name == BREACH:  # (MECHC60, U4: its own level's cadence and supports; scaled there)
                 rate, flames_how = breach_flame_rate(skills, chance or 0.0)
                 condition = f"{condition}; {flames_how}"
@@ -7858,7 +7885,8 @@ class Assumptions:
                 rate *= got
                 condition = f"{condition}; {got:.0%} collected ({walk['note']['label'].rstrip('*')})"
             if name != BREACH and not solved_here:  # (MECHC60: the source's own supports' additional Remnants)
-                own = LINGERING_OWN_CHANCE if name == "Lingering Illusion" else 0.0  # (already in its row's rate)
+                own = (LINGERING_OWN_CHANCE if name == "Lingering Illusion"  # (already in its row's rate)
+                       else snap_own if name == "Snap" else 0.0)  # (MECHC69: Snap's own quality chance, likewise)
                 scale, support = support_remnant_scale(skills, name, (chance or 0.0) + own)
                 if support > 0:
                     rate *= scale
@@ -10909,7 +10937,7 @@ class Assumptions:
         up, _ = models.ailment_up_of(build)
         ailments = {var: (up or {}).get(name, 0.0) for var, name in (
             ("conditionEnemyIgnited", "Ignite"), ("conditionEnemyShocked", "Shock"), ("conditionEnemyFrozen", "Freeze"))}
-        raw = build.call("activeSkills", supportStats=[EXTRA_REMNANT_STAT])["skills"]  # (MECHC60: Harmonic Remnants II)
+        raw = build.call("activeSkills", supportStats=[EXTRA_REMNANT_STAT], levelStats=["Snap"])["skills"]  # (MECHC60: Harmonic Remnants II; MECHC69: Snap's quality)
         selfless = selfless_of(build)  # (MECHC50: Selfless Remnants' Remnants go to allies)
         present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
@@ -10950,7 +10978,7 @@ class Assumptions:
         if self.main_skill() in conditions_mod.inhibited_skills(build.call("groups")["groups"], True):
             return 0.0, (f"Inhibitor supports {self.main_skill()}: it cannot consume Infusions, so none of its casts is "
                          "Infused (R40-2, HIGH)")  # (MECHC49: conditions.INHIBITOR)
-        raw = build.call("activeSkills", supportStats=[EXTRA_REMNANT_STAT])["skills"]  # (MECHC60: Harmonic Remnants II)
+        raw = build.call("activeSkills", supportStats=[EXTRA_REMNANT_STAT], levelStats=["Snap"])["skills"]  # (MECHC60: Harmonic Remnants II; MECHC69: Snap's quality)
         selfless = selfless_of(build)  # (MECHC50: Selfless Remnants' Remnants go to allies)
         present = {s["name"]: s for s in raw if not s["disabled"] and s["name"] not in selfless}
         lines = [line["text"] for line in build.call("sourceLines")["lines"]]
@@ -13476,7 +13504,7 @@ class Assumptions:
         consumer with none of its own element left would take a Verisium too (the first use takes it, MEDIUM): not
         counted against Skyfall (UNVERIFIED how often; a small OVERCOUNT where the build makes few of that element)."""
         build = self.build
-        raw = build.call("activeSkills")["skills"]
+        raw = build.call("activeSkills", levelStats=["Snap"])["skills"]  # (MECHC69: Snap's quality, SNAP_EXTRA_STAT)
         present = {s["name"]: s for s in raw if not s["disabled"]}
         supply, used = infusion_supply(present, texts, set(),
                                        verisium=verisium_infusions(build) if VERISIUM in present else (0.0, ""))

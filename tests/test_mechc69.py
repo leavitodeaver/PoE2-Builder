@@ -85,3 +85,27 @@ def test_charges_lapse_and_rebuild_while_a_named_boss_is_off_the_field(monkeypat
     assert conditions.charge_lapse({**king, "_fight_on": 0.0}, 3.0, 1.5, 15.0)[0] == 3.0
     monkeypatch.setattr(conditions, "CHARGE_LAPSE", False)
     assert conditions.charge_lapse(king, 3.0, 1.5, 15.0) == (3.0, "")
+
+
+def test_snaps_quality_adds_its_chance_of_an_additional_infusion_remnant(monkeypatch):
+    """MECHC69 (GEM49's unread stat, an UNDERCOUNT): Snap's chance_%_to_spawn_another_infusion_remnant (0.5 a quality
+    point; "{0}% chance to spawn an additional Infusion Remnant") adds to the source's additional-Remnant chance, as
+    its supports' does."""
+    stat = assumptions.SNAP_EXTRA_STAT
+
+    class Build:
+        def call(self, method, **kw):
+            assert method == "activeSkills" and kw["levelStats"] == ["Snap"]
+            return {"skills": [{"name": "Snap", "disabled": False, "levelStats": {stat: 10}}]}
+
+    assert assumptions.snap_extra_chance(Build()) == pytest.approx(0.10)
+    snap = {"name": "Snap", "disabled": False, "levelStats": {stat: 10}}
+    ups = {"conditionEnemyShocked": 1.0}
+    with_q, used = assumptions.infusion_supply({"Snap": snap}, [], ups, (0.0, ""), (0.0, ""), (0.0, ""))
+    plain, _ = assumptions.infusion_supply({"Snap": {**snap, "levelStats": {}}}, [], ups, (0.0, ""), (0.0, ""),
+                                           (0.0, ""))
+    assert with_q["Lightning"] == pytest.approx(plain["Lightning"] * 1.10)
+    assert any("its quality's 10.0%" in u for u in used)
+    monkeypatch.setattr(assumptions, "SNAP_EXTRA", False)
+    off, _ = assumptions.infusion_supply({"Snap": snap}, [], ups, (0.0, ""), (0.0, ""), (0.0, ""))
+    assert off["Lightning"] == pytest.approx(plain["Lightning"])
