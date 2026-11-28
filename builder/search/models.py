@@ -3625,10 +3625,13 @@ def curse_share(uses: list[CurseUse]) -> tuple[float, str]:
 # 75% of the fight. Now one scale per name: the share the boss carries at least one copy, 1 - prod(1 - each on_boss)
 # (copies timed on their own: MEDIUM; a copy up all fight makes it 100%). Which copy's strength the game keeps when
 # both are on (pobr: the strongest; PoB: by priority) is UNVERIFIED: PoB's kept copy's effect is used (a RESEARCH
-# question; the copies of one gem name differ only by their own support / slot modifiers).
+# question; the copies of one gem name differ only by their own support / slot modifiers). (MECH117, AUDIT42 A42-9)
+# The LOWER reading, the weaker copy's strength, isn't computed (PoB scores only its kept copy), so the note is LOW and
+# names it: a possible OVERCOUNT where PoB keeps the stronger copy and the game the weaker one.
 CURSE_COPIES_NOTE = ("; {} copies of this curse: the boss carries at least one {:.0%} of the fight (each timed on its own, "
-                     "MEDIUM; PoB keeps one copy by its priority table, its effect used: which copy's strength the game "
-                     "keeps is UNVERIFIED)")
+                     "MEDIUM; PoB keeps one copy by its priority table and its effect is used: which copy's strength the "
+                     "game keeps is UNVERIFIED, and the weaker copy's (the lower reading) isn't computed: LOW, a possible "
+                     "overcount where they differ)")
 
 
 def curse_copies_up(uses: list[CurseUse]) -> dict[str, tuple[float, int]]:
@@ -3667,6 +3670,10 @@ def curse_model(uses: list[CurseUse], skills: list[Skill], main: Skill | None,
             basis += f"; casting it ({took:.2f} s every {every:.3g} s) takes {lost:.0%} of {main.name}'s time"
         note = {"label": f"{use.name}: share of the fight on the boss", "value": round(use.on_boss, 2),
                 "basis": basis + " (PoB counts every curse always up)", "confidence": "theory"}
+        if copies > 1:  # (MECH117, A42-9: the copies' strength unread, LOW and named in the play note)
+            note = {**note, "confidence": "LOW",
+                    "play": (f"{use.name} is applied by {copies} skills: the counted strength is PoB's kept copy's; if "
+                             "their curse effect differs, the weaker copy may be the one on the boss (LOW)")}
         if use.flat:  # (MECH116, A41-31: the flat 100% only where no rate exists, LOW and named in the play note)
             note = {**note, "confidence": "LOW",
                     "play": (f"{use.name} is counted on the boss the whole fight: no model gives the rate its meta gem "

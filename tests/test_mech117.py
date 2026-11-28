@@ -78,3 +78,12 @@ def test_storm_lance_ground_radius_takes_the_builds_area():
     assert conditions.shocked_ground_radius("Storm Lance", {"AreaOfEffectMod": 1.44}) == pytest.approx(3.6)
     assert conditions.shocked_ground_radius("Storm Lance", {}) == pytest.approx(3.0)
     assert conditions.shocked_ground_radius("Lightning Warp", {"AreaOfEffectMod": 1.44}) == pytest.approx(3.0)
+
+
+def test_two_copies_are_labelled_low_for_the_unread_weaker_copy():
+    """AUDIT42 A42-9: the weaker copy's strength isn't computed, so the copies' notes are LOW and say so."""
+    uses = [models.CurseUse("Despair", 0.5, "hand"), models.CurseUse("Despair", 0.5, "meta")]
+    _, notes = models.curse_model(uses, [models.Skill("Despair")], None)
+    assert all(n["confidence"] == "LOW" and "weaker copy" in n["play"] for n in notes[:2])
+    _, one = models.curse_model([models.CurseUse("Despair", 0.5, "hand")], [models.Skill("Despair")], None)
+    assert one[0]["confidence"] == "theory" and "play" not in one[0]
