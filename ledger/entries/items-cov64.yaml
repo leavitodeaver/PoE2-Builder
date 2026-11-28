@@ -1,0 +1,68 @@
+# COV64 (27 Nov 2026; the manager's COV64 brief item 2, NINJA1's gap list): item and passive lines a model already reads
+# that the audit still listed as unread, each checked in the code on a0d11272 (COV43's rule: the line's effect is used in
+# the scored number) and proved by a direct call of the reader with and without the line (tests/test_cov64.py). Method:
+# NINJA1's reader (build_lines.py, afd0e375) re-run offline on the fresh audit (bridge part re-dumped 27 Nov 15:31;
+# scratch/cov64/ninja/out/sample_unread.json: 779 distinct unread lines over 305 builds), then each COV-A damage line's
+# words searched in builder/search and the reader read.
+# Left OPEN on purpose (checked on a0d11272):
+# - The Breach Ring's "+20% / +25% to Maximum Quality" (base implicits, RingImplicitMaximumQualityAdditional1-2) and
+#   Essence of the Breach's "+20% to Maximum Quality": read only by the catalyst trial (rares.catalyst_quality,
+#   Gear.catalyst_trial), which runs only with POE2_SEARCH_CATALYST=1 (gear.catalyst_enabled: OFF by default). Off, the
+#   search applies no catalyst, and an imported ring's own CatalystQuality is what PoB scores.
+# - Surging Beast's tail "being Shapeshifted for at least 8 seconds": its head (Arcane Surge when you Shapeshift to Human
+#   form) is a condition source (condition:buffArcaneSurge); nothing reads the 8 s requirement.
+
+- id: model-read-cov64-archon-of-undeath-offering
+  title: '"N% to gain Archon of Undeath when you create an Offering" (Apocalypse Strap; the Genesis Tree belt affix) read by models.UNDEATH_ON_OFFERING'
+  kind: pob_gap
+  model: archon
+  match: '^(\(\d+-\d+\)|\d+(?:\.\d+)?)% (?:chance )?to gain Archon of Undeath when you create an Offering(?: Minion)?$'
+  replace: []
+  confidence: theory
+  notes: >-
+    Game mods GenesisTreeBeltArchonUndeathOnOfferingUse (Desecrated) / ...Crafted, (35-50)% (game 26650308; the
+    Apocalypse Strap carries it). MECHC55: models.UNDEATH_ON_OFFERING in archon_of_undeath_model (models.py ~581-611):
+    the chance x the build's Offering casts a second (offering_casts) is an Archon of Undeath gain rate, raced against the
+    build's other Archon sources for the one slot (archon_race), whose uptime gives its 25% more Minion Damage and 200%
+    more Command Cooldown Recovery; called from Assumptions whenever a line matches (assumptions.py ~4257, over every
+    source line, items included). 0 with a note when the build creates no Offering. PoB ignores the line. A link only.
+  sources: ["builder/search/models.py (UNDEATH_ON_OFFERING, archon_of_undeath_model, offering_casts)",
+            "builder/search/assumptions.py (~4257)"]
+  status: proposed
+
+- id: model-read-cov64-primal-bounty-dodge
+  title: 'Primal Bounty, "Expend an Owl Feather when you Dodge to trigger Primal Bounty" (models.primal_bounty_model)'
+  kind: pob_gap
+  model: primal_bounty
+  match: '^Expend an Owl Feather when you Dodge to trigger Primal Bounty$'
+  replace: []
+  confidence: theory
+  notes: >-
+    The node's second line, the trigger the model is built on (MECHB52; models.py ~30854-30905): each Owl Feather
+    (model-read-cov52-primal-feather's line) is spent on a dodge as it comes (the play row "Dodge as each Owl Feather
+    comes so the main skill's next use is Empowered"), one Empowered use of the main skill a feather, at most its uses.
+    Read through the model, which runs only with the node's feather line (PRIMAL_FEATHER): the two lines come together
+    on the one node. PoB ignores the line (PrimalBountyPlayer base_deal_no_damage). A link only.
+  sources: ["builder/search/models.py (PRIMAL_BOUNTY, PRIMAL_FEATHER, primal_bounty_model)"]
+  status: proposed
+
+- id: no-effect-cov64-gem-studded-header
+  title: '"For each colour of Socketed Support Gem that is most numerous, gain:" (Gem Studded; the colour lines under it are PoB''s)'
+  kind: pob_gap
+  match: '^For each colour of Socketed Support Gem that is most numerous, gain:$'
+  replace: []
+  confidence: datamined
+  notes: >-
+    The Gemling Legionnaire notable Gem Studded (node 30996): the header line itself carries no stat. PoB's ModParser
+    (3397) maps it to {} on purpose, parses the three lines under it ("Red: Hits against you have no Critical Damage
+    Bonus", "Blue: Skills have 30% less cost", "Green: 40% less Movement Speed Penalty from using Skills while
+    Moving"; ModCache 9177 / 6748 / 8174, each on Condition MostNumerous<Colour>SocketedSupports), and CalcSetup
+    (2594-2601) sets those conditions from the socketed support gems' colours. On a tie PoB gives only the first colour
+    (R, then G, then B), though the line says "for each colour": a PoB misreading on cost / defence lines, not damage
+    (not corrected here). Same pattern as no-effect-alternating-header. That PoB applies the colour lines is read in its
+    code, not probed: removing the node on six sample builds (COV64's POE2T1516) moved none of the fields read
+    (TotalDPS, Life, Mana, ManaCost, LifeCost, EffectiveMovementSpeedMod, defences; Red's crit line is not among them).
+    This entry says only that the header itself carries nothing. A link only.
+  sources: ["vendor PoB Modules/ModParser.lua 3397-3406", "vendor PoB Modules/CalcSetup.lua 2594-2601",
+            "vendor PoB Data/ModCache.lua 6748, 7470, 8174, 9177"]
+  status: proposed
